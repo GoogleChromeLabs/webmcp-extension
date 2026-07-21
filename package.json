@@ -1,0 +1,18 @@
+{
+  "type": "module",
+  "scripts": {
+    "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.jsx --bundle --format=esm --jsx=automatic --loader:.woff2=file --external:node:fs --external:node:path --external:node:os --outfile=dist/sidebar.js && cp -r extension/* dist/ && cp -r src dist/",
+    "test": "rm -rf dist/tests && npx esbuild tests/*.test.js --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/*.test.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.109.0",
+    "@google/genai": "^1.38.0",
+    "openai": "^6.45.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3"
+  }
+}

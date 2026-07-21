@@ -1,0 +1,283 @@
+/* ==========================================================================
+   NEXUS AGENT 3 SELECTED SCREENS STYLES
+   Figma Node IDs:
+   1. Consent Screen (Node 3413:128021)
+   2. NTP Screen (Node 3413:128421)
+   3. On Page Screen (Node 3413:128857)
+   ========================================================================== */
+
+@import url('../foundation/tokens/tokens.css');
+@import url('../css/components.css');
+
+/* --------------------------------------------------------------------------
+   Common Screen Shell (Width 400px, Height 810px, Background #d3e3fd)
+   -------------------------------------------------------------------------- */
+.nexus-screen {
+  width: 100%;
+  height: 100%;
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 12px 12px 12px;
+  gap: 8px;
+  box-sizing: border-box;
+  font-family: var(--font-family-body, 'Google Sans Text', system-ui, sans-serif);
+  border-radius: 0;
+  overflow: hidden;
+  box-shadow: none;
+  position: relative;
+}
+
+/* --------------------------------------------------------------------------
+   1. Consent Screen (Node 3413:128021)
+   -------------------------------------------------------------------------- */
+.nexus-consent__content {
+  background-color: var(--gem-sys-color--surface, #ffffff);
+  border-radius: 16px;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 32px 16px 20px 16px;
+  box-sizing: border-box;
+}
+
+.nexus-consent__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.nexus-consent__logo-bg {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nexus-consent__title {
+  font-family: var(--font-family-headline, 'Google Sans', sans-serif);
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 32px;
+  color: var(--gem-ref-palette-blue20, #012c6f);
+  margin: 0;
+}
+
+.nexus-consent__subtitle {
+  font-family: var(--font-family-flex, 'Google Sans Flex', sans-serif);
+  font-weight: 500;
+  font-size: 20px;
+  line-height: 28px;
+  color: var(--gem-sys-color--on-surface-low, #727676);
+  margin: 0;
+  font-variation-settings: 'wdth' 100, 'GRAD' 0, 'ROND' 0;
+}
+
+.nexus-consent__feature-card {
+  background-color: var(--gem-sys-color--surface-container, #f0f4f9);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+.nexus-consent__feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background-color: var(--gem-sys-color--surface-container, #f0f4f9);
+}
+
+.nexus-consent__feature-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.nexus-consent__feature-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.nexus-consent__feature-title {
+  margin: 0;
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--gem-ref-palette-blue20, #012c6f);
+}
+
+.nexus-consent__feature-desc {
+  margin: 0;
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--gem-sys-color--on-surface-variant, #575b5f);
+}
+
+.nexus-consent__disclaimer {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+  margin: 0 0 16px 0;
+  padding: 0 4px;
+}
+
+.nexus-consent__link {
+  color: var(--gem-sys-color--primary, #0b57d0);
+  text-decoration: underline;
+}
+
+.nexus-consent__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.nexus-consent__btn {
+  flex: 1;
+  height: 44px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family-flex, 'Google Sans Flex', sans-serif);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.nexus-consent__btn:hover {
+  opacity: 0.9;
+}
+
+.nexus-consent__btn--secondary {
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  color: var(--gem-ref-palette-blue20, #012c6f);
+}
+
+.nexus-consent__btn--primary {
+  background-color: var(--gem-ref-palette-blue20, #012c6f);
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   2. NTP Screen (Node 3413:128421)
+   -------------------------------------------------------------------------- */
+.nexus-ntp__content {
+  background-color: var(--gem-sys-color--surface, #ffffff);
+  border-radius: 16px;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 48px 16px 20px 16px;
+  box-sizing: border-box;
+}
+
+.nexus-ntp__greeting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nexus-ntp__title {
+  font-family: var(--font-family-headline, 'Google Sans', sans-serif);
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 32px;
+  color: var(--gem-ref-palette-blue10, #001944);
+  margin: 0;
+}
+
+.nexus-ntp__subtitle {
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--gem-sys-color--on-surface-low, #727676);
+  margin: 0;
+}
+
+.nexus-ntp__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.nexus-ntp__footer {
+  width: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   3. On Page Screen (Node 3413:128857)
+   -------------------------------------------------------------------------- */
+.nexus-onpage__content {
+  background-color: var(--gem-sys-color--surface, #ffffff);
+  border-radius: 16px;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 48px 16px 20px 16px;
+  box-sizing: border-box;
+}
+
+.nexus-onpage__greeting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nexus-onpage__title {
+  font-family: var(--font-family-headline, 'Google Sans', sans-serif);
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 32px;
+  color: var(--gem-ref-palette-blue10, #001944);
+  margin: 0;
+}
+
+.nexus-onpage__subtitle {
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--gem-sys-color--on-surface-low, #727676);
+  margin: 0;
+}
+
+.nexus-onpage__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.nexus-onpage__footer {
+  width: 100%;
+}

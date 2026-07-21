@@ -1,0 +1,1271 @@
+/* ==========================================================================
+   NEXUS AGENT COMPONENT STYLES
+   Figma 100% Pixel-Accurate Specifications
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Header Component
+   -------------------------------------------------------------------------- */
+.nexus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 0 4px 0;
+  box-sizing: border-box;
+}
+
+.nexus-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nexus-header__logo {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nexus-header__title {
+  font-family: var(--font-family-inter);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: normal;
+  color: #1c1917;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.nexus-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nexus-header__action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gem-ref-palette-blue20, #012c6f);
+  border-radius: 50%;
+  transition: background-color var(--transition-fast, 0.15s ease-in-out);
+}
+
+.nexus-header__action-btn .cdds-symbol,
+.nexus-header__action-btn .nexus-symbol {
+  font-size: 20px;
+  line-height: 20px;
+  width: 20px;
+  height: 20px;
+  display: block;
+  text-align: center;
+}
+
+.nexus-header__action-btn:hover {
+  background-color: rgba(1, 44, 111, 0.1);
+}
+
+
+/* --------------------------------------------------------------------------
+   2. Pulse Spinner Component
+   -------------------------------------------------------------------------- */
+.nexus-spinner {
+  position: relative;
+  width: 24px;
+  height: 24px;
+}
+
+.nexus-spinner__dot {
+  position: absolute;
+  border-radius: 50%;
+  background-color: var(--gem-sys-color--primary, #0b57d0);
+  transition: all var(--transition-normal);
+}
+
+/* Spinner frame animation / state mappings */
+.nexus-spinner--step-1 .nexus-spinner__dot--1 { top: 5px; left: 15px; width: 4px; height: 4px; }
+.nexus-spinner--step-1 .nexus-spinner__dot--2 { top: 10px; left: 5px; width: 4px; height: 4px; }
+.nexus-spinner--step-1 .nexus-spinner__dot--3 { top: 15px; left: 10px; width: 4px; height: 4px; }
+.nexus-spinner--step-1 .nexus-spinner__dot--4 { top: 5px; left: 10px; width: 4px; height: 4px; }
+
+.nexus-spinner--step-2 .nexus-spinner__dot--1 { top: 10px; left: 15px; width: 4px; height: 4px; }
+.nexus-spinner--step-2 .nexus-spinner__dot--2 { top: 10px; left: 5px; width: 4px; height: 4px; }
+.nexus-spinner--step-2 .nexus-spinner__dot--3 { top: 15px; left: 10px; width: 4px; height: 4px; }
+.nexus-spinner--step-2 .nexus-spinner__dot--4 { top: 4px; left: 9px; width: 6px; height: 6px; opacity: 0.8; }
+
+.nexus-spinner--step-3 .nexus-spinner__dot--1 { top: 9px; left: 14px; width: 6px; height: 6px; opacity: 0.8; }
+.nexus-spinner--step-3 .nexus-spinner__dot--2 { top: 10px; left: 5px; width: 4px; height: 4px; }
+.nexus-spinner--step-3 .nexus-spinner__dot--3 { top: 15px; left: 10px; width: 4px; height: 4px; }
+.nexus-spinner--step-3 .nexus-spinner__dot--4 { top: 5px; left: 10px; width: 4px; height: 4px; }
+
+
+/* --------------------------------------------------------------------------
+   3. Actions Chip Component (Figma Node 3385:29436)
+   -------------------------------------------------------------------------- */
+.nexus-actions-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  border-radius: var(--desktop-corner-radius-fully-rounded, 999px);
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  color: var(--gem-sys-color--on-primary-container, #0842a0);
+  font-family: var(--font-family-flex, 'Google Sans Flex', sans-serif);
+  font-weight: 500;
+  font-size: var(--font-size-button, 10px);
+  line-height: var(--line-height-button, 14px);
+  font-variation-settings: 'wdth' 95, 'GRAD' 0, 'ROND' 0;
+  border: none;
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nexus-actions-chip__icon-wrapper {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nexus-actions-chip__label {
+  font-family: var(--font-family-flex, 'Google Sans Flex', sans-serif);
+  font-weight: 500;
+  font-size: 10px;
+  line-height: 14px;
+  margin: 0;
+  white-space: nowrap;
+  font-variation-settings: 'wdth' 95, 'GRAD' 0, 'ROND' 0;
+  color: inherit;
+}
+
+.nexus-actions-chip .nexus-symbol {
+  font-size: 16px;
+  color: inherit;
+}
+
+/* Enabled - Closed State (24px Circle) */
+.nexus-actions-chip--closed,
+.nexus-actions-chip--enabled.nexus-actions-chip--closed {
+  width: 24px;
+  padding: 0 2px;
+  justify-content: center;
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  color: var(--gem-sys-color--on-primary-container, #0842a0);
+}
+
+.nexus-actions-chip--closed .nexus-actions-chip__label {
+  max-width: 0;
+  opacity: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.15s ease-in-out;
+}
+
+/* Enabled - Hover State (Expands to Pill: pl-4px, pr-10px, gap-2px) */
+.nexus-actions-chip:hover,
+.nexus-actions-chip--hover,
+.nexus-actions-chip--enabled:hover,
+.nexus-actions-chip--enabled.nexus-actions-chip--hover {
+  width: auto;
+  padding-left: 4px;
+  padding-right: 10px;
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  color: var(--gem-sys-color--on-primary-container, #0842a0);
+}
+
+.nexus-actions-chip:hover .nexus-actions-chip__label,
+.nexus-actions-chip--hover .nexus-actions-chip__label {
+  max-width: 120px;
+  opacity: 1;
+  color: var(--gem-sys-color--on-primary-container, #0842a0);
+}
+
+/* Enabled - Pressed / Active State */
+.nexus-actions-chip:active,
+.nexus-actions-chip--pressed,
+.nexus-actions-chip--enabled:active,
+.nexus-actions-chip--enabled.nexus-actions-chip--pressed {
+  width: auto;
+  background-color: var(--gem-sys-color--primary, #0b57d0) !important;
+  color: #ffffff !important;
+  padding-left: 4px;
+  padding-right: 10px;
+}
+
+.nexus-actions-chip:active .nexus-actions-chip__label,
+.nexus-actions-chip:active .nexus-symbol,
+.nexus-actions-chip--pressed .nexus-actions-chip__label,
+.nexus-actions-chip--pressed .nexus-symbol {
+  color: #ffffff !important;
+  max-width: 120px;
+  opacity: 1;
+}
+
+/* Disabled - Closed State */
+.nexus-actions-chip--disabled,
+.nexus-actions-chip--disabled.nexus-actions-chip--closed {
+  background-color: var(--gem-sys-color--error-container, #f9dedc);
+  color: var(--gem-sys-color--on-error-container, #8c1d18);
+}
+
+/* Disabled - Hover State */
+.nexus-actions-chip--disabled:hover,
+.nexus-actions-chip--disabled.nexus-actions-chip--hover {
+  width: auto;
+  padding-left: 4px;
+  padding-right: 10px;
+  background-color: var(--gem-sys-color--error-container, #f9dedc);
+  color: var(--gem-sys-color--on-error-container, #8c1d18);
+}
+
+/* Disabled - Pressed State */
+.nexus-actions-chip--disabled:active,
+.nexus-actions-chip--disabled.nexus-actions-chip--pressed {
+  width: auto;
+  padding-left: 4px;
+  padding-right: 10px;
+  background-color: var(--gem-sys-color--error, #b3261e) !important;
+  color: #ffffff !important;
+}
+
+.nexus-actions-chip__icon-wrapper {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nexus-actions-chip__icon {
+  font-size: 16px;
+  font-variation-settings: 'FILL' 0, 'GRAD' 0, 'ROND' 50;
+}
+
+.nexus-actions-chip__label {
+  font-family: var(--font-family-flex), var(--font-family-body);
+  font-weight: 500;
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: normal;
+  margin: 0;
+  white-space: nowrap;
+  font-variation-settings: 'wdth' 95, 'GRAD' 0, 'ROND' 0;
+}
+
+
+/* --------------------------------------------------------------------------
+   4. Text Input Component
+   -------------------------------------------------------------------------- */
+.nexus-text-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 20px;
+  position: relative;
+}
+
+.nexus-text-input__cursor {
+  width: 1px;
+  height: 14px;
+  background-color: var(--gem-sys-color--primary, #0b57d0);
+  border-radius: 999px;
+  display: flex;
+  align-self: center;
+}
+
+.nexus-text-input__field {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-family-body);
+  font-size: var(--font-size-body-3, 13px);
+  line-height: var(--line-height-body-3, 20px);
+  color: var(--gem-sys-color--on-surface, #1b1c1d);
+  width: 100%;
+  padding: 0;
+  margin: 0;
+}
+
+.nexus-text-input__field::placeholder {
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+  font-style: italic;
+}
+
+
+/* --------------------------------------------------------------------------
+   5. Button UI Component
+   -------------------------------------------------------------------------- */
+.nexus-button-ui {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  border-radius: 999px;
+  background-color: var(--gem-sys-color--primary, #0b57d0);
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  transition: background-color var(--transition-fast, 0.15s ease-in-out), transform 0.1s ease;
+}
+
+.nexus-button-ui:hover {
+  background-color: #0842a0;
+  color: #ffffff;
+}
+
+.nexus-button-ui:active,
+.nexus-button-ui--pressed {
+  background-color: #052c6e;
+  color: #ffffff;
+}
+
+.nexus-button-ui__icon-wrapper {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nexus-button-ui__icon {
+  font-size: 16px;
+  font-variation-settings: 'FILL' 1, 'GRAD' 0, 'ROND' 100;
+}
+
+
+/* --------------------------------------------------------------------------
+   6. Model Picker Component
+   -------------------------------------------------------------------------- */
+.nexus-model-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--gem-sys-spacing--xs, 4px);
+  padding: var(--gem-sys-spacing--s, 8px) var(--gem-sys-spacing--s, 8px) var(--gem-sys-spacing--s, 8px) var(--gem-sys-spacing--m, 12px);
+  border-radius: var(--gem-sys-shape--corner-full, 999px);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.nexus-model-picker:hover {
+  background-color: rgba(68, 71, 70, 0.08);
+}
+
+.nexus-model-picker--pressed {
+  background-color: rgba(211, 227, 253, 0.5);
+}
+
+.nexus-model-picker__label {
+  font-family: var(--font-family-body);
+  font-weight: 500;
+  font-size: var(--font-size-body-5, 11px);
+  line-height: var(--line-height-body-5, 16px);
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.nexus-model-picker__icon {
+  font-size: 16px;
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+  font-variation-settings: 'FILL' 0, 'GRAD' 0, 'ROND' 100;
+}
+
+/* Model Picker Dropdown Popover */
+.nexus-model-dropdown-container {
+  position: relative;
+}
+
+.nexus-model-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 32px;
+  width: 220px;
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: var(--gem-sys-color--surface, #ffffff);
+  border: 1px solid var(--gem-sys-color--outline-low, #e1e3e1);
+  border-radius: 16px;
+  box-shadow: 0px 8px 24px rgba(0, 0, 0, 0.12), 0px 2px 6px rgba(0, 0, 0, 0.08);
+  padding: 6px;
+  z-index: 300;
+  box-sizing: border-box;
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  animation: model-dropdown-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes model-dropdown-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.nexus-model-dropdown__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nexus-model-dropdown__group:not(:last-child) {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--gem-sys-color--outline-low, #e1e3e1);
+}
+
+.nexus-model-dropdown__group-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gem-sys-color--on-surface-variant, #727676);
+  padding: 6px 10px 2px 10px;
+}
+
+.nexus-model-dropdown__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  color: #1c1917;
+  transition: background-color var(--transition-fast, 0.15s ease-in-out);
+  text-align: left;
+}
+
+.nexus-model-dropdown__item:hover {
+  background-color: var(--gem-sys-color--surface-container, #f0f4f9);
+}
+
+.nexus-model-dropdown__item--selected {
+  color: var(--gem-sys-color--primary, #0b57d0);
+  font-weight: 600;
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+}
+
+.nexus-model-dropdown__item-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* --------------------------------------------------------------------------
+   7. Toolbar Component
+   -------------------------------------------------------------------------- */
+.nexus-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 40px;
+  padding-top: var(--desktop-spacing-4, 4px);
+  padding-bottom: var(--desktop-spacing-4, 4px);
+  box-sizing: border-box;
+}
+
+.nexus-toolbar__lhs,
+.nexus-toolbar__rhs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nexus-toolbar__attach-btn {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.nexus-toolbar__attach-btn:hover {
+  background-color: rgba(68, 71, 70, 0.08);
+}
+
+.nexus-toolbar__attach-icon {
+  font-size: 20px;
+  font-variation-settings: 'FILL' 0, 'GRAD' 0, 'ROND' 50;
+}
+
+
+/* --------------------------------------------------------------------------
+   8. Favicon Component
+   -------------------------------------------------------------------------- */
+.nexus-fav {
+  width: 16px;
+  height: 16px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-fav, 3px);
+  overflow: hidden;
+}
+
+.nexus-fav__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nexus-fav-stack {
+  display: flex;
+  align-items: center;
+}
+
+.nexus-fav-stack .nexus-fav:not(:first-child) {
+  margin-left: -6px;
+  border: 1px solid var(--gem-sys-color--surface-container, #f0f4f9);
+}
+
+
+/* --------------------------------------------------------------------------
+   9. Attached Tab Component
+   -------------------------------------------------------------------------- */
+.nexus-attached-tab {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 6px 12px 6px var(--gem-sys-spacing--l, 16px);
+  background-color: var(--gem-sys-color--surface-container, #f0f4f9);
+  border-top: 1px solid var(--gem-sys-color--outline-low, #e1e3e1);
+  border-left: 1px solid var(--gem-sys-color--outline-low, #e1e3e1);
+  border-right: 1px solid var(--gem-sys-color--outline-low, #e1e3e1);
+  border-top-left-radius: var(--radius-tab-top, 16px);
+  border-top-right-radius: var(--radius-tab-top, 16px);
+  box-sizing: border-box;
+}
+
+.nexus-attached-tab__main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 26px;
+}
+
+.nexus-attached-tab--open {
+  gap: var(--gem-sys-spacing--m, 8px);
+  padding-bottom: 12px;
+}
+
+.nexus-attached-tab__left-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.nexus-attached-tab__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.nexus-attached-tab__meta {
+  font-family: var(--font-family-body);
+  font-weight: 500;
+  font-size: var(--font-size-body-5, 11px);
+  line-height: var(--line-height-body-5, 16px);
+  color: #1c1917;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+.nexus-attached-tab__right {
+  display: flex;
+  align-items: center;
+  gap: var(--gem-sys-spacing--xs, 4px);
+  flex-shrink: 0;
+}
+
+.nexus-attached-tab__close-btn,
+.nexus-attached-tab__chevron-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+  border-radius: 50%;
+  transition: background-color var(--transition-fast);
+}
+
+.nexus-attached-tab__close-btn:hover,
+.nexus-attached-tab__chevron-btn:hover {
+  background-color: rgba(68, 71, 70, 0.08);
+}
+
+.nexus-attached-tab__expanded-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+.nexus-attached-tab__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 26px;
+}
+
+
+/* --------------------------------------------------------------------------
+   10. Chat Bubble Component
+   -------------------------------------------------------------------------- */
+.nexus-chat-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.nexus-chat-bubble__input-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gem-sys-spacing--m, 8px);
+  padding: var(--gem-sys-spacing--m, 12px);
+  background-color: var(--gem-sys-color--surface, #ffffff);
+  border: 1px solid var(--gem-sys-color--outline-low, #e1e3e1);
+  border-radius: var(--radius-bubble, 16px);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.nexus-chat-bubble--with-tab .nexus-chat-bubble__input-field {
+  border-top: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: var(--radius-bubble, 16px);
+  border-bottom-right-radius: var(--radius-bubble, 16px);
+  padding-top: var(--gem-sys-spacing--s, 8px);
+}
+
+/* ==========================================================================
+   WebMCP Tools Dialogue ("Response block/Rich response" - 3413:136035)
+   ========================================================================== */
+.nexus-tools-dialogue {
+  width: 341px;
+  background-color: var(--gem-sys-color--surface-container, #f0f4f9);
+  border: 1px solid var(--gem-sys-color--outline-low, #e1e3e1);
+  border-radius: 12px;
+  box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.15), 0px 1px 1.5px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  box-sizing: border-box;
+  font-family: var(--font-family-body);
+}
+
+.nexus-tools-dialogue__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 12px 4px 12px;
+  gap: 8px;
+}
+
+.nexus-tools-dialogue__header-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1;
+}
+
+.nexus-tools-dialogue__icon-bg {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.nexus-tools-dialogue__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+}
+
+.nexus-tools-dialogue__title {
+  margin: 0;
+  font-family: var(--font-family-headline, 'Google Sans', sans-serif);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  color: #1f1f1f;
+}
+
+.nexus-tools-dialogue__subtitle {
+  margin: 0;
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 18px;
+  color: #474747;
+}
+
+.nexus-tools-dialogue__close-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444746;
+}
+
+.nexus-tools-dialogue__close-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.nexus-tools-dialogue__divider {
+  height: 1px;
+  background-color: var(--gem-sys-color--outline-low, #e1e3e1);
+  width: 100%;
+}
+
+.nexus-tools-dialogue__desc-row {
+  padding: 12px 16px;
+}
+
+.nexus-tools-dialogue__desc-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+}
+
+.nexus-tools-dialogue__link {
+  color: var(--gem-sys-color--primary, #0b57d0);
+  text-decoration: underline;
+}
+
+.nexus-tools-dialogue__list-row {
+  padding: 12px 16px;
+}
+
+.nexus-tools-dialogue__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nexus-tools-dialogue__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nexus-tools-dialogue__item-name {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+}
+
+.nexus-tools-dialogue__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 8px 16px;
+}
+
+.nexus-tools-dialogue__footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nexus-tools-dialogue__footer-left .nexus-symbol {
+  font-size: 20px;
+  color: #1f1f1f;
+}
+
+.nexus-tools-dialogue__footer-title {
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: #1f1f1f;
+}
+
+.nexus-tools-dialogue__arrow-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1f1f1f;
+}
+
+.nexus-tools-dialogue__arrow-btn .nexus-symbol {
+  font-size: 20px;
+  color: #1f1f1f;
+}
+
+.nexus-tools-dialogue__arrow-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* ==========================================================================
+   Consent Screen ("Consent" - 3413:128021)
+   ========================================================================== */
+.nexus-screen--consent {
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  height: 810px;
+  width: 400px;
+  box-sizing: border-box;
+}
+
+.nexus-consent__content {
+  flex: 1;
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 24px 16px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.nexus-consent__hero {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.nexus-consent__logo-bg {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nexus-consent__title {
+  margin: 0;
+  font-family: var(--font-family-flex);
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 32px;
+  color: var(--gem-ref-palette-blue20, #012c6f);
+}
+
+.nexus-consent__subtitle {
+  margin: 0;
+  font-family: var(--font-family-flex);
+  font-weight: 500;
+  font-size: 20px;
+  line-height: 28px;
+  color: var(--gem-sys-color--on-surface-low, #727676);
+}
+
+.nexus-consent__feature-card {
+  background-color: var(--gem-sys-color--surface-container, #f0f4f9);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 16px;
+}
+
+.nexus-consent__feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background-color: var(--gem-sys-color--surface-container, #f0f4f9);
+}
+
+.nexus-consent__feature-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.nexus-consent__feature-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.nexus-consent__feature-title {
+  margin: 0;
+  font-family: var(--font-family-body);
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--gem-ref-palette-blue20, #012c6f);
+}
+
+.nexus-consent__feature-desc {
+  margin: 0;
+  font-family: var(--font-family-body);
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--gem-sys-color--on-surface-variant, #575b5f);
+}
+
+.nexus-consent__disclaimer {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--gem-sys-color--on-surface-variant, #444746);
+  padding: 0 8px;
+  margin-bottom: 24px;
+}
+
+.nexus-consent__link {
+  color: var(--gem-sys-color--primary, #0b57d0);
+  text-decoration: underline;
+}
+
+.nexus-consent__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.nexus-consent__btn {
+  flex: 1;
+  height: 44px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family-flex);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.nexus-consent__btn:hover {
+  opacity: 0.9;
+}
+
+.nexus-consent__btn--secondary {
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  color: var(--gem-ref-palette-blue20, #012c6f);
+}
+
+.nexus-consent__btn--primary {
+  background-color: var(--gem-ref-palette-blue20, #012c6f);
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   14. Suggestion Chip Component (Node 3413:128442 & 3413:128878)
+   -------------------------------------------------------------------------- */
+.nexus-chip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding: 10px 16px;
+  background-color: var(--gem-sys-color--surface-container, #f0f4f9);
+  border-radius: var(--desktop-corner-radius-fully-rounded, 999px);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--desktop-sys-container-colors-on-tonal-container, #041e49);
+  transition: background-color var(--transition-fast, 0.15s ease);
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.nexus-chip:hover {
+  background-color: #e2e8f0;
+}
+
+.nexus-chip__icon {
+  display: none;
+}
+
+.nexus-chip__text {
+  white-space: normal;
+  text-align: left;
+  word-break: break-word;
+}
+
+/* ==========================================================================
+   15. IPH Component ("IPH - agent" - Node 3505:672726)
+   ========================================================================== */
+.nexus-iph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 320px;
+  position: relative;
+  filter: drop-shadow(0px 4px 8px rgba(0, 0, 0, 0.15)) drop-shadow(0px 1px 3px rgba(0, 0, 0, 0.3));
+}
+
+.nexus-iph__card {
+  width: 320px;
+  background-color: var(--gem-ref-palette-blue20, #012c6f);
+  border-radius: 12px;
+  padding: 20px;
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #ffffff;
+}
+
+.nexus-iph__close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #ffffff;
+  opacity: 0.8;
+  transition: opacity 0.15s ease;
+}
+
+.nexus-iph__close-btn:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.nexus-iph__content {
+  display: flex;
+  flex-direction: column;
+  padding-right: 20px; /* Space for close btn */
+}
+
+.nexus-iph__step {
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 2px;
+  display: block;
+}
+
+.nexus-iph__title {
+  margin: 0 0 8px 0;
+  font-family: var(--font-family-headline, 'Google Sans', sans-serif);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  color: #ffffff;
+}
+
+.nexus-iph__desc {
+  margin: 0 0 8px 0;
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 18px;
+  color: #ffffff;
+}
+
+.nexus-iph__link {
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 18px;
+  color: #ffffff;
+  text-decoration: underline;
+  display: inline-block;
+}
+
+.nexus-iph__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.nexus-iph__btn {
+  height: 32px;
+  padding: 4px 16px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family-flex, 'Google Sans Flex', sans-serif);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+.nexus-iph__btn:hover {
+  opacity: 0.9;
+}
+
+.nexus-iph__btn--secondary {
+  background-color: var(--gem-sys-color--primary-container, #d3e3fd);
+  color: #041e49;
+}
+
+.nexus-iph__btn--primary {
+  background-color: #ffffff;
+  color: #012c6f;
+}
+
+/* Markdown Formatting Styles */
+.nexus-markdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--gem-sys-color--on-surface, #1c1917);
+}
+
+.nexus-markdown .md-p {
+  margin: 0;
+  line-height: 20px;
+}
+
+.nexus-markdown .md-h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 8px 0 4px 0;
+}
+
+.nexus-markdown .md-h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 6px 0 4px 0;
+}
+
+.nexus-markdown .md-h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 4px 0 2px 0;
+}
+
+.nexus-markdown .md-ul,
+.nexus-markdown .md-ol {
+  margin: 4px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nexus-markdown .md-code-block {
+  background: var(--gem-sys-color--surface-container, #f0f4f9);
+  border: 1px solid var(--gem-sys-color--outline-low, #e1e3e1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 6px 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  overflow-x: auto;
+  position: relative;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.nexus-markdown .md-code-lang {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: #727676;
+  text-transform: uppercase;
+}
+
+.nexus-markdown .md-inline-code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.nexus-markdown .md-link {
+  color: var(--gem-sys-color--primary, #0b57d0);
+  text-decoration: underline;
+}
+

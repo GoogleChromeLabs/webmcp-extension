@@ -1,0 +1,62 @@
+/* ==========================================================================
+   CDDS & GEMINI FOUNDATION DESIGN TOKENS
+   CSS Variables
+   ========================================================================== */
+
+@import url('../fonts/fonts.css');
+
+:root {
+  /* Colors */
+  --cdds-color-primary: #0b57d0;
+  --cdds-color-on-primary: #ffffff;
+  --cdds-color-primary-container: #d3e3fd;
+  --cdds-color-on-primary-container: #0842a0;
+  --cdds-color-blue20: #012c6f;
+
+  --cdds-color-surface: #ffffff;
+  --cdds-color-surface-container: #f0f4f9;
+  --cdds-color-surface-container-low: #f7f9fc;
+  --cdds-color-surface-container-high: #e9eef6;
+  --cdds-color-surface-variant: #e1e3e1;
+
+  --cdds-color-on-surface: #1b1c1d;
+  --cdds-color-on-surface-variant: #444746;
+  --cdds-color-on-tonal-container: #041e49;
+
+  --cdds-color-outline: #747775;
+  --cdds-color-outline-low: #e1e3e1;
+
+  --cdds-color-error: #b3261e;
+  --cdds-color-on-error: #ffffff;
+  --cdds-color-error-container: #f9dedc;
+  --cdds-color-on-error-container: #8c1d18;
+
+  /* Typography */
+  --cdds-font-body: 'Google Sans Text', -apple-system, BlinkMacSystemFont, sans-serif;
+  --cdds-font-flex: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, sans-serif;
+  --cdds-font-inter: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --cdds-font-symbols: 'Google Symbols', sans-serif;
+
+  /* Spacings */
+  --cdds-space-xxs: 2px;
+  --cdds-space-xs: 4px;
+  --cdds-space-s: 8px;
+  --cdds-space-m: 12px;
+  --cdds-space-l: 16px;
+  --cdds-space-xl: 20px;
+  --cdds-space-xxl: 24px;
+  --cdds-space-xxxl: 32px;
+
+  /* Radii */
+  --cdds-radius-xs: 4px;
+  --cdds-radius-s: 8px;
+  --cdds-radius-m: 12px;
+  --cdds-radius-l: 16px;
+  --cdds-radius-xl: 24px;
+  --cdds-radius-button: 30px;
+  --cdds-radius-full: 999px;
+
+  /* Shadows */
+  --cdds-shadow-level-1: 0px 1px 3px 1px rgba(0, 0, 0, 0.15), 0px 1px 2px 0px rgba(0, 0, 0, 0.30);
+  --cdds-shadow-level-2: 0px 2px 6px 2px rgba(0, 0, 0, 0.15), 0px 1px 2px 0px rgba(0, 0, 0, 0.30);
+}

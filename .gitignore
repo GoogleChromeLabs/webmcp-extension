@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Agent skills installed locally
+.agents/skills/
+
+# Build outputs
+dist/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Legacy generated artifacts
+sidebar.js
+js-genai.js
+js-openai.js
+js-anthropic.js
+
+# Environment and secrets
+.env
+.env.json
