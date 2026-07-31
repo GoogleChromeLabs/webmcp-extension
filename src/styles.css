@@ -10,7 +10,7 @@
 @import url('./screens/screens.css');
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   /* Light Theme - Modern Google / Agent Palette matching WebMCP mockups */
   --bg-canvas: #d3e3fd; /* Primary container */
   --card-bg: #FFFFFF; /* Surface */
@@ -33,27 +33,6 @@
 
   --font-ui: 'Google Sans Text', 'Google Sans', 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'Cascadia Code', ui-monospace, 'SF Mono', Consolas, monospace;
-}
-
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --bg-canvas: #0F172A;
-  --card-bg: #1E293B;
-  --card-bg-subtle: #334155;
-  --border: #334155;
-  --border-strong: #475569;
-  --text-primary: #F8FAFC;
-  --text-secondary: #CBD5E1;
-  --text-muted: #94A3B8;
-
-  --accent-primary: #38BDF8;
-  --accent-dark: #0284C7;
-  --accent-light: #1E3A5F;
-  --accent-hover: #0284C7;
-
-  --ok: #4ADE80;
-  --err: #F87171;
-  --err-bg: #451212;
 }
 
 * {

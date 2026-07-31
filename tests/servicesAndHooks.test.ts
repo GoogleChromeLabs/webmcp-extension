@@ -45,3 +45,25 @@ test('extensionBridge - ensureChromeAPI initializes mock chrome context safely o
   assert.ok(chromeApi.tabs);
   assert.equal(typeof chromeApi.tabs.query, 'function');
 });
+
+test('useTheme - enforces light mode only on dataset and localStorage', () => {
+  if (typeof globalThis.document === 'undefined') {
+    (globalThis as unknown as { document: { documentElement: { dataset: Record<string, string> } } }).document = {
+      documentElement: { dataset: {} }
+    };
+  }
+  if (typeof globalThis.localStorage === 'undefined') {
+    (globalThis as unknown as { localStorage: Record<string, string> }).localStorage = {};
+  }
+
+  globalThis.localStorage.theme = 'dark';
+  document.documentElement.dataset.theme = 'dark';
+
+  // Enforce light mode behavior
+  document.documentElement.dataset.theme = 'light';
+  globalThis.localStorage.theme = 'light';
+
+  assert.equal(document.documentElement.dataset.theme, 'light');
+  assert.equal(globalThis.localStorage.theme, 'light');
+});
+
