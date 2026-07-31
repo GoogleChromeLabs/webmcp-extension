@@ -11,7 +11,6 @@ export interface WebMCPToolsDialogueProps {
   toolsCount?: number;
   toolsList?: string[];
   onClose?: () => void;
-  onOpenDetails?: () => void;
   className?: string;
 }
 
@@ -23,7 +22,6 @@ export function WebMCPToolsDialogue({
   toolsCount = 0,
   toolsList = [],
   onClose,
-  onOpenDetails,
   className = '',
 }: WebMCPToolsDialogueProps) {
   return (
@@ -72,30 +70,6 @@ export function WebMCPToolsDialogue({
             </div>
           ))}
         </div>
-      </div>
-
-      <div className="tools-dialogue__divider" />
-
-      {/* Footer Row */}
-      <div
-        className="tools-dialogue__footer"
-        onClick={onOpenDetails}
-        style={{ cursor: 'pointer' }}
-      >
-        <div className="tools-dialogue__footer-left">
-          <SettingsIcon size={20} color="#1f1f1f" />
-          <span className="tools-dialogue__footer-title">Available WebMCP tools in details</span>
-        </div>
-        <button
-          className="tools-dialogue__arrow-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (onOpenDetails) onOpenDetails();
-          }}
-          title="View in details"
-        >
-          <SymbolIcon name="arrow_forward" size={20} color="#1f1f1f" />
-        </button>
       </div>
     </div>
   );

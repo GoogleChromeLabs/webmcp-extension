@@ -819,54 +819,6 @@
   color: var(--gem-sys-color--on-surface-variant, #444746);
 }
 
-.tools-dialogue__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 16px 8px 16px;
-}
-
-.tools-dialogue__footer-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tools-dialogue__footer-left .agent-symbol {
-  font-size: 20px;
-  color: #1f1f1f;
-}
-
-.tools-dialogue__footer-title {
-  font-family: var(--font-family-body, 'Google Sans Text', sans-serif);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 20px;
-  color: #1f1f1f;
-}
-
-.tools-dialogue__arrow-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #1f1f1f;
-}
-
-.tools-dialogue__arrow-btn .agent-symbol {
-  font-size: 20px;
-  color: #1f1f1f;
-}
-
-.tools-dialogue__arrow-btn:hover {
-  background: rgba(0, 0, 0, 0.05);
-}
-
 /* ==========================================================================
    Consent Screen ("Consent" - 3413:128021)
    ========================================================================== */

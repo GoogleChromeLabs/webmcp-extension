@@ -9,7 +9,6 @@ import ChatBubble from './components/ChatBubble.jsx';
 import WebMCPToolsDialogue from './components/WebMCPToolsDialogue.jsx';
 import IPHPopover from './components/IPHPopover.jsx';
 import ConsentScreen from './screens/ConsentScreen.jsx';
-import ToolsInspectorScreen from './screens/ToolsInspectorScreen.js';
 import SettingsModal from './screens/SettingsModal.jsx';
 import MarkdownText from './components/MarkdownText.jsx';
 import ActionLog from './components/ActionLog.js';
@@ -18,12 +17,10 @@ import { PROVIDERS } from './providers.js';
 import { useTheme } from './hooks/useTheme.js';
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
-import { executeTabTool } from './services/extensionBridge.js';
 import { ProviderKey } from './types/index.js';
 
 export function App() {
   // Navigation & View State
-  const [activeTab, setActiveTab] = useState<'chat' | 'tools'>('chat');
   const [showConsent, setShowConsent] = useState<boolean>(
     (localStorage.agentConsent ?? localStorage.agentConsent) !== 'true'
   );
@@ -121,7 +118,7 @@ export function App() {
               setShowConsent(false);
             }}
           />
-        ) : activeTab === 'chat' ? (
+        ) : (
           <section className="view chat-view">
             {/* Chat Stream Area */}
             <div id="chatStream">
@@ -209,10 +206,6 @@ export function App() {
                     toolsCount={tools.length}
                     toolsList={tools.map((t) => t.description || t.name)}
                     onClose={() => setShowToolsDialogue(false)}
-                    onOpenDetails={() => {
-                      setShowToolsDialogue(false);
-                      setActiveTab('tools');
-                    }}
                   />
                 </div>
               )}
@@ -263,15 +256,6 @@ export function App() {
               />
             </footer>
           </section>
-        ) : (
-          <ToolsInspectorScreen
-            tools={tools}
-            activityLog={activityLog}
-            domain={domain}
-            onBackToChat={() => setActiveTab('chat')}
-            onClearActivity={() => setActivityLog([])}
-            onExecuteTool={executeTabTool}
-          />
         )}
       </main>
 

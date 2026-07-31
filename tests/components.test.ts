@@ -79,7 +79,6 @@ test('WebMCPToolsDialogue renders tools count and tools list', () => {
       toolsCount: 2,
       toolsList: ['Search hotels', 'Filter gym'],
       onClose: () => {},
-      onOpenDetails: () => {},
     })
   );
 
