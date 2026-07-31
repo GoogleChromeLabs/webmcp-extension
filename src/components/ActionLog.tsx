@@ -18,7 +18,7 @@ export interface ActionLogProps {
  * Format activity/tool name into human readable label
  */
 export function formatLogLabel(name: string): string {
-  if (!name) return 'Task log in human language';
+  if (!name) return 'Thinking...';
   const clean = name.replace(/[_-]+/g, ' ').trim();
   return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
@@ -40,7 +40,7 @@ export function ActionLog({
       const activeEntry = activityLogs[0];
       headerLabel = activeEntry
         ? `${formatLogLabel(activeEntry.name)}...`
-        : 'Filtering parameters for application...';
+        : 'Thinking...';
     } else if (status === 'completed') {
       headerLabel = 'Show thinking';
     } else if (status === 'error') {
@@ -103,10 +103,14 @@ export function ActionLog({
             ) : (
               <div className="action-log__item">
                 <div className="action-log__item-icon">
-                  <span className="action-log__item-check">✓</span>
+                  {status === 'completed' ? (
+                    <span className="action-log__item-check">✓</span>
+                  ) : (
+                    <span className="action-log__item-circle" />
+                  )}
                 </div>
                 <span className="action-log__item-label">
-                  Task log in human language
+                  {status === 'completed' ? 'Thinking process completed' : 'Thinking...'}
                 </span>
               </div>
             )}

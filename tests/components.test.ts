@@ -104,7 +104,7 @@ test('MarkdownText renders formatted HTML headers, lists, code, and links', () =
 test('formatLogLabel formats tool names into human readable labels', () => {
   assert.equal(formatLogLabel('apply_filters'), 'Apply filters');
   assert.equal(formatLogLabel('filter_parameters_for_application'), 'Filter parameters for application');
-  assert.equal(formatLogLabel(''), 'Task log in human language');
+  assert.equal(formatLogLabel(''), 'Thinking...');
 });
 
 test('ActionLog renders initiation, running, and completed states matching Figma design', () => {
