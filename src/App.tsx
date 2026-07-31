@@ -41,7 +41,6 @@ export function App() {
     setProvider,
     model,
     setModel,
-    apiKey,
     suggestPrompt,
     setSuggestPrompt,
     userPrompt,
@@ -52,7 +51,6 @@ export function App() {
     setActivityLog,
     handleSendPrompt,
     handleReset,
-    handlePromptApiKey,
   } = useAgentSession(toolsRef);
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);
@@ -201,16 +199,6 @@ export function App() {
               )}
             </div>
 
-            {/* Missing API Key Notice Banner */}
-            {!apiKey && (
-              <div id="keyNotice" className="key-notice">
-                <span>No {PROVIDERS[provider].label} API key set.</span>
-                <button className="btn ghost small" onClick={() => handlePromptApiKey(provider)}>
-                  Set API key
-                </button>
-              </div>
-            )}
-
             {/* Bottom Floating Composer (ChatBubble) */}
             <footer className="composer-footer">
               {/* Floating WebMCP Tools Dialogue Popover */}
@@ -291,14 +279,8 @@ export function App() {
       {showSettings && (
         <SettingsModal
           isOpen={showSettings}
-          apiKeys={{
-            gemini: localStorage.apiKey_gemini || '',
-            openai: localStorage.apiKey_openai || '',
-            anthropic: localStorage.apiKey_anthropic || '',
-          }}
           suggestPrompt={suggestPrompt}
           onClose={() => setShowSettings(false)}
-          onSetApiKey={handlePromptApiKey}
           onToggleSuggestPrompt={(checked: boolean) => {
             setSuggestPrompt(checked);
             localStorage.suggestUserPrompt = String(checked);

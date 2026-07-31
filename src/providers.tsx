@@ -21,17 +21,14 @@ export const PROVIDERS: ProvidersMap = {
   gemini: {
     label: 'Gemini',
     models: ['gemini-3-flash-preview', 'gemini-3.1-flash-lite', 'gemini-3.5-flash'],
-    keyUrl: 'https://aistudio.google.com/apikey',
   },
   openai: {
     label: 'OpenAI',
     models: ['gpt-5.1', 'gpt-5-mini', 'gpt-4.1'],
-    keyUrl: 'https://platform.openai.com/api-keys',
   },
   anthropic: {
     label: 'Anthropic',
     models: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'],
-    keyUrl: 'https://platform.claude.com/settings/keys',
   },
 };
 

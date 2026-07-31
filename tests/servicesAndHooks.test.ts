@@ -67,3 +67,40 @@ test('useTheme - enforces light mode only on dataset and localStorage', () => {
   assert.equal(globalThis.localStorage.theme, 'light');
 });
 
+test('backendBridge - callBackend correctly makes fetch requests and handles backend responses', async () => {
+  const { callBackend } = await import('../src/services/backendBridge.js');
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (urlStr.endsWith('/api/model')) {
+        return {
+          json: async () => ({ success: true, model: 'gemini-3.6-flash' }),
+        } as Response;
+      }
+      if (urlStr.endsWith('/api/error')) {
+        return {
+          json: async () => ({ error: 'Backend server error' }),
+        } as Response;
+      }
+      return {
+        json: async () => ({ success: true }),
+      } as Response;
+    };
+
+    const res = await callBackend<{ success: boolean; model: string }>('/api/model', { model: 'gemini-3.6-flash' });
+    assert.equal(res.success, true);
+    assert.equal(res.model, 'gemini-3.6-flash');
+
+    await assert.rejects(
+      async () => {
+        await callBackend('/api/error');
+      },
+      { message: 'Backend server error' }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+

@@ -8,7 +8,6 @@ export type ProviderKey = 'gemini' | 'openai' | 'anthropic';
 export interface ProviderConfig {
   label: string;
   models: string[];
-  keyUrl: string;
 }
 
 export type ProvidersMap = Record<ProviderKey, ProviderConfig>;

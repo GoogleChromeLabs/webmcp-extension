@@ -13,16 +13,6 @@ declare module '*.woff2' {
   export default content;
 }
 
-declare module '*.env.json' {
-  const content: {
-    apiKey?: string;
-    openaiApiKey?: string;
-    anthropicApiKey?: string;
-    model?: string;
-    provider?: string;
-  };
-  export default content;
-}
 
 declare module '../../extension/utils.js' {
   export function getIframeOrigins(tabId: number): Promise<string[]>;

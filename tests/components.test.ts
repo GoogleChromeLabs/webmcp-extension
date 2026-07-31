@@ -15,6 +15,7 @@ import { WebMCPToolsDialogue } from '../src/components/WebMCPToolsDialogue.js';
 import { MarkdownText } from '../src/components/MarkdownText.js';
 import { ActionLog, formatLogLabel } from '../src/components/ActionLog.js';
 import { Header } from '../src/components/Header.js';
+import { SettingsModal } from '../src/screens/SettingsModal.js';
 
 test('MODEL_DISPLAY_NAMES formats model names to human-readable strings', () => {
   assert.equal(MODEL_DISPLAY_NAMES['gemini-3.5-flash'], 'Gemini 3.5 Flash');
@@ -156,4 +157,19 @@ test('Header renders right-aligned action controls (Start New Chat, Settings)', 
 
   assert.ok(html.includes('title="Start new chat"'));
   assert.ok(html.includes('title="Settings"'));
+});
+
+test('SettingsModal renders options section and prompt suggestion toggle without API keys', () => {
+  const html = renderToString(
+    React.createElement(SettingsModal, {
+      isOpen: true,
+      suggestPrompt: true,
+      onClose: () => {},
+      onToggleSuggestPrompt: () => {},
+    })
+  );
+
+  assert.ok(html.includes('OPTIONS'));
+  assert.ok(html.includes('Suggest user prompt'));
+  assert.ok(!html.includes('API KEYS'));
 });

@@ -9,11 +9,13 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools ac
 ## Features
 
 - **Dynamic WebMCP Tool Discovery**: Automatically queries `document.modelContext.getTools()` and listens for `ontoolchange` across top-level pages and cross-origin `iframe` frames.
+- **Backend Model Routing & Secure Key Storage**: Routes model requests to a local Node.js backend server so consumer-facing extension code never accesses or exposes API keys.
 - **Multi-Provider LLM Integration**:
   - **Gemini**: `gemini-3.5-flash`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite` via `@google/genai`
   - **OpenAI**: `gpt-5.1`, `gpt-5-mini`, `gpt-4.1` via `openai`
   - **Anthropic**: `claude-opus-4-8`, `claude-sonnet-5`, `claude-haiku-4-5` via `@anthropic-ai/sdk`
 - **Figma-Aligned UI Design**:
+  - Light mode interface matching WebMCP design tokens.
   - Model Picker & Dropdown selector with provider grouping and checkmarks.
   - Floating WebMCP Tool IPH popovers and action details modal.
   - Real-time markdown response rendering.
@@ -30,20 +32,39 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools ac
 - Node.js `v20.0.0+`
 - Google Chrome with the `WebMCP for testing` flag enabled (`chrome://flags`).
 
-### Installation & Build
+### Environment Configuration (`.env`)
+
+Create a `.env` file at the **root directory** of the project (`webmcp-dev-extension/.env`):
+
+```env
+# Gemini API Key (Required)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Optional Server Settings
+PORT=3000
+MODEL=gemini-3.6-flash
+```
+
+### Installation & Execution
 
 1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Build the extension:
+2. Start the backend model server:
+   ```bash
+   npm run server
+   ```
+   This starts the local model routing server on `http://localhost:3000`.
+
+3. Build the Chrome extension (in a separate terminal):
    ```bash
    npm run build
    ```
    The bundled extension files will be output to the `dist/` directory.
 
-3. Load into Google Chrome:
+4. Load into Google Chrome:
    - Open Chrome and navigate to `chrome://extensions`.
    - Enable **Developer mode** in the top right.
    - Click **Load unpacked** and select the `dist/` folder.
@@ -60,6 +81,7 @@ npm test
 
 ### Test Coverage Includes:
 - **AI Providers (`tests/providers.test.js`)**: Provider definitions, model configs, and chat instance creation (`createChat`).
+- **Services & Hooks (`tests/servicesAndHooks.test.js`)**: `useTheme` light mode enforcement, tool schemas, and backend bridge helpers.
 - **Tool Name Encoding (`tests/toolNameEncoding.test.js`)**: Encoded location mapping (`_0_toolName`), schema parameter normalization, and regex decoding (`/^_(\d+)_(.*)$/`).
 - **Markdown Renderer (`tests/markdownText.test.js`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
 - **Extension Utilities (`tests/utils.test.js`)**: Extraction of cross-origin iframe origins (`getIframeOrigins`).
@@ -70,6 +92,9 @@ npm test
 
 ```
 webmcp-dev-extension/
+├── .env                       # Root environment file (GEMINI_API_KEY=...)
+├── server/                    # Node.js backend server
+│   └── server.js              # Backend model routing server (port 3000)
 ├── extension/                 # Chrome extension manifest & background/content scripts
 │   ├── manifest.json          # Chrome Extension Manifest V3 configuration
 │   ├── background.js          # Service worker for tab navigation & tool badge updates
@@ -78,15 +103,12 @@ webmcp-dev-extension/
 ├── src/                       # React App source code
 │   ├── components/            # React UI components (ModelPicker, ChatBubble, etc.)
 │   ├── screens/               # Screen views (NexusIPH, ToolsInspector, SettingsModal)
+│   ├── services/              # Extension & backend API bridges (backendBridge.ts, etc.)
 │   ├── foundation/            # CSS tokens, Google Symbols fonts, and design tokens
-│   ├── providers.jsx          # React Provider Context & SDK wrappers (Gemini, OpenAI, Anthropic)
-│   ├── App.jsx                # Main application component & tool loop orchestrator
-│   └── index.jsx              # React entry point
+│   ├── providers.tsx          # React Provider Context & SDK wrappers
+│   ├── App.tsx                # Main application component & tool loop orchestrator
+│   └── index.tsx              # React entry point
 ├── tests/                     # Automated unit test suite
-│   ├── providers.test.js
-│   ├── toolNameEncoding.test.js
-│   ├── markdownText.test.js
-│   └── utils.test.js
 └── package.json
 ```
 

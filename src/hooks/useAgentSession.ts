@@ -4,17 +4,15 @@
  */
 
 import { useState, useEffect, useRef, useCallback, MutableRefObject, Dispatch, SetStateAction } from 'react';
-import { PROVIDERS, createChat, oneShot } from '../providers.js';
+import { PROVIDERS } from '../providers.js';
 import { buildToolDecls, decodeToolName } from '../services/toolEncoder.js';
 import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
+import { callBackend } from '../services/backendBridge.js';
 import {
   WebMCPTool,
   ProviderKey,
   ChatMessage,
   ActivityEntry,
-  IChatSession,
-  ToolResult,
-  DecodedToolCall,
 } from '../types/index.js';
 
 export interface UseAgentSessionReturn {
@@ -22,8 +20,6 @@ export interface UseAgentSessionReturn {
   setProvider: (p: ProviderKey) => void;
   model: string;
   setModel: (m: string) => void;
-  apiKey: string;
-  setApiKey: Dispatch<SetStateAction<string>>;
   suggestPrompt: boolean;
   setSuggestPrompt: Dispatch<SetStateAction<boolean>>;
   userPrompt: string;
@@ -34,7 +30,12 @@ export interface UseAgentSessionReturn {
   setActivityLog: Dispatch<SetStateAction<ActivityEntry[]>>;
   handleSendPrompt: () => Promise<void>;
   handleReset: () => void;
-  handlePromptApiKey: (targetProvider?: ProviderKey) => void;
+}
+
+interface BackendChatResponse {
+  chatId?: string;
+  text?: string;
+  functionCalls?: Array<{ id?: string; name: string; args: Record<string, unknown> }>;
 }
 
 export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAgentSessionReturn {
@@ -45,9 +46,8 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   const [model, setModelState] = useState<string>(() => {
     const p = PROVIDERS[localStorage.provider as ProviderKey] ? (localStorage.provider as ProviderKey) : 'gemini';
     const m = localStorage[`model_${p}`];
-    return PROVIDERS[p].models.includes(m) ? m : PROVIDERS[p].models[0];
+    return PROVIDERS[p]?.models.includes(m) ? m : PROVIDERS[p]?.models[0];
   });
-  const [apiKey, setApiKey] = useState<string>('');
   const [suggestPrompt, setSuggestPrompt] = useState<boolean>(localStorage.suggestUserPrompt !== 'false');
 
   // Chat & Execution State
@@ -57,7 +57,7 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
 
   // Persistent refs for async turn execution
-  const chatSessionRef = useRef<IChatSession | null>(null);
+  const chatIdRef = useRef<string | undefined>(undefined);
   const traceRef = useRef<unknown[]>([]);
   const userPromptPendingIdRef = useRef<number>(0);
   const busyRef = useRef<boolean>(false);
@@ -69,90 +69,42 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   const modelRef = useRef<string>(model);
   modelRef.current = model;
 
-  const apiKeyRef = useRef<string>(apiKey);
-  apiKeyRef.current = apiKey;
-
-  // Environment variables & initial settings migration
+  // Sync active model with backend on startup
   useEffect(() => {
-    (async () => {
-      let env: Record<string, string> | undefined;
-      try {
-        const envModule = await import('../.env.json', { with: { type: 'json' } });
-        env = envModule.default;
-      } catch {}
-
-      if (localStorage.apiKey) {
-        localStorage.apiKey_gemini ??= localStorage.apiKey;
-        localStorage.removeItem('apiKey');
-      }
-      if (localStorage.model) {
-        localStorage.model_gemini ??= localStorage.model;
-        localStorage.removeItem('model');
-      }
-      if (localStorage.model_gemini === 'gemini-2.5-flash') {
-        localStorage.model_gemini = 'gemini-3-flash-preview';
-      }
-
-      if (env?.apiKey) localStorage.apiKey_gemini ??= env.apiKey;
-      if (env?.openaiApiKey) localStorage.apiKey_openai ??= env.openaiApiKey;
-      if (env?.anthropicApiKey) localStorage.apiKey_anthropic ??= env.anthropicApiKey;
-      if (env?.model) localStorage.model_gemini ??= env.model;
-      if (env?.provider && PROVIDERS[env.provider as ProviderKey]) {
-        localStorage.provider ??= env.provider;
-        setProviderState(env.provider as ProviderKey);
-      }
-
-      const activeP = (localStorage.provider as ProviderKey) || 'gemini';
-      const activeK = localStorage[`apiKey_${activeP}`] || '';
-      setApiKey(activeK);
-    })();
+    callBackend('/api/model', { model: modelRef.current }).catch(() => {});
   }, []);
-
-  // Sync API Key when provider changes
-  useEffect(() => {
-    const k = localStorage[`apiKey_${provider}`] || '';
-    setApiKey(k);
-    const m = localStorage[`model_${provider}`];
-    const validModel = PROVIDERS[provider].models.includes(m) ? m : PROVIDERS[provider].models[0];
-    setModelState(validModel);
-    chatSessionRef.current = null;
-  }, [provider]);
 
   // Provider and Model change setters
   const setProvider = useCallback((newProvider: ProviderKey) => {
     if (PROVIDERS[newProvider]) {
       localStorage.provider = newProvider;
       setProviderState(newProvider);
-      chatSessionRef.current = null;
+      chatIdRef.current = undefined;
     }
   }, []);
 
   const setModel = useCallback((newModel: string) => {
     setModelState(newModel);
     localStorage[`model_${providerRef.current}`] = newModel;
-    chatSessionRef.current = null;
+    callBackend('/api/model', { model: newModel, chatId: chatIdRef.current }).catch(() => {});
+    chatIdRef.current = undefined;
   }, []);
 
-  // Prompt suggestions generator
+  // Prompt suggestions generator via backend
   const handleSuggestPrompt = useCallback(async () => {
-    if (!suggestPrompt || busyRef.current || toolsRef.current.length === 0 || !apiKeyRef.current) return;
+    if (!suggestPrompt || busyRef.current || toolsRef.current.length === 0) return;
 
     const userPromptId = ++userPromptPendingIdRef.current;
     try {
-      const text = await oneShot({
-        provider: providerRef.current,
-        apiKey: apiKeyRef.current,
-        model: modelRef.current,
-        contents: [
-          '**Task:** Generate one natural user query for a range of tools below.',
-          '**Tools:**',
-          JSON.stringify(toolsRef.current),
-        ],
+      const res = await callBackend<{ text: string }>('/api/suggest-prompt', {
+        tools: toolsRef.current,
       });
-      if (userPromptId === userPromptPendingIdRef.current && text) {
-        setUserPrompt(text);
+      if (userPromptId === userPromptPendingIdRef.current && res.text) {
+        setUserPrompt(res.text);
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Suggest prompt failed:', e);
+    }
   }, [suggestPrompt, toolsRef]);
 
   useEffect(() => {
@@ -194,54 +146,49 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
     );
   };
 
-  // Main prompt sending logic
+  // Main prompt sending logic via backend
   const handleSendPrompt = async () => {
     if (busy) {
       setBusy(false);
       return;
     }
     const textToSend = userPrompt.trim();
-    if (!textToSend || !apiKey) return;
+    if (!textToSend) return;
 
     setBusy(true);
     setUserPrompt('');
     setMessages((prev) => [...prev, { id: Date.now(), role: 'user', text: textToSend, meta: 'you' }]);
 
     try {
-      chatSessionRef.current ??= createChat({
-        provider,
-        apiKey,
-        model,
-        systemInstruction: [
-          'You are an assistant embedded in a browser tab.',
-          'User prompts typically refer to the current tab unless stated otherwise.',
-          'Use the provided tools to query page content and perform actions.',
-          'When new tools become available after an action (such as search filter tools on updated search results), continue executing the appropriate tools to fulfill the user request in full before responding.',
-          `Today's date is: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
-          'CRITICAL RULE: Whenever the user provides a relative date (e.g., "next Monday", "tomorrow", "in 3 days"), you must calculate the exact calendar date based on today\'s date.',
-          'CRITICAL RULE: Do not try to use other tools than the available ones.',
-        ],
-        toolDecls: buildToolDecls(toolsRef.current),
-        trace: traceRef.current,
+      const toolDecls = buildToolDecls(toolsRef.current);
+      let currentResult = await callBackend<BackendChatResponse>('/api/chat', {
+        message: textToSend,
+        tools: toolDecls,
+        chatId: chatIdRef.current,
       });
 
-      chatSessionRef.current?.setTools(buildToolDecls(toolsRef.current));
-      if (!chatSessionRef.current) return;
+      if (currentResult.chatId) {
+        chatIdRef.current = currentResult.chatId;
+      }
 
-      let { text, toolCalls } = await chatSessionRef.current.send(textToSend);
       let messageRendered = false;
       let turnCount = 0;
       const MAX_TURNS = 10;
 
-      while (toolCalls && toolCalls.length > 0 && busyRef.current && turnCount < MAX_TURNS) {
+      while (
+        currentResult.functionCalls &&
+        currentResult.functionCalls.length > 0 &&
+        busyRef.current &&
+        turnCount < MAX_TURNS
+      ) {
         turnCount++;
-        if (text?.trim()) {
-          setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: text.trim(), meta: model }]);
+        if (currentResult.text?.trim()) {
+          setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim(), meta: modelRef.current }]);
           messageRendered = true;
         }
 
-        const results: ToolResult[] = [];
-        for (const call of toolCalls) {
+        const toolResponses = [];
+        for (const call of currentResult.functionCalls) {
           if (!busyRef.current) break;
           const { name, location } = decodeToolName(toolsRef.current, call.name);
           const entry = logActivity('assistant', name, call.args);
@@ -249,11 +196,21 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
           try {
             const res = await executeTabTool(name, JSON.stringify(call.args), location);
             completeActivity(entry, { result: res });
-            results.push({ id: call.id, name: call.name, result: res });
+            let resVal: unknown;
+            if (res === undefined || res === null || res === '') {
+              resVal = { status: 'success', message: 'Tool executed successfully on page.' };
+            } else {
+              resVal = { result: res };
+            }
+            toolResponses.push({
+              functionResponse: { name: call.name, response: resVal },
+            });
           } catch (err: unknown) {
             const errorMsg = (err as Error)?.message || String(err);
             completeActivity(entry, { error: errorMsg });
-            results.push({ id: call.id, name: call.name, error: errorMsg });
+            toolResponses.push({
+              functionResponse: { name: call.name, response: { error: errorMsg } },
+            });
           }
         }
 
@@ -264,49 +221,40 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
         await new Promise((r) => setTimeout(r, 500));
         if (!busyRef.current) break;
 
-        chatSessionRef.current?.setTools(buildToolDecls(toolsRef.current));
-        if (!chatSessionRef.current) break;
-        const res: { text: string; toolCalls?: DecodedToolCall[] } = await chatSessionRef.current.sendToolResults(results);
-        text = res.text;
-        toolCalls = res.toolCalls;
+        currentResult = await callBackend<BackendChatResponse>('/api/chat', {
+          toolResponses,
+          chatId: chatIdRef.current,
+        });
+
+        if (currentResult.chatId) {
+          chatIdRef.current = currentResult.chatId;
+        }
       }
 
-      if (text?.trim()) {
-        setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: text.trim(), meta: model }]);
-      } else if (!messageRendered) {
+      if (currentResult.text?.trim()) {
+        setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim(), meta: modelRef.current }]);
+      } else if (!messageRendered && (!currentResult.functionCalls || currentResult.functionCalls.length === 0)) {
         setMessages((prev) => [...prev, { id: Date.now(), role: 'error', text: 'The model returned an empty response.' }]);
       }
     } catch (err: unknown) {
-      traceRef.current.push({ error: String(err) });
-      setMessages((prev) => [...prev, { id: Date.now(), role: 'error', text: String(err) }]);
-      chatSessionRef.current = null;
+      const errorMsg = (err as Error)?.message || String(err);
+      traceRef.current.push({ error: errorMsg });
+      setMessages((prev) => [...prev, { id: Date.now(), role: 'error', text: errorMsg }]);
+      chatIdRef.current = undefined;
     } finally {
       setBusy(false);
     }
   };
 
   const handleReset = () => {
-    chatSessionRef.current = null;
+    if (chatIdRef.current) {
+      callBackend('/api/reset', { chatId: chatIdRef.current }).catch(() => {});
+    }
+    chatIdRef.current = undefined;
     traceRef.current = [];
     setUserPrompt('');
     setMessages([]);
     setBusy(false);
-  };
-
-  const handlePromptApiKey = (targetProvider = provider) => {
-    const currentKey = localStorage[`apiKey_${targetProvider}`] || '';
-    const label = PROVIDERS[targetProvider]?.label || targetProvider;
-    const key = prompt(`Enter ${label} API key`, currentKey);
-    if (key === null) return;
-    const trimmed = key.trim();
-    if (trimmed) {
-      localStorage[`apiKey_${targetProvider}`] = trimmed;
-      if (targetProvider === provider) setApiKey(trimmed);
-    } else {
-      localStorage.removeItem(`apiKey_${targetProvider}`);
-      if (targetProvider === provider) setApiKey('');
-    }
-    chatSessionRef.current = null;
   };
 
   return {
@@ -314,8 +262,6 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
     setProvider,
     model,
     setModel,
-    apiKey,
-    setApiKey,
     suggestPrompt,
     setSuggestPrompt,
     userPrompt,
@@ -326,6 +272,7 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
     setActivityLog,
     handleSendPrompt,
     handleReset,
-    handlePromptApiKey,
   };
 }
+
+export default useAgentSession;
