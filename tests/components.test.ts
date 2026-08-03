@@ -134,17 +134,14 @@ test('Header renders right-aligned action controls (Start New Chat, Settings)', 
   assert.ok(html.includes('title="Settings"'));
 });
 
-test('SettingsModal renders options section and prompt suggestion toggle without API keys', () => {
+test('SettingsModal renders Settings title and Coming soon! content', () => {
   const html = renderToString(
     React.createElement(SettingsModal, {
       isOpen: true,
-      suggestPrompt: true,
       onClose: () => {},
-      onToggleSuggestPrompt: () => {},
     })
   );
 
   assert.ok(html.includes('Settings'));
-  assert.ok(html.includes('Suggest user prompt'));
-  assert.ok(!html.includes('API KEYS'));
+  assert.ok(html.includes('Coming soon!'));
 });

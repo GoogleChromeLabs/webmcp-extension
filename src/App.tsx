@@ -31,8 +31,6 @@ export function App() {
   useTheme();
   const { tools, toolsRef, domain, favicon, statusMsg } = useActiveTabTools();
   const {
-    suggestPrompt,
-    setSuggestPrompt,
     userPrompt,
     setUserPrompt,
     messages,
@@ -242,12 +240,7 @@ export function App() {
       {showSettings && (
         <SettingsModal
           isOpen={showSettings}
-          suggestPrompt={suggestPrompt}
           onClose={() => setShowSettings(false)}
-          onToggleSuggestPrompt={(checked: boolean) => {
-            setSuggestPrompt(checked);
-            localStorage.suggestUserPrompt = String(checked);
-          }}
         />
       )}
     </div>

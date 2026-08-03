@@ -223,44 +223,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (url.pathname === '/api/suggest-prompt' && req.method === 'POST') {
-      const { tools } = await parseJsonBody(req);
 
-      if (!ai) {
-        console.error('  Error: Gemini API Key missing.');
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Gemini API Key missing.' }));
-        return;
-      }
-
-      console.log(`  Generating prompt suggestion for ${tools?.length || 0} tools using model: "${activeModel}"`);
-
-      const formattedDate = getFormattedDate();
-
-      const response = await ai.models.generateContent({
-        model: activeModel,
-        contents: [
-          '**Context:**',
-          `Today's date is: ${formattedDate}`,
-          '**Tool Rules:**',
-          '1. **Bank Transaction Filter:** Use **PAST** dates only (e.g., "last month," "December 15th," "yesterday").',
-          '2. **Flight Search:** Use **FUTURE** dates only (e.g., "next week," "February 15th").',
-          '3. **Accommodation Search:** Use **FUTURE** dates only (e.g., "next weekend," "March 15th").',
-          '**Task:**',
-          'Generate one natural user query for a range of tools below, ideally chaining them together.',
-          'Ensure the date makes sense relative to today.',
-          'Output the query text only.',
-          '**Tools:**',
-          JSON.stringify(tools || []),
-        ],
-      });
-
-      console.log(`  Suggested prompt result: "${response.text}"`);
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ text: response.text || '' }));
-      return;
-    }
 
     console.warn(`  404 Not Found: ${url.pathname}`);
     res.writeHead(404, { 'Content-Type': 'application/json' });

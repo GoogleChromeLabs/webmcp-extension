@@ -7,9 +7,7 @@ import React from 'react';
 
 export interface SettingsModalProps {
   isOpen: boolean;
-  suggestPrompt?: boolean;
   onClose: () => void;
-  onToggleSuggestPrompt: (checked: boolean) => void;
 }
 
 /**
@@ -19,9 +17,7 @@ export interface SettingsModalProps {
  */
 export function SettingsModal({
   isOpen,
-  suggestPrompt = true,
   onClose,
-  onToggleSuggestPrompt,
 }: SettingsModalProps) {
   if (!isOpen) return null;
 
@@ -35,14 +31,9 @@ export function SettingsModal({
           </button>
         </div>
 
-        <label className="menu-item checkbox-label">
-          <input
-            type="checkbox"
-            checked={suggestPrompt}
-            onChange={(e) => onToggleSuggestPrompt(e.target.checked)}
-          />
-          <span>Suggest user prompt</span>
-        </label>
+        <div className="menu-item" style={{ color: 'var(--agent-color-on-surface-variant, #444746)', padding: '12px 16px' }}>
+          Coming soon!
+        </div>
       </div>
     </div>
   );

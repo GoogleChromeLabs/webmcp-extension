@@ -14,8 +14,6 @@ import {
 } from '../types/index.js';
 
 export interface UseAgentSessionReturn {
-  suggestPrompt: boolean;
-  setSuggestPrompt: Dispatch<SetStateAction<boolean>>;
   userPrompt: string;
   setUserPrompt: Dispatch<SetStateAction<string>>;
   messages: ChatMessage[];
@@ -33,8 +31,6 @@ interface BackendChatResponse {
 }
 
 export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAgentSessionReturn {
-  const [suggestPrompt, setSuggestPrompt] = useState<boolean>(localStorage.suggestUserPrompt !== 'false');
-
   // Chat & Execution State
   const [userPrompt, setUserPrompt] = useState<string>('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -44,31 +40,8 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   // Persistent refs for async turn execution
   const chatIdRef = useRef<string | undefined>(undefined);
   const traceRef = useRef<unknown[]>([]);
-  const userPromptPendingIdRef = useRef<number>(0);
   const busyRef = useRef<boolean>(false);
   busyRef.current = busy;
-
-  // Prompt suggestions generator via backend
-  const handleSuggestPrompt = useCallback(async () => {
-    if (!suggestPrompt || busyRef.current || toolsRef.current.length === 0 || userPrompt) return;
-
-    const userPromptId = ++userPromptPendingIdRef.current;
-    try {
-      const res = await callBackend<{ text: string }>('/api/suggest-prompt', {
-        tools: toolsRef.current,
-      });
-      if (userPromptId === userPromptPendingIdRef.current && res.text) {
-        setUserPrompt(res.text);
-      }
-    } catch (e) {
-      console.warn('Suggest prompt failed:', e);
-    }
-  }, [suggestPrompt, toolsRef, userPrompt]);
-
-  const toolsCount = toolsRef.current.length;
-  useEffect(() => {
-    handleSuggestPrompt();
-  }, [toolsCount, suggestPrompt, handleSuggestPrompt]);
 
   // Activity logger helpers
   const logActivity = (source: 'assistant' | 'user', name: string, args: unknown): ActivityEntry => {
@@ -218,8 +191,6 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   };
 
   return {
-    suggestPrompt,
-    setSuggestPrompt,
     userPrompt,
     setUserPrompt,
     messages,
