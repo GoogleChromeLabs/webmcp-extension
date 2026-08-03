@@ -80,11 +80,11 @@ npm test
 ```
 
 ### Test Coverage Includes:
-- **AI Providers (`tests/providers.test.js`)**: Provider definitions, model configs, and chat instance creation (`createChat`).
-- **Services & Hooks (`tests/servicesAndHooks.test.js`)**: `useTheme` light mode enforcement, tool schemas, and backend bridge helpers.
-- **Tool Name Encoding (`tests/toolNameEncoding.test.js`)**: Encoded location mapping (`_0_toolName`), schema parameter normalization, and regex decoding (`/^_(\d+)_(.*)$/`).
-- **Markdown Renderer (`tests/markdownText.test.js`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
-- **Extension Utilities (`tests/utils.test.js`)**: Extraction of cross-origin iframe origins (`getIframeOrigins`).
+- **AI Providers (`tests/providers.test.ts`)**: Provider definitions and supported model configurations.
+- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `useTheme` light mode enforcement, tool schemas, and backend bridge helpers.
+- **Tool Name Encoding (`tests/toolNameEncoding.test.ts`)**: Encoded location mapping (`_0_toolName`), schema parameter normalization, and regex decoding (`/^_(\d+)_(.*)$/`).
+- **Markdown Renderer (`tests/markdownText.test.ts`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
+- **Extension Utilities (`tests/utils.test.ts`)**: Extraction of cross-origin iframe origins (`getIframeOrigins`).
 
 ---
 

@@ -168,7 +168,7 @@ test('SettingsModal renders options section and prompt suggestion toggle without
     })
   );
 
-  assert.ok(html.includes('OPTIONS'));
+  assert.ok(html.includes('Settings'));
   assert.ok(html.includes('Suggest user prompt'));
   assert.ok(!html.includes('API KEYS'));
 });

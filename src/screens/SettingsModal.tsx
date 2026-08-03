@@ -35,7 +35,6 @@ export function SettingsModal({
           </button>
         </div>
 
-        <div className="menu-label">OPTIONS</div>
         <label className="menu-item checkbox-label">
           <input
             type="checkbox"

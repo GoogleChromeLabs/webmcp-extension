@@ -51,13 +51,17 @@ if (!apiKey) {
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 const chats = new Map();
 
-function getSystemInstruction() {
-  const formattedDate = new Date().toLocaleDateString('en-US', {
+function getFormattedDate() {
+  return new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   });
+}
+
+function getSystemInstruction() {
+  const formattedDate = getFormattedDate();
   return [
     'You are an assistant embedded in a browser tab.',
     'User prompts typically refer to the current tab unless stated otherwise.',
@@ -231,12 +235,7 @@ const server = http.createServer(async (req, res) => {
 
       console.log(`  Generating prompt suggestion for ${tools?.length || 0} tools using model: "${activeModel}"`);
 
-      const formattedDate = new Date().toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
+      const formattedDate = getFormattedDate();
 
       const response = await ai.models.generateContent({
         model: activeModel,

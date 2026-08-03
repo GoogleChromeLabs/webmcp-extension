@@ -63,15 +63,9 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   const busyRef = useRef<boolean>(false);
   busyRef.current = busy;
 
-  const providerRef = useRef<ProviderKey>(provider);
-  providerRef.current = provider;
-
-  const modelRef = useRef<string>(model);
-  modelRef.current = model;
-
   // Sync active model with backend on startup
   useEffect(() => {
-    callBackend('/api/model', { model: modelRef.current }).catch(() => {});
+    callBackend('/api/model', { model }).catch(() => {});
   }, []);
 
   // Provider and Model change setters
@@ -83,12 +77,24 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
     }
   }, []);
 
-  const setModel = useCallback((newModel: string) => {
-    setModelState(newModel);
-    localStorage[`model_${providerRef.current}`] = newModel;
-    callBackend('/api/model', { model: newModel, chatId: chatIdRef.current }).catch(() => {});
-    chatIdRef.current = undefined;
-  }, []);
+  const setModel = useCallback(
+    async (newModel: string) => {
+      try {
+        const res = await callBackend<{ success: boolean }>('/api/model', {
+          model: newModel,
+          chatId: chatIdRef.current,
+        });
+        if (res && res.success) {
+          setModelState(newModel);
+          localStorage[`model_${provider}`] = newModel;
+          chatIdRef.current = undefined;
+        }
+      } catch (err) {
+        console.error('Failed to set active model on backend:', err);
+      }
+    },
+    [provider]
+  );
 
   // Prompt suggestions generator via backend
   const handleSuggestPrompt = useCallback(async () => {
@@ -107,11 +113,14 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
     }
   }, [suggestPrompt, toolsRef]);
 
+  const toolsCount = toolsRef.current.length;
   useEffect(() => {
-    if (toolsRef.current.length > 0 && suggestPrompt && !userPrompt) {
+    if (toolsCount > 0 && suggestPrompt && !userPrompt) {
       handleSuggestPrompt();
     }
-  }, [toolsRef.current, suggestPrompt, handleSuggestPrompt, userPrompt]);
+    // Only run when toolsCount, suggestPrompt toggle, or handleSuggestPrompt changes,
+    // avoiding re-fetching whenever the user modifies or clears userPrompt manually.
+  }, [toolsCount, suggestPrompt, handleSuggestPrompt]);
 
   // Activity logger helpers
   const logActivity = (source: 'assistant' | 'user', name: string, args: unknown): ActivityEntry => {
@@ -183,7 +192,7 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
       ) {
         turnCount++;
         if (currentResult.text?.trim()) {
-          setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim(), meta: modelRef.current }]);
+          setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim(), meta: model }]);
           messageRendered = true;
         }
 
@@ -235,7 +244,7 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
       }
 
       if (currentResult.text?.trim()) {
-        setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim(), meta: modelRef.current }]);
+        setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim(), meta: model }]);
       } else if (!messageRendered && (!currentResult.functionCalls || currentResult.functionCalls.length === 0)) {
         setMessages((prev) => [...prev, { id: Date.now(), role: 'error', text: 'The model returned an empty response.' }]);
       }
