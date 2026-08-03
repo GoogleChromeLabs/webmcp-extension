@@ -3,6 +3,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.tsx --bundle --format=esm --jsx=automatic --loader:.woff2=file --external:node:fs --external:node:path --external:node:os --outfile=dist/sidebar.js && cp -r extension/* dist/ && cp -r src dist/",
+    "watch": "npm run build && esbuild src/index.tsx --bundle --format=esm --jsx=automatic --loader:.woff2=file --external:node:fs --external:node:path --external:node:os --outfile=dist/sidebar.js --watch",
+    "dev": "npm run watch",
     "test": "rm -rf dist/tests && npx esbuild tests/*.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/*.test.js",
     "clean": "rm -rf dist",
     "server": "node server/server.js"
