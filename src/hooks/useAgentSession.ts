@@ -221,8 +221,11 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
         await new Promise((r) => setTimeout(r, 500));
         if (!busyRef.current) break;
 
+        const updatedTools = buildToolDecls(toolsRef.current);
+
         currentResult = await callBackend<BackendChatResponse>('/api/chat', {
           toolResponses,
+          tools: updatedTools,
           chatId: chatIdRef.current,
         });
 

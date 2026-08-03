@@ -147,36 +147,39 @@ const server = http.createServer(async (req, res) => {
         console.log(`  Resuming chat session [${chatId}] with model: "${activeModel}"`);
       }
 
+      const functionDeclarations = (tools || []).map((tool) => {
+        let name = tool.name;
+        let parametersJsonSchema = { type: 'object', properties: {} };
+        if (tool.parameters) {
+          parametersJsonSchema = tool.parameters;
+        } else if (tool.inputSchema) {
+          parametersJsonSchema = typeof tool.inputSchema === 'string' ? JSON.parse(tool.inputSchema) : tool.inputSchema;
+        }
+        return {
+          name,
+          description: tool.description || '',
+          parametersJsonSchema,
+        };
+      });
+
+      const config = {
+        systemInstruction: getSystemInstruction(),
+        ...(functionDeclarations.length > 0 ? { tools: [{ functionDeclarations }] } : {}),
+      };
+
       let sendMessageParams;
 
       if (toolResponses) {
         console.log(`  Tool responses received for [${chatId}]:`, JSON.stringify(toolResponses, null, 2));
-        sendMessageParams = { message: toolResponses };
+        if (tools && tools.length > 0) {
+          console.log(`  [${chatId}] Tools provided (${tools.length}):`, tools.map((t) => t.name).join(', '));
+        }
+        sendMessageParams = { message: toolResponses, config };
       } else {
         console.log(`  [${chatId}] User message: "${message}"`);
         if (tools && tools.length > 0) {
           console.log(`  [${chatId}] Tools provided (${tools.length}):`, tools.map((t) => t.name).join(', '));
         }
-        const functionDeclarations = (tools || []).map((tool) => {
-          let name = tool.name;
-          let parametersJsonSchema = { type: 'object', properties: {} };
-          if (tool.parameters) {
-            parametersJsonSchema = tool.parameters;
-          } else if (tool.inputSchema) {
-            parametersJsonSchema = typeof tool.inputSchema === 'string' ? JSON.parse(tool.inputSchema) : tool.inputSchema;
-          }
-          return {
-            name,
-            description: tool.description || '',
-            parametersJsonSchema,
-          };
-        });
-
-        const config = {
-          systemInstruction: getSystemInstruction(),
-          ...(functionDeclarations.length > 0 ? { tools: [{ functionDeclarations }] } : {}),
-        };
-
         sendMessageParams = { message, config };
       }
 
