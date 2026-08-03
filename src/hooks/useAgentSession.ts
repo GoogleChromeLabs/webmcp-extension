@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef, useCallback, MutableRefObject, Dispatch, SetStateAction } from 'react';
-import { buildToolDecls, decodeToolName } from '../services/toolEncoder.js';
-import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
+import { Dispatch, MutableRefObject, SetStateAction, useRef, useState } from 'react';
 import { callBackend } from '../services/backendBridge.js';
+import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
+import { buildToolDecls, decodeToolName } from '../services/toolEncoder.js';
 import {
-  WebMCPTool,
-  ChatMessage,
   ActivityEntry,
+  ChatMessage,
+  WebMCPTool,
 } from '../types/index.js';
 
 export interface UseAgentSessionReturn {
