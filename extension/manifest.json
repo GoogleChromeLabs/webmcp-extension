@@ -2,11 +2,10 @@
   "manifest_version": 3,
   "name": "WebMCP Extension",
   "description": "Inspect, monitor, and execute WebMCP tools manually or with Gemini, OpenAI, and Anthropic models",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "minimum_chrome_version": "150.0.7861.0",
   "permissions": ["sidePanel", "activeTab", "scripting", "webNavigation"],
   "host_permissions": ["<all_urls>"],
-  "update_url": "https://clients2.google.com/service/update2/crx",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
