@@ -3,15 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type ProviderKey = 'gemini' | 'openai' | 'anthropic';
 
-export interface ProviderConfig {
-  label: string;
-  models: string[];
-  keyUrl: string;
-}
-
-export type ProvidersMap = Record<ProviderKey, ProviderConfig>;
 
 export interface WebMCPTool {
   name: string;
@@ -91,17 +83,4 @@ export type ExtensionMessage =
   | ExtensionExecuteToolMessage
   | ExtensionGetCrossDocResultMessage;
 
-export interface ChatSessionOptions {
-  provider: ProviderKey;
-  apiKey: string;
-  model: string;
-  systemInstruction?: string | string[];
-  toolDecls: ToolDeclaration[];
-  trace: unknown[];
-}
 
-export interface IChatSession {
-  setTools(toolDecls: ToolDeclaration[]): void;
-  send(text: string): Promise<{ text: string; toolCalls?: DecodedToolCall[] }>;
-  sendToolResults(results: ToolResult[]): Promise<{ text: string; toolCalls?: DecodedToolCall[] }>;
-}

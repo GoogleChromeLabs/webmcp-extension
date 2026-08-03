@@ -9,41 +9,28 @@ import ChatBubble from './components/ChatBubble.jsx';
 import WebMCPToolsDialogue from './components/WebMCPToolsDialogue.jsx';
 import IPHPopover from './components/IPHPopover.jsx';
 import ConsentScreen from './screens/ConsentScreen.jsx';
-import ToolsInspectorScreen from './screens/ToolsInspectorScreen.js';
 import SettingsModal from './screens/SettingsModal.jsx';
 import MarkdownText from './components/MarkdownText.jsx';
 import ActionLog from './components/ActionLog.js';
 
-import { PROVIDERS } from './providers.js';
 import { useTheme } from './hooks/useTheme.js';
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
-import { executeTabTool } from './services/extensionBridge.js';
-import { ProviderKey } from './types/index.js';
 
 export function App() {
   // Navigation & View State
-  const [activeTab, setActiveTab] = useState<'chat' | 'tools'>('chat');
   const [showConsent, setShowConsent] = useState<boolean>(
     (localStorage.agentConsent ?? localStorage.agentConsent) !== 'true'
   );
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
-  const [showModelDropdown, setShowModelDropdown] = useState<boolean>(false);
   const [contextDetached, setContextDetached] = useState<boolean>(false);
 
   // Custom Hooks
   useTheme();
   const { tools, toolsRef, domain, favicon, statusMsg } = useActiveTabTools();
   const {
-    provider,
-    setProvider,
-    model,
-    setModel,
-    apiKey,
-    suggestPrompt,
-    setSuggestPrompt,
     userPrompt,
     setUserPrompt,
     messages,
@@ -52,7 +39,6 @@ export function App() {
     setActivityLog,
     handleSendPrompt,
     handleReset,
-    handlePromptApiKey,
   } = useAgentSession(toolsRef);
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);
@@ -66,14 +52,6 @@ export function App() {
 
   // Derive dynamic welcome subtitle topic based on active domain
   const domainTopic = domain && domain !== 'New Tab' ? domain : 'your tasks';
-
-  // Model switching logic
-  const handleSelectModel = (newProvider: ProviderKey, newModel: string) => {
-    if (newProvider !== provider) {
-      setProvider(newProvider);
-    }
-    setModel(newModel);
-  };
 
   // Welcome Action Chips
   const welcomeActionChips =
@@ -123,7 +101,7 @@ export function App() {
               setShowConsent(false);
             }}
           />
-        ) : activeTab === 'chat' ? (
+        ) : (
           <section className="view chat-view">
             {/* Chat Stream Area */}
             <div id="chatStream">
@@ -201,16 +179,6 @@ export function App() {
               )}
             </div>
 
-            {/* Missing API Key Notice Banner */}
-            {!apiKey && (
-              <div id="keyNotice" className="key-notice">
-                <span>No {PROVIDERS[provider].label} API key set.</span>
-                <button className="btn ghost small" onClick={() => handlePromptApiKey(provider)}>
-                  Set API key
-                </button>
-              </div>
-            )}
-
             {/* Bottom Floating Composer (ChatBubble) */}
             <footer className="composer-footer">
               {/* Floating WebMCP Tools Dialogue Popover */}
@@ -221,10 +189,6 @@ export function App() {
                     toolsCount={tools.length}
                     toolsList={tools.map((t) => t.description || t.name)}
                     onClose={() => setShowToolsDialogue(false)}
-                    onOpenDetails={() => {
-                      setShowToolsDialogue(false);
-                      setActiveTab('tools');
-                    }}
                   />
                 </div>
               )}
@@ -261,12 +225,6 @@ export function App() {
                   onSubmit: handleSendPrompt,
                 }}
                 toolbarProps={{
-                  selectedProvider: provider,
-                  selectedModel: model,
-                  isModelPickerOpen: showModelDropdown,
-                  onModelPickerToggle: () => setShowModelDropdown(!showModelDropdown),
-                  onSelectModel: handleSelectModel,
-                  onCloseModelPicker: () => setShowModelDropdown(false),
                   actionButtonType: busy ? 'Stop Button' : userPrompt.trim() ? 'Send Button' : 'Live Button',
                   actionButtonState: 'Default',
                   onActionButtonClick: handleSendPrompt,
@@ -275,15 +233,6 @@ export function App() {
               />
             </footer>
           </section>
-        ) : (
-          <ToolsInspectorScreen
-            tools={tools}
-            activityLog={activityLog}
-            domain={domain}
-            onBackToChat={() => setActiveTab('chat')}
-            onClearActivity={() => setActivityLog([])}
-            onExecuteTool={executeTabTool}
-          />
         )}
       </main>
 
@@ -291,18 +240,7 @@ export function App() {
       {showSettings && (
         <SettingsModal
           isOpen={showSettings}
-          apiKeys={{
-            gemini: localStorage.apiKey_gemini || '',
-            openai: localStorage.apiKey_openai || '',
-            anthropic: localStorage.apiKey_anthropic || '',
-          }}
-          suggestPrompt={suggestPrompt}
           onClose={() => setShowSettings(false)}
-          onSetApiKey={handlePromptApiKey}
-          onToggleSuggestPrompt={(checked: boolean) => {
-            setSuggestPrompt(checked);
-            localStorage.suggestUserPrompt = String(checked);
-          }}
         />
       )}
     </div>
