@@ -4,22 +4,16 @@
  */
 
 import { useState, useEffect, useRef, useCallback, MutableRefObject, Dispatch, SetStateAction } from 'react';
-import { PROVIDERS } from '../providers.js';
 import { buildToolDecls, decodeToolName } from '../services/toolEncoder.js';
 import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
 import { callBackend } from '../services/backendBridge.js';
 import {
   WebMCPTool,
-  ProviderKey,
   ChatMessage,
   ActivityEntry,
 } from '../types/index.js';
 
 export interface UseAgentSessionReturn {
-  provider: ProviderKey;
-  setProvider: (p: ProviderKey) => void;
-  model: string;
-  setModel: (m: string) => void;
   suggestPrompt: boolean;
   setSuggestPrompt: Dispatch<SetStateAction<boolean>>;
   userPrompt: string;
@@ -39,15 +33,6 @@ interface BackendChatResponse {
 }
 
 export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAgentSessionReturn {
-  // Provider & Model State
-  const [provider, setProviderState] = useState<ProviderKey>(() => {
-    return PROVIDERS[localStorage.provider as ProviderKey] ? (localStorage.provider as ProviderKey) : 'gemini';
-  });
-  const [model, setModelState] = useState<string>(() => {
-    const p = PROVIDERS[localStorage.provider as ProviderKey] ? (localStorage.provider as ProviderKey) : 'gemini';
-    const m = localStorage[`model_${p}`];
-    return PROVIDERS[p]?.models.includes(m) ? m : PROVIDERS[p]?.models[0];
-  });
   const [suggestPrompt, setSuggestPrompt] = useState<boolean>(localStorage.suggestUserPrompt !== 'false');
 
   // Chat & Execution State
@@ -63,42 +48,9 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   const busyRef = useRef<boolean>(false);
   busyRef.current = busy;
 
-  // Sync active model with backend on startup
-  useEffect(() => {
-    callBackend('/api/model', { model }).catch(() => {});
-  }, []);
-
-  // Provider and Model change setters
-  const setProvider = useCallback((newProvider: ProviderKey) => {
-    if (PROVIDERS[newProvider]) {
-      localStorage.provider = newProvider;
-      setProviderState(newProvider);
-      chatIdRef.current = undefined;
-    }
-  }, []);
-
-  const setModel = useCallback(
-    async (newModel: string) => {
-      try {
-        const res = await callBackend<{ success: boolean }>('/api/model', {
-          model: newModel,
-          chatId: chatIdRef.current,
-        });
-        if (res && res.success) {
-          setModelState(newModel);
-          localStorage[`model_${provider}`] = newModel;
-          chatIdRef.current = undefined;
-        }
-      } catch (err) {
-        console.error('Failed to set active model on backend:', err);
-      }
-    },
-    [provider]
-  );
-
   // Prompt suggestions generator via backend
   const handleSuggestPrompt = useCallback(async () => {
-    if (!suggestPrompt || busyRef.current || toolsRef.current.length === 0) return;
+    if (!suggestPrompt || busyRef.current || toolsRef.current.length === 0 || userPrompt) return;
 
     const userPromptId = ++userPromptPendingIdRef.current;
     try {
@@ -111,15 +63,11 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
     } catch (e) {
       console.warn('Suggest prompt failed:', e);
     }
-  }, [suggestPrompt, toolsRef]);
+  }, [suggestPrompt, toolsRef, userPrompt]);
 
   const toolsCount = toolsRef.current.length;
   useEffect(() => {
-    if (toolsCount > 0 && suggestPrompt && !userPrompt) {
-      handleSuggestPrompt();
-    }
-    // Only run when toolsCount, suggestPrompt toggle, or handleSuggestPrompt changes,
-    // avoiding re-fetching whenever the user modifies or clears userPrompt manually.
+    handleSuggestPrompt();
   }, [toolsCount, suggestPrompt, handleSuggestPrompt]);
 
   // Activity logger helpers
@@ -192,7 +140,7 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
       ) {
         turnCount++;
         if (currentResult.text?.trim()) {
-          setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim(), meta: model }]);
+          setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim() }]);
           messageRendered = true;
         }
 
@@ -244,7 +192,7 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
       }
 
       if (currentResult.text?.trim()) {
-        setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim(), meta: model }]);
+        setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim() }]);
       } else if (!messageRendered && (!currentResult.functionCalls || currentResult.functionCalls.length === 0)) {
         setMessages((prev) => [...prev, { id: Date.now(), role: 'error', text: 'The model returned an empty response.' }]);
       }
@@ -270,10 +218,6 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   };
 
   return {
-    provider,
-    setProvider,
-    model,
-    setModel,
     suggestPrompt,
     setSuggestPrompt,
     userPrompt,

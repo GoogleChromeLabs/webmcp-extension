@@ -8,7 +8,6 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
-import { ModelPickerDropdown, MODEL_DISPLAY_NAMES } from '../src/components/ModelPicker.js';
 import { ButtonUI } from '../src/components/ButtonUI.js';
 import { IPHPopover } from '../src/components/IPHPopover.js';
 import { WebMCPToolsDialogue } from '../src/components/WebMCPToolsDialogue.js';
@@ -16,29 +15,6 @@ import { MarkdownText } from '../src/components/MarkdownText.js';
 import { ActionLog, formatLogLabel } from '../src/components/ActionLog.js';
 import { Header } from '../src/components/Header.js';
 import { SettingsModal } from '../src/screens/SettingsModal.js';
-
-test('MODEL_DISPLAY_NAMES formats model names to human-readable strings', () => {
-  assert.equal(MODEL_DISPLAY_NAMES['gemini-3.5-flash'], 'Gemini 3.5 Flash');
-  assert.equal(MODEL_DISPLAY_NAMES['gpt-5.1'], 'GPT 5.1');
-  assert.equal(MODEL_DISPLAY_NAMES['claude-opus-4-8'], 'Claude Opus 4.8');
-});
-
-test('ModelPickerDropdown renders provider groups and checkmarks correctly', () => {
-  const html = renderToString(
-    React.createElement(ModelPickerDropdown, {
-      selectedProvider: 'gemini',
-      selectedModel: 'gemini-3.5-flash',
-      onSelectModel: () => {},
-      onClose: () => {},
-    })
-  );
-
-  assert.ok(html.includes('Gemini'));
-  assert.ok(html.includes('OpenAI'));
-  assert.ok(html.includes('Anthropic'));
-  assert.ok(html.includes('Gemini 3.5 Flash'));
-  assert.ok(html.includes('model-dropdown__item--selected'));
-});
 
 test('ButtonUI renders Play Arrow and Square Stop buttons', () => {
   const playHtml = renderToString(

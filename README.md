@@ -16,7 +16,6 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools ac
   - **Anthropic**: `claude-opus-4-8`, `claude-sonnet-5`, `claude-haiku-4-5` via `@anthropic-ai/sdk`
 - **Figma-Aligned UI Design**:
   - Light mode interface matching WebMCP design tokens.
-  - Model Picker & Dropdown selector with provider grouping and checkmarks.
   - Floating WebMCP Tool IPH popovers and action details modal.
   - Real-time markdown response rendering.
   - Quick action chips and status badges.
@@ -80,7 +79,6 @@ npm test
 ```
 
 ### Test Coverage Includes:
-- **AI Providers (`tests/providers.test.ts`)**: Provider definitions and supported model configurations.
 - **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `useTheme` light mode enforcement, tool schemas, and backend bridge helpers.
 - **Tool Name Encoding (`tests/toolNameEncoding.test.ts`)**: Encoded location mapping (`_0_toolName`), schema parameter normalization, and regex decoding (`/^_(\d+)_(.*)$/`).
 - **Markdown Renderer (`tests/markdownText.test.ts`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
@@ -101,11 +99,10 @@ webmcp-dev-extension/
 │   ├── content.js             # Content script bridging WebMCP document.modelContext
 │   └── utils.js               # Web navigation & iframe origin helpers
 ├── src/                       # React App source code
-│   ├── components/            # React UI components (ModelPicker, ChatBubble, etc.)
+│   ├── components/            # React UI components (ChatBubble, ActionLog, etc.)
 │   ├── screens/               # Screen views (NexusIPH, ToolsInspector, SettingsModal)
 │   ├── services/              # Extension & backend API bridges (backendBridge.ts, etc.)
 │   ├── foundation/            # CSS tokens, Google Symbols fonts, and design tokens
-│   ├── providers.tsx          # React Provider Context & SDK wrappers
 │   ├── App.tsx                # Main application component & tool loop orchestrator
 │   └── index.tsx              # React entry point
 ├── tests/                     # Automated unit test suite

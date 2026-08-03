@@ -13,11 +13,9 @@ import SettingsModal from './screens/SettingsModal.jsx';
 import MarkdownText from './components/MarkdownText.jsx';
 import ActionLog from './components/ActionLog.js';
 
-import { PROVIDERS } from './providers.js';
 import { useTheme } from './hooks/useTheme.js';
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
-import { ProviderKey } from './types/index.js';
 
 export function App() {
   // Navigation & View State
@@ -27,17 +25,12 @@ export function App() {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
-  const [showModelDropdown, setShowModelDropdown] = useState<boolean>(false);
   const [contextDetached, setContextDetached] = useState<boolean>(false);
 
   // Custom Hooks
   useTheme();
   const { tools, toolsRef, domain, favicon, statusMsg } = useActiveTabTools();
   const {
-    provider,
-    setProvider,
-    model,
-    setModel,
     suggestPrompt,
     setSuggestPrompt,
     userPrompt,
@@ -61,14 +54,6 @@ export function App() {
 
   // Derive dynamic welcome subtitle topic based on active domain
   const domainTopic = domain && domain !== 'New Tab' ? domain : 'your tasks';
-
-  // Model switching logic
-  const handleSelectModel = (newProvider: ProviderKey, newModel: string) => {
-    if (newProvider !== provider) {
-      setProvider(newProvider);
-    }
-    setModel(newModel);
-  };
 
   // Welcome Action Chips
   const welcomeActionChips =
@@ -242,12 +227,6 @@ export function App() {
                   onSubmit: handleSendPrompt,
                 }}
                 toolbarProps={{
-                  selectedProvider: provider,
-                  selectedModel: model,
-                  isModelPickerOpen: showModelDropdown,
-                  onModelPickerToggle: () => setShowModelDropdown(!showModelDropdown),
-                  onSelectModel: handleSelectModel,
-                  onCloseModelPicker: () => setShowModelDropdown(false),
                   actionButtonType: busy ? 'Stop Button' : userPrompt.trim() ? 'Send Button' : 'Live Button',
                   actionButtonState: 'Default',
                   onActionButtonClick: handleSendPrompt,
