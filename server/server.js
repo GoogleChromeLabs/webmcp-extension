@@ -50,6 +50,32 @@ if (!apiKey) {
 
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 const chats = new Map();
+const logs = [];
+const logClients = new Set();
+
+function recordServerLog(logEntry) {
+  const { startTime, ...rest } = logEntry;
+  const durationMs = startTime ? Math.round(performance.now() - startTime) : 0;
+  const entry = {
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    durationMs,
+    ...rest,
+  };
+  logs.push(entry);
+  if (logs.length > 500) {
+    logs.shift();
+  }
+  const eventData = `data: ${JSON.stringify({ type: 'log', log: entry })}\n\n`;
+  for (const clientRes of logClients) {
+    try {
+      clientRes.write(eventData);
+    } catch (e) {
+      logClients.delete(clientRes);
+    }
+  }
+  return entry;
+}
 
 function getFormattedDate() {
   return new Date().toLocaleDateString('en-US', {
@@ -106,9 +132,40 @@ const server = http.createServer(async (req, res) => {
   console.log(`\n📥 [${req.method}] ${url.pathname}`);
 
   try {
+    if (url.pathname === '/logs' && req.method === 'GET') {
+      if (url.searchParams.get('stream') === 'true') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        });
+        res.socket?.setNoDelay(true);
+        res.write(`data: ${JSON.stringify({ type: 'init', logs })}\n\n`);
+        logClients.add(res);
+        req.on('close', () => {
+          logClients.delete(res);
+        });
+        return;
+      }
+
+      if (url.searchParams.get('json') === 'true') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ logs }));
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(fs.readFileSync(path.join(__dirname, 'logs.html'), 'utf-8'));
+      return;
+    }
+
+    const startTime = performance.now();
+
     if (url.pathname === '/api/model') {
+      let requestPayload = null;
       if (req.method === 'POST') {
         const { model, chatId } = await parseJsonBody(req);
+        requestPayload = { model, chatId };
         if (model) {
           activeModel = model;
           if (chatId && chats.has(chatId)) {
@@ -124,6 +181,14 @@ const server = http.createServer(async (req, res) => {
       }
       const responsePayload = { success: true, model: activeModel };
       console.log('  Response:', responsePayload);
+      recordServerLog({
+        method: req.method,
+        path: url.pathname,
+        statusCode: 200,
+        startTime,
+        requestPayload,
+        responsePayload,
+      });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(responsePayload));
       return;
@@ -134,6 +199,13 @@ const server = http.createServer(async (req, res) => {
 
       if (!ai) {
         console.error('  Error: Gemini API Key missing on backend server.');
+        recordServerLog({
+          method: req.method,
+          path: url.pathname,
+          statusCode: 400,
+          startTime,
+          error: 'Gemini API Key missing on backend server.',
+        });
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Gemini API Key missing on backend server.' }));
         return;
@@ -203,6 +275,14 @@ const server = http.createServer(async (req, res) => {
         console.log(`  [${chatId}] Gemini Response Text: "${result.text}"`);
       }
 
+      recordServerLog({
+        method: req.method,
+        path: url.pathname,
+        statusCode: 200,
+        startTime,
+        requestPayload: { message, tools, toolResponses, chatId },
+        responsePayload
+      });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(responsePayload));
       return;
@@ -218,6 +298,14 @@ const server = http.createServer(async (req, res) => {
         console.log('  All chat sessions reset.');
       }
       const responsePayload = { success: true, message: 'Chat session reset.' };
+      recordServerLog({
+        method: req.method,
+        path: url.pathname,
+        statusCode: 200,
+        startTime,
+        requestPayload: { chatId },
+        responsePayload,
+      });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(responsePayload));
       return;
@@ -230,6 +318,13 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: 'Not found' }));
   } catch (error) {
     console.error('  Server error:', error.message || error);
+    recordServerLog({
+      method: req.method,
+      path: url.pathname,
+      statusCode: 500,
+      startTime,
+      error: error.message || String(error),
+    });
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: error.message }));
   }
