@@ -18,6 +18,7 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools.
   - Quick action chips and status badges.
 - **Protocol Inspector**: Dedicated tools tab for inspecting registered WebMCP tool declarations, parameter JSON schemas, and manual tool invocation.
 - **In-Flight Tool Re-discovery**: Mid-run tool listing updates ensure newly revealed form tools (e.g. search filters) are immediately made available to the model within multi-turn runs.
+- **Real-Time Debug Server Call Inspector**: Browse `http://localhost:3000/logs` in any web browser to inspect live, streaming request/response payloads, latency, and status codes for all calls made to the backend server.
 
 ---
 
@@ -52,7 +53,7 @@ MODEL=gemini-3.6-flash
    ```bash
    npm run server
    ```
-   This starts the local model routing server on `http://localhost:3000`.
+   This starts the local model routing server on `http://localhost:3000`. You can open `http://localhost:3000/logs` in your web browser to view the real-time server call logs inspector.
 
 3. Build the Chrome extension (in a separate terminal):
    ```bash
@@ -89,7 +90,8 @@ npm test
 webmcp-dev-extension/
 ├── .env                       # Root environment file (GEMINI_API_KEY=...)
 ├── server/                    # Node.js backend server
-│   └── server.js              # Backend model routing server (port 3000)
+│   ├── server.js              # Backend model routing server & call logger (port 3000)
+│   └── logs.html              # Real-time web dashboard for inspecting backend server calls (http://localhost:3000/logs)
 ├── extension/                 # Chrome extension manifest & background/content scripts
 │   ├── manifest.json          # Chrome Extension Manifest V3 configuration
 │   ├── background.js          # Service worker for tab navigation & tool badge updates
