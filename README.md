@@ -1,6 +1,6 @@
 # WebMCP - Example Chrome Extension
 
-A Google Chrome extension for inspecting, executing, and testing WebMCP tools across multi-provider AI models (Gemini, OpenAI / ChatGPT, and Anthropic / Claude).
+A Google Chrome extension for inspecting, executing, and testing WebMCP tools.
 
 > **Disclaimer**: This is not an officially supported Google product. This project is not eligible for the [Google Open Source Software Vulnerability Rewards Program](https://bughunters.google.com/open-source-security).
 
@@ -10,10 +10,7 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools ac
 
 - **Dynamic WebMCP Tool Discovery**: Automatically queries `document.modelContext.getTools()` and listens for `ontoolchange` across top-level pages and cross-origin `iframe` frames.
 - **Backend Model Routing & Secure Key Storage**: Routes model requests to a local Node.js backend server so consumer-facing extension code never accesses or exposes API keys.
-- **Multi-Provider LLM Integration**:
-  - **Gemini**: `gemini-3.5-flash`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite` via `@google/genai`
-  - **OpenAI**: `gpt-5.1`, `gpt-5-mini`, `gpt-4.1` via `openai`
-  - **Anthropic**: `claude-opus-4-8`, `claude-sonnet-5`, `claude-haiku-4-5` via `@anthropic-ai/sdk`
+- **Gemini LLM Integration**: Example powered by `@google/genai` on the backend server.
 - **Figma-Aligned UI Design**:
   - Light mode interface matching WebMCP design tokens.
   - Floating WebMCP Tool IPH popovers and action details modal.
