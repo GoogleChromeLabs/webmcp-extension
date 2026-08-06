@@ -13,7 +13,8 @@ export interface MarkdownTextProps {
 type Block =
   | { type: 'h1' | 'h2' | 'h3' | 'p'; text: string }
   | { type: 'code'; language: string; code: string }
-  | { type: 'ul' | 'ol'; items: string[] };
+  | { type: 'ul'; items: string[] }
+  | { type: 'ol'; start?: number; items: string[] };
 
 /**
  * MarkdownText Component
@@ -37,7 +38,7 @@ function parseBlocks(text: string): Block[] {
   const blocks: Block[] = [];
   const lines = text.split('\n');
   let currentCodeBlock: { lang: string; lines: string[] } | null = null;
-  let currentList: { type: 'ul' | 'ol'; items: string[] } | null = null;
+  let currentList: { type: 'ul' | 'ol'; start?: number; items: string[] } | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -63,7 +64,7 @@ function parseBlocks(text: string): Block[] {
     }
 
     const ulMatch = line.match(/^[\s]*[*|-]\s+(.*)/);
-    const olMatch = line.match(/^[\s]*\d+\.\s+(.*)/);
+    const olMatch = line.match(/^[\s]*(\d+)\.\s+(.*)/);
 
     if (ulMatch) {
       if (!currentList || currentList.type !== 'ul') {
@@ -73,11 +74,14 @@ function parseBlocks(text: string): Block[] {
       currentList.items.push(ulMatch[1]);
       continue;
     } else if (olMatch) {
+      const num = parseInt(olMatch[1], 10);
+      const itemText = olMatch[2];
       if (!currentList || currentList.type !== 'ol') {
         if (currentList) blocks.push(currentList);
-        currentList = { type: 'ol', items: [] };
+        currentList = { type: 'ol', start: num, items: [itemText] };
+      } else {
+        currentList.items.push(itemText);
       }
-      currentList.items.push(olMatch[1]);
       continue;
     } else {
       if (currentList) {
@@ -134,7 +138,7 @@ function RenderBlock({ block }: { block: Block }) {
       );
     case 'ol':
       return (
-        <ol className="md-ol">
+        <ol className="md-ol" start={block.start}>
           {block.items.map((item, idx) => (
             <li key={idx}>{renderInline(item)}</li>
           ))}

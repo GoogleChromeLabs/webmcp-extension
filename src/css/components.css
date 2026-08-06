@@ -1231,7 +1231,6 @@
   background-color: var(--gem-sys-color--surface, #ffffff);
   border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 4px 16px rgba(4, 30, 73, 0.04);
   display: flex;
   flex-direction: column;
   gap: 12px;

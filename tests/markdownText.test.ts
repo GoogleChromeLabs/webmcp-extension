@@ -19,3 +19,25 @@ test('parseInline parses bold, italic, code, and markdown links', () => {
   assert.ok(html.includes('href="https://example.com"'));
   assert.ok(html.includes('Link'));
 });
+
+test('MarkdownText renders ordered lists with start attribute when interrupted by sub-lists', () => {
+  const text = `1. **Hotel Alpha**
+   * Rating: 4.9
+   * Price: $200
+
+2. **Hotel Beta**
+   * Rating: 4.8
+   * Price: $180
+
+3. **Hotel Gamma**
+   * Rating: 4.5`;
+
+  const html = renderToString(React.createElement(MarkdownText, { content: text }));
+
+  assert.ok(html.includes('<ol class="md-ol" start="1">'));
+  assert.ok(html.includes('<ol class="md-ol" start="2">'));
+  assert.ok(html.includes('<ol class="md-ol" start="3">'));
+  assert.ok(html.includes('Hotel Alpha'));
+  assert.ok(html.includes('Hotel Beta'));
+  assert.ok(html.includes('Hotel Gamma'));
+});

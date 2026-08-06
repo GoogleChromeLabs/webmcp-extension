@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { AutomationIcon, SettingsIcon, CloseIcon, SymbolIcon } from './Icons.js';
+import { AutomationIcon, CloseIcon, SymbolIcon } from './Icons.js';
 
 export interface WebMCPToolsDialogueProps {
   domain?: string;

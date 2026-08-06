@@ -14,7 +14,7 @@ import { WebMCPToolsDialogue } from '../src/components/WebMCPToolsDialogue.js';
 import { MarkdownText } from '../src/components/MarkdownText.js';
 import { ActionLog, formatLogLabel } from '../src/components/ActionLog.js';
 import { Header } from '../src/components/Header.js';
-import { SettingsModal } from '../src/screens/SettingsModal.js';
+import { AttachedTab } from '../src/components/AttachedTab.js';
 
 test('ButtonUI renders Play Arrow and Square Stop buttons', () => {
   const playHtml = renderToString(
@@ -51,20 +51,20 @@ test('IPHPopover renders dark blue IPH card text', () => {
 test('WebMCPToolsDialogue renders tools count and tools list', () => {
   const html = renderToString(
     React.createElement(WebMCPToolsDialogue, {
-      domain: 'booking.com',
+      domain: 'example.com',
       toolsCount: 2,
       toolsList: ['Search hotels', 'Filter gym'],
       onClose: () => {},
     })
   );
 
-  assert.ok(html.includes('booking.com'));
+  assert.ok(html.includes('example.com'));
   assert.ok(html.includes('Search hotels'));
   assert.ok(html.includes('Filter gym'));
 });
 
 test('MarkdownText renders formatted HTML headers, lists, code, and links', () => {
-  const markdown = '# Heading 1\n\n- Item 1\n- Item 2\n\nVisit [Google](https://google.com) `code_block`';
+  const markdown = '# Heading 1\n\n- Item 1\n- Item 2\n\nVisit [Example](https://example.com) `code_block`';
   const html = renderToString(
     React.createElement(MarkdownText, { content: markdown })
   );
@@ -73,7 +73,7 @@ test('MarkdownText renders formatted HTML headers, lists, code, and links', () =
   assert.ok(html.includes('class="md-h1"'));
   assert.ok(html.includes('<ul class="md-ul"'));
   assert.ok(html.includes('Item 1'));
-  assert.ok(html.includes('href="https://google.com"'));
+  assert.ok(html.includes('href="https://example.com"'));
   assert.ok(html.includes('code_block'));
 });
 
@@ -122,26 +122,39 @@ test('ActionLog renders initiation, running, and completed states matching Figma
   assert.ok(completedHtml.includes('Apply filters'));
 });
 
-test('Header renders right-aligned action controls (Start New Chat, Settings)', () => {
+test('AttachedTab renders domain without X close button for single tab', () => {
+  const html = renderToString(
+    React.createElement(AttachedTab, {
+      domain: 'example.com',
+      property1: 'Single',
+    })
+  );
+
+  assert.ok(html.includes('example.com'));
+  assert.ok(!html.includes('attached-tab__close-btn'));
+  assert.ok(!html.includes('title="Close tab"'));
+});
+
+test('AttachedTab renders domain and tools count label', () => {
+  const html = renderToString(
+    React.createElement(AttachedTab, {
+      domain: 'example.com',
+      toolsCountLabel: '3 tools',
+      property2: 'With tools',
+    })
+  );
+
+  assert.ok(html.includes('example.com'));
+  assert.ok(html.includes('3 tools'));
+});
+
+test('Header renders right-aligned action controls (Start New Chat)', () => {
   const html = renderToString(
     React.createElement(Header, {
       onEdit: () => {},
-      onSettings: () => {},
     })
   );
 
   assert.ok(html.includes('title="Start new chat"'));
-  assert.ok(html.includes('title="Settings"'));
-});
-
-test('SettingsModal renders Settings title and Coming soon! content', () => {
-  const html = renderToString(
-    React.createElement(SettingsModal, {
-      isOpen: true,
-      onClose: () => {},
-    })
-  );
-
-  assert.ok(html.includes('Settings'));
-  assert.ok(html.includes('Coming soon!'));
+  assert.ok(!html.includes('Settings'));
 });
