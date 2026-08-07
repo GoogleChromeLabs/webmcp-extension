@@ -68,10 +68,11 @@ html, body {
   width: 100%;
   position: relative;
   background: var(--bg-canvas);
-  padding: 4px 12px 12px 12px;
+  padding: 12px;
   gap: 4px;
   box-sizing: border-box;
   overflow: hidden;
+  border-radius: 16px;
 }
 
 :focus-visible {
@@ -247,13 +248,55 @@ main {
 .welcome-card {
   background: var(--card-bg);
   border-radius: 16px;
-  padding: 48px 16px 20px 16px;
-  box-shadow: 0 12px 40px rgba(4, 30, 73, 0.06), 0 2px 10px rgba(4, 30, 73, 0.03);
+  padding: 24px 16px 20px 16px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 8px;
   flex: 1;
+}
+
+.welcome-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.welcome-card__new-chat-btn,
+.chat-card__new-chat-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-dark, #012c6f);
+  border-radius: 20px;
+  transition: background-color 0.15s ease-in-out;
+  outline: none;
+}
+
+.welcome-card__new-chat-btn:hover,
+.chat-card__new-chat-btn:hover {
+  background-color: rgba(1, 44, 111, 0.08);
+}
+
+.chat-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--card-bg-subtle, #f0f4f9);
+}
+
+.new-chat-label {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-dark, #012c6f);
 }
 
 .welcome-title {

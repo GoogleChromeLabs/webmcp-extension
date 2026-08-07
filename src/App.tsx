@@ -4,14 +4,13 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import Header from './components/Header.jsx';
 import ChatBubble from './components/ChatBubble.jsx';
 import WebMCPToolsDialogue from './components/WebMCPToolsDialogue.jsx';
 import IPHPopover from './components/IPHPopover.jsx';
 import ConsentScreen from './screens/ConsentScreen.jsx';
-import SettingsModal from './screens/SettingsModal.jsx';
 import MarkdownText from './components/MarkdownText.jsx';
 import ActionLog from './components/ActionLog.js';
+import { EditSquareIcon } from './components/Icons.js';
 
 import { useTheme } from './hooks/useTheme.js';
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
@@ -22,10 +21,8 @@ export function App() {
   const [showConsent, setShowConsent] = useState<boolean>(
     (localStorage.agentConsent ?? localStorage.agentConsent) !== 'true'
   );
-  const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
-  const [contextDetached, setContextDetached] = useState<boolean>(false);
 
   // Custom Hooks
   useTheme();
@@ -55,7 +52,7 @@ export function App() {
 
   // Welcome Action Chips
   const welcomeActionChips =
-    tools.length > 0 && domain && !contextDetached
+    tools.length > 0 && domain
       ? tools.slice(0, 3).map((tool) => ({
           text: tool.description || tool.name,
         }))
@@ -78,14 +75,6 @@ export function App() {
 
   return (
     <div className="agent-screen-shell">
-      {/* Top Extension Header */}
-      <Header
-        title="AGENT"
-        onEdit={handleReset}
-        onSettings={() => setShowSettings(true)}
-        onClose={() => window.close()}
-      />
-
       {/* Error / Status Notice */}
       {statusMsg && <div id="status">{statusMsg}</div>}
 
@@ -107,9 +96,11 @@ export function App() {
             <div id="chatStream">
               {messages.length === 0 && (
                 <div id="welcomeCard" className="welcome-card">
-                  <h1 className="welcome-title">Hi there!</h1>
+                  <div className="welcome-card__header">
+                    <h1 className="welcome-title">Hi there!</h1>
+                  </div>
                   <p className="welcome-subtitle">
-                    {tools.length > 0 && !contextDetached
+                    {tools.length > 0
                       ? `How can I help you with ${domainTopic}?`
                       : 'How can I help you?'}
                   </p>
@@ -131,6 +122,18 @@ export function App() {
               {/* Chat Card Area matching Figma design */}
               {messages.length > 0 && (
                 <div className="chat-card">
+                  <div className="chat-card__header">
+                    <button
+                      type="button"
+                      className="chat-card__new-chat-btn"
+                      onClick={handleReset}
+                      title="Start new chat"
+                      aria-label="Start new chat"
+                    >
+                      <EditSquareIcon size={20} color="#012c6f" />
+                    </button>
+                  </div>
+
                   {/* Messages and Logs */}
                   {messages.map((msg) => {
                     if (msg.role === 'user') {
@@ -208,14 +211,13 @@ export function App() {
               )}
 
               <ChatBubble
-                tab={!contextDetached && Boolean(domain && domain !== 'New Tab')}
+                tab={Boolean(domain && domain !== 'New Tab')}
                 tabProps={{
                   property1: 'Single',
                   property2: tools.length > 0 ? 'With tools' : 'No tools',
                   domain: domain || 'New Tab',
                   faviconUrl: favicon,
                   toolsCountLabel: `${tools.length} tools`,
-                  onClose: () => setContextDetached(true),
                   onToggleExpand: handleBadgeClick,
                 }}
                 textProps={{
@@ -228,21 +230,12 @@ export function App() {
                   actionButtonType: busy ? 'Stop Button' : userPrompt.trim() ? 'Send Button' : 'Live Button',
                   actionButtonState: 'Default',
                   onActionButtonClick: handleSendPrompt,
-                  onAttach: () => setContextDetached(false),
                 }}
               />
             </footer>
           </section>
         )}
       </main>
-
-      {/* Settings Modal */}
-      {showSettings && (
-        <SettingsModal
-          isOpen={showSettings}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
     </div>
   );
 }
