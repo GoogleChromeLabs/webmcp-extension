@@ -72,9 +72,11 @@ async function listTools(fromOrigins) {
       } catch {
         location = await getLocation(tool.window);
       }
+      const inputSchema =
+        typeof tool.inputSchema === 'string' ? tool.inputSchema : JSON.stringify(tool.inputSchema);
       tools.push({
         description: tool.description,
-        inputSchema: tool.inputSchema,
+        inputSchema,
         readOnlyHint: tool.annotations?.readOnlyHint ? '✓' : undefined,
         untrustedContentHint: tool.annotations?.untrustedContentHint ? '✓' : undefined,
         name: tool.name,
