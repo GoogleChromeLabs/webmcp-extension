@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
-
 export interface WebMCPTool {
   name: string;
   description?: string;
@@ -38,6 +36,9 @@ export interface ToolResult {
   error?: string;
 }
 
+export type ExecutionStatus = 'running' | 'ok' | 'err';
+export type ActionLogStatus = 'initiation' | 'running' | 'completed' | 'error';
+
 export interface ActivityEntry {
   id: number;
   time: string;
@@ -45,7 +46,7 @@ export interface ActivityEntry {
   name: string;
   args: unknown;
   start: number;
-  status: 'running' | 'ok' | 'err';
+  status: ExecutionStatus;
   durationMs?: number;
   result?: unknown;
   error?: string;
@@ -55,6 +56,7 @@ export interface ChatMessage {
   id: number;
   role: 'user' | 'ai' | 'error';
   text: string;
+  activityLogs?: ActivityEntry[];
   meta?: string;
 }
 
@@ -79,8 +81,4 @@ export interface ExtensionGetCrossDocResultMessage {
 }
 
 export type ExtensionMessage =
-  | ExtensionListToolsMessage
-  | ExtensionExecuteToolMessage
-  | ExtensionGetCrossDocResultMessage;
-
-
+  ExtensionListToolsMessage | ExtensionExecuteToolMessage | ExtensionGetCrossDocResultMessage;

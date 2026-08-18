@@ -41,3 +41,13 @@ test('MarkdownText renders ordered lists with start attribute when interrupted b
   assert.ok(html.includes('Hotel Beta'));
   assert.ok(html.includes('Hotel Gamma'));
 });
+
+test('MarkdownText sanitizes javascript: and data: URLs to prevent XSS', () => {
+  const xssText = '[Malicious Link](javascript:alert(document.cookie)) and [Data Link](data:text/html,<script>alert(1)</script>) and [Safe Link](https://google.com)';
+  const html = renderToString(React.createElement(MarkdownText, { content: xssText }));
+
+  assert.ok(!html.includes('href="javascript:alert(document.cookie)"'));
+  assert.ok(!html.includes('href="data:text/html'));
+  assert.ok(html.includes('href="#"'));
+  assert.ok(html.includes('href="https://google.com"'));
+});

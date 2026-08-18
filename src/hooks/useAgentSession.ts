@@ -3,15 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Dispatch, MutableRefObject, SetStateAction, useRef, useState } from 'react';
-import { callBackend } from '../services/backendBridge.js';
-import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
-import { buildToolDecls, decodeToolName } from '../services/toolEncoder.js';
-import {
-  ActivityEntry,
-  ChatMessage,
-  WebMCPTool,
-} from '../types/index.js';
+import { Dispatch, MutableRefObject, SetStateAction, useRef, useState, useEffect } from 'react';
+import { callBackend } from '../services/backendBridge';
+import { executeTabTool, requestTabTools } from '../services/extensionBridge';
+import { buildToolDecls, decodeToolName } from '../services/toolEncoder';
+import { ActivityEntry, ChatMessage, WebMCPTool } from '../types';
 
 export interface UseAgentSessionReturn {
   userPrompt: string;
@@ -41,10 +37,18 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
   const chatIdRef = useRef<string | undefined>(undefined);
   const traceRef = useRef<unknown[]>([]);
   const busyRef = useRef<boolean>(false);
-  busyRef.current = busy;
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   // Activity logger helpers
-  const logActivity = (source: 'assistant' | 'user', name: string, args: unknown): ActivityEntry => {
+  const logActivity = (
+    source: 'assistant' | 'user',
+    name: string,
+    args: unknown,
+    currentTurnLogs: ActivityEntry[]
+  ): ActivityEntry => {
     const entryId = Date.now() + Math.random();
     const entry: ActivityEntry = {
       id: entryId,
@@ -55,25 +59,22 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
       start: performance.now(),
       status: 'running',
     };
-    setActivityLog((prev) => [entry, ...prev]);
+    currentTurnLogs.unshift(entry);
+    setActivityLog([...currentTurnLogs]);
     return entry;
   };
 
-  const completeActivity = (entry: ActivityEntry, { result, error }: { result?: unknown; error?: string }) => {
+  const completeActivity = (
+    entry: ActivityEntry,
+    { result, error }: { result?: unknown; error?: string },
+    currentTurnLogs: ActivityEntry[]
+  ) => {
     const durationMs = Math.round(performance.now() - entry.start);
-    setActivityLog((prev) =>
-      prev.map((item) =>
-        item.id === entry.id
-          ? {
-              ...item,
-              status: error ? 'err' : 'ok',
-              durationMs,
-              result,
-              error,
-            }
-          : item
-      )
-    );
+    entry.status = error ? 'err' : 'ok';
+    entry.durationMs = durationMs;
+    entry.result = result;
+    entry.error = error;
+    setActivityLog([...currentTurnLogs]);
   };
 
   // Main prompt sending logic via backend
@@ -87,7 +88,12 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
 
     setBusy(true);
     setUserPrompt('');
-    setMessages((prev) => [...prev, { id: Date.now(), role: 'user', text: textToSend, meta: 'you' }]);
+    setActivityLog([]);
+    const currentTurnLogs: ActivityEntry[] = [];
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now(), role: 'user', text: textToSend, meta: 'you' },
+    ]);
 
     try {
       const toolDecls = buildToolDecls(toolsRef.current);
@@ -113,7 +119,15 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
       ) {
         turnCount++;
         if (currentResult.text?.trim()) {
-          setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim() }]);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now(),
+              role: 'ai',
+              text: currentResult.text!.trim(),
+              activityLogs: [...currentTurnLogs],
+            },
+          ]);
           messageRendered = true;
         }
 
@@ -121,11 +135,11 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
         for (const call of currentResult.functionCalls) {
           if (!busyRef.current) break;
           const { name, location } = decodeToolName(toolsRef.current, call.name);
-          const entry = logActivity('assistant', name, call.args);
+          const entry = logActivity('assistant', name, call.args, currentTurnLogs);
 
           try {
             const res = await executeTabTool(name, JSON.stringify(call.args), location);
-            completeActivity(entry, { result: res });
+            completeActivity(entry, { result: res }, currentTurnLogs);
             let resVal: unknown;
             if (res === undefined || res === null || res === '') {
               resVal = { status: 'success', message: 'Tool executed successfully on page.' };
@@ -137,7 +151,7 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
             });
           } catch (err: unknown) {
             const errorMsg = (err as Error)?.message || String(err);
-            completeActivity(entry, { error: errorMsg });
+            completeActivity(entry, { error: errorMsg }, currentTurnLogs);
             toolResponses.push({
               functionResponse: { name: call.name, response: { error: errorMsg } },
             });
@@ -146,7 +160,9 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
 
         try {
           await requestTabTools();
-        } catch {}
+        } catch {
+          // Tab tools refresh error ignored when tab is navigating
+        }
 
         await new Promise((r) => setTimeout(r, 500));
         if (!busyRef.current) break;
@@ -164,15 +180,42 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
         }
       }
 
+      if (!busyRef.current) {
+        return;
+      }
+
       if (currentResult.text?.trim()) {
-        setMessages((prev) => [...prev, { id: Date.now(), role: 'ai', text: currentResult.text!.trim() }]);
-      } else if (!messageRendered && (!currentResult.functionCalls || currentResult.functionCalls.length === 0)) {
-        setMessages((prev) => [...prev, { id: Date.now(), role: 'error', text: 'The model returned an empty response.' }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            role: 'ai',
+            text: currentResult.text!.trim(),
+            activityLogs: [...currentTurnLogs],
+          },
+        ]);
+      } else if (
+        !messageRendered &&
+        (!currentResult.functionCalls || currentResult.functionCalls.length === 0)
+      ) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            role: 'error',
+            text: 'The model returned an empty response.',
+            activityLogs: [...currentTurnLogs],
+          },
+        ]);
       }
     } catch (err: unknown) {
+      if (!busyRef.current) return;
       const errorMsg = (err as Error)?.message || String(err);
       traceRef.current.push({ error: errorMsg });
-      setMessages((prev) => [...prev, { id: Date.now(), role: 'error', text: errorMsg }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now(), role: 'error', text: errorMsg, activityLogs: [...currentTurnLogs] },
+      ]);
       chatIdRef.current = undefined;
     } finally {
       setBusy(false);

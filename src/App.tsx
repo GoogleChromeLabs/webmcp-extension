@@ -4,47 +4,38 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import ChatBubble from './components/ChatBubble.jsx';
-import WebMCPToolsDialogue from './components/WebMCPToolsDialogue.jsx';
-import IPHPopover from './components/IPHPopover.jsx';
-import ConsentScreen from './screens/ConsentScreen.jsx';
-import MarkdownText from './components/MarkdownText.jsx';
-import ActionLog from './components/ActionLog.js';
-import { EditSquareIcon } from './components/Icons.js';
+import ChatBubble from './components/ChatBubble';
+import WebMCPToolsDialogue from './components/WebMCPToolsDialogue';
+import InProductHelpPopover from './components/InProductHelpPopover';
+import ConsentScreen from './screens/ConsentScreen';
+import MarkdownText from './components/MarkdownText';
+import ActionLog from './components/ActionLog';
+import { EditSquareIcon } from './components/Icons';
 
-import { useTheme } from './hooks/useTheme.js';
-import { useActiveTabTools } from './hooks/useActiveTabTools.js';
-import { useAgentSession } from './hooks/useAgentSession.js';
+import { useActiveTabTools } from './hooks/useActiveTabTools';
+import { useAgentSession } from './hooks/useAgentSession';
 
 export function App() {
   // Navigation & View State
   const [showConsent, setShowConsent] = useState<boolean>(
-    (localStorage.agentConsent ?? localStorage.agentConsent) !== 'true'
+    () => localStorage.getItem('agentConsent') !== 'true'
   );
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
-  const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
+  const [showInProductHelpPopover, setShowInProductHelpPopover] = useState<boolean>(false);
 
   // Custom Hooks
-  useTheme();
   const { tools, toolsRef, domain, favicon, statusMsg } = useActiveTabTools();
-  const {
-    userPrompt,
-    setUserPrompt,
-    messages,
-    busy,
-    activityLog,
-    setActivityLog,
-    handleSendPrompt,
-    handleReset,
-  } = useAgentSession(toolsRef);
+  const { userPrompt, setUserPrompt, messages, busy, activityLog, handleSendPrompt, handleReset } =
+    useAgentSession(toolsRef);
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);
 
   // Auto scroll chat to bottom on new messages
   useEffect(() => {
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       chatStreamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 50);
+    return () => clearTimeout(timer);
   }, [messages, busy]);
 
   // Derive dynamic welcome subtitle topic based on active domain
@@ -63,13 +54,13 @@ export function App() {
         ];
 
   const handleBadgeClick = () => {
-    if (showIPHPopover) {
-      setShowIPHPopover(false);
+    if (showInProductHelpPopover) {
+      setShowInProductHelpPopover(false);
       setShowToolsDialogue(true);
     } else if (showToolsDialogue) {
       setShowToolsDialogue(false);
     } else {
-      setShowIPHPopover(true);
+      setShowInProductHelpPopover(true);
     }
   };
 
@@ -82,11 +73,11 @@ export function App() {
         {showConsent ? (
           <ConsentScreen
             onGotIt={() => {
-              localStorage.agentConsent = 'true';
+              localStorage.setItem('agentConsent', 'true');
               setShowConsent(false);
             }}
             onClose={() => {
-              localStorage.agentConsent = 'true';
+              localStorage.setItem('agentConsent', 'true');
               setShowConsent(false);
             }}
           />
@@ -147,10 +138,7 @@ export function App() {
                     if (msg.role === 'ai') {
                       return (
                         <React.Fragment key={msg.id}>
-                          <ActionLog
-                            status="completed"
-                            activityLogs={activityLog}
-                          />
+                          <ActionLog status="completed" activityLogs={msg.activityLogs || []} />
                           <div className="ai-response">
                             <MarkdownText content={msg.text} />
                           </div>
@@ -196,16 +184,16 @@ export function App() {
                 </div>
               )}
 
-              {/* Floating IPH Popover */}
-              {showIPHPopover && (
+              {/* Floating InProductHelpPopover */}
+              {showInProductHelpPopover && (
                 <div className="floating-popover">
-                  <IPHPopover
-                    onClose={() => setShowIPHPopover(false)}
+                  <InProductHelpPopover
+                    onClose={() => setShowInProductHelpPopover(false)}
                     onViewActions={() => {
-                      setShowIPHPopover(false);
+                      setShowInProductHelpPopover(false);
                       setShowToolsDialogue(true);
                     }}
-                    onGotIt={() => setShowIPHPopover(false)}
+                    onGotIt={() => setShowInProductHelpPopover(false)}
                   />
                 </div>
               )}
@@ -223,11 +211,16 @@ export function App() {
                 textProps={{
                   value: userPrompt,
                   placeholder: 'Ask Agent anything',
-                  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setUserPrompt(e.target.value),
+                  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+                    setUserPrompt(e.target.value),
                   onSubmit: handleSendPrompt,
                 }}
                 toolbarProps={{
-                  actionButtonType: busy ? 'Stop Button' : userPrompt.trim() ? 'Send Button' : 'Live Button',
+                  actionButtonType: busy
+                    ? 'Stop Button'
+                    : userPrompt.trim()
+                      ? 'Send Button'
+                      : 'Live Button',
                   actionButtonState: 'Default',
                   onActionButtonClick: handleSendPrompt,
                 }}

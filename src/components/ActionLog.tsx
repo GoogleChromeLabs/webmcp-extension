@@ -4,11 +4,11 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowDownIcon, ArrowUpIcon, AtomLogo } from './Icons.js';
-import { ActivityEntry } from '../types/index.js';
+import { ArrowDownIcon, ArrowUpIcon, AtomLogo } from './Icons';
+import { ActivityEntry, ActionLogStatus } from '../types';
 
 export interface ActionLogProps {
-  status: 'initiation' | 'running' | 'completed' | 'error';
+  status: ActionLogStatus;
   statusText?: string;
   activityLogs?: ActivityEntry[];
   defaultOpen?: boolean;
@@ -23,13 +23,10 @@ export function formatLogLabel(name: string): string {
   return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
 
-export function ActionLog({
-  status,
-  statusText,
-  activityLogs = [],
-  defaultOpen,
-}: ActionLogProps) {
-  const [isOpen, setIsOpen] = useState<boolean>(defaultOpen ?? (status === 'completed' ? false : true));
+export function ActionLog({ status, statusText, activityLogs = [], defaultOpen }: ActionLogProps) {
+  const [isOpen, setIsOpen] = useState<boolean>(
+    defaultOpen ?? (status === 'completed' ? false : true)
+  );
 
   // Determine status label
   let headerLabel = statusText;
@@ -38,9 +35,7 @@ export function ActionLog({
       headerLabel = 'Just a sec...';
     } else if (status === 'running') {
       const activeEntry = activityLogs[0];
-      headerLabel = activeEntry
-        ? `${formatLogLabel(activeEntry.name)}...`
-        : 'Thinking...';
+      headerLabel = activeEntry ? `${formatLogLabel(activeEntry.name)}...` : 'Thinking...';
     } else if (status === 'completed') {
       headerLabel = 'Show thinking';
     } else if (status === 'error') {
@@ -94,9 +89,7 @@ export function ActionLog({
                         <span className="action-log__item-circle" />
                       )}
                     </div>
-                    <span className="action-log__item-label">
-                      {formatLogLabel(entry.name)}
-                    </span>
+                    <span className="action-log__item-label">{formatLogLabel(entry.name)}</span>
                   </div>
                 );
               })

@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { PlayArrowIcon, SquareStopIcon } from './Icons.js';
+import { PlayArrowIcon, SquareStopIcon } from './Icons';
 
 export interface ButtonUIProps {
   property1?: 'Live Button' | 'Send Button' | 'Stop Button';
@@ -45,11 +45,7 @@ export function ButtonUI({
   };
 
   return (
-    <button
-      className={classNames.join(' ')}
-      onClick={onClick}
-      aria-label={buttonType}
-    >
+    <button className={classNames.join(' ')} onClick={onClick} aria-label={buttonType}>
       <div className="button-ui__icon-wrapper">{renderIcon()}</div>
     </button>
   );

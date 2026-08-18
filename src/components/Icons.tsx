@@ -29,15 +29,15 @@ export function SymbolIcon({
 }: SymbolIconProps) {
   return (
     <span
-      className={`cdds-symbol ${className}`}
+      className={`cdds-symbol material-symbols-outlined ${className}`.trim()}
       style={{
-        fontFamily: "'Google Symbols', sans-serif",
+        fontFamily: "'Material Symbols Outlined', 'Google Symbols', sans-serif",
         fontSize: typeof size === 'number' ? `${size}px` : size,
         color: color,
         lineHeight: 1,
         display: 'inline-block',
         whiteSpace: 'nowrap',
-        fontVariationSettings: `'FILL' ${fill}, 'GRAD' 0, 'ROND' 50, 'wght' ${weight}`,
+        fontVariationSettings: `'FILL' ${fill}, 'GRAD' 0, 'opsz' 20, 'wght' ${weight}`,
         ...style,
       }}
     >
@@ -90,8 +90,15 @@ export const CloseIcon = (p: IconProp) => <SymbolIcon name="close" size={20} {..
 export const EditSquareIcon = (p: IconProp) => <SymbolIcon name="edit_square" size={20} {...p} />;
 export const SettingsIcon = (p: IconProp) => <SymbolIcon name="settings" size={20} {...p} />;
 export const MoreVertIcon = (p: IconProp) => <SymbolIcon name="more_vert" size={20} {...p} />;
-export const ArrowDownIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_down" size={16} {...p} />;
-export const ArrowUpIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_up" size={16} {...p} />;
+export const ArrowDownIcon = (p: IconProp) => (
+  <SymbolIcon name="keyboard_arrow_down" size={16} {...p} />
+);
+export const ArrowUpIcon = (p: IconProp) => (
+  <SymbolIcon name="keyboard_arrow_up" size={16} {...p} />
+);
+export const ArrowDropUpIcon = (p: IconProp) => (
+  <SymbolIcon name="arrow_drop_up" size={16} {...p} />
+);
 export const KeyboardArrowDownIcon = ArrowDownIcon;
 export const KeyboardArrowUpIcon = ArrowUpIcon;
 

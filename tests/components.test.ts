@@ -9,12 +9,15 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 
 import { ButtonUI } from '../src/components/ButtonUI.js';
-import { IPHPopover } from '../src/components/IPHPopover.js';
+import { InProductHelpPopover } from '../src/components/InProductHelpPopover.js';
 import { WebMCPToolsDialogue } from '../src/components/WebMCPToolsDialogue.js';
 import { MarkdownText } from '../src/components/MarkdownText.js';
 import { ActionLog, formatLogLabel } from '../src/components/ActionLog.js';
 import { Header } from '../src/components/Header.js';
 import { AttachedTab } from '../src/components/AttachedTab.js';
+import { TextInput } from '../src/components/TextInput.js';
+import { ActionsChip } from '../src/components/ActionsChip.js';
+import { ConsentScreen } from '../src/screens/ConsentScreen.js';
 
 test('ButtonUI renders Play Arrow and Square Stop buttons', () => {
   const playHtml = renderToString(
@@ -34,9 +37,9 @@ test('ButtonUI renders Play Arrow and Square Stop buttons', () => {
   assert.ok(stopHtml.includes('button-ui'));
 });
 
-test('IPHPopover renders dark blue IPH card text', () => {
+test('InProductHelpPopover renders dark blue guidance card text', () => {
   const html = renderToString(
-    React.createElement(IPHPopover, {
+    React.createElement(InProductHelpPopover, {
       onClose: () => {},
       onViewActions: () => {},
       onGotIt: () => {},
@@ -157,4 +160,53 @@ test('Header renders right-aligned action controls (Start New Chat)', () => {
 
   assert.ok(html.includes('title="Start new chat"'));
   assert.ok(!html.includes('Settings'));
+});
+
+test('TextInput renders clean input field without fake cursor DOM elements', () => {
+  const html = renderToString(
+    React.createElement(TextInput, {
+      value: 'Hello Agent',
+      placeholder: 'Ask Agent anything',
+      property1: 'Active',
+      readOnly: true,
+    })
+  );
+
+  assert.ok(html.includes('text-input'));
+  assert.ok(html.includes('value="Hello Agent"'));
+  assert.ok(html.includes('placeholder="Ask Agent anything"'));
+  assert.ok(!html.includes('text-input__cursor'));
+});
+
+test('ActionsChip renders enabled and disabled states', () => {
+  const enabledHtml = renderToString(
+    React.createElement(ActionsChip, {
+      property1: 'Enabled',
+      label: '4 tools',
+    })
+  );
+  assert.ok(enabledHtml.includes('actions-chip--enabled'));
+  assert.ok(enabledHtml.includes('4 tools'));
+
+  const disabledHtml = renderToString(
+    React.createElement(ActionsChip, {
+      property1: 'Disabled',
+      disabledLabel: 'WebMCP disabled',
+    })
+  );
+  assert.ok(disabledHtml.includes('actions-chip--disabled'));
+  assert.ok(disabledHtml.includes('WebMCP disabled'));
+});
+
+test('ConsentScreen renders welcome greeting and privacy notices', () => {
+  const html = renderToString(
+    React.createElement(ConsentScreen, {
+      onGotIt: () => {},
+      onClose: () => {},
+    })
+  );
+
+  assert.ok(html.includes('consent-view'));
+  assert.ok(html.includes('Reach your goals, faster'));
+  assert.ok(html.includes('Got it'));
 });

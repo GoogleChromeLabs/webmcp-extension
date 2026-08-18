@@ -4,8 +4,9 @@
  */
 
 import React from 'react';
-import { ActionsChip } from './ActionsChip.jsx';
-import { Favicon } from './Favicon.js';
+import { ActionsChip } from './ActionsChip';
+import { Favicon } from './Favicon';
+import { CloseIcon } from './Icons';
 
 export interface AttachedTabProps {
   property1?: 'Single';
@@ -14,6 +15,7 @@ export interface AttachedTabProps {
   faviconUrl?: string;
   toolsCountLabel?: string;
   onToggleExpand?: () => void;
+  onClose?: () => void;
   className?: string;
 }
 
@@ -27,10 +29,14 @@ export function AttachedTab({
   faviconUrl,
   toolsCountLabel = '0 tools',
   onToggleExpand,
+  onClose,
   className = '',
 }: AttachedTabProps) {
   const isOpen = property2 === 'With tools open';
-  const hasTools = property2 === 'With tools' || property2 === 'With tools closed' || property2 === 'With tools open';
+  const hasTools =
+    property2 === 'With tools' ||
+    property2 === 'With tools closed' ||
+    property2 === 'With tools open';
 
   const classNames = ['attached-tab'];
   if (isOpen) classNames.push('attached-tab--open');
@@ -61,6 +67,17 @@ export function AttachedTab({
             />
           )}
         </div>
+
+        {onClose && (
+          <button
+            type="button"
+            className="attached-tab__close-btn"
+            onClick={onClose}
+            aria-label="Detach tab"
+          >
+            <CloseIcon size={16} />
+          </button>
+        )}
       </div>
     </div>
   );

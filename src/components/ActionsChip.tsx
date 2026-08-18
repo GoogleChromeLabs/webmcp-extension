@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { AutomationIcon } from './Icons.jsx';
+import { AutomationIcon } from './Icons';
 
 export interface ActionsChipProps {
   property1?: 'Enabled' | 'Disabled';

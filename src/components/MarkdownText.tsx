@@ -45,7 +45,11 @@ function parseBlocks(text: string): Block[] {
 
     if (line.trim().startsWith('```')) {
       if (currentCodeBlock) {
-        blocks.push({ type: 'code', language: currentCodeBlock.lang, code: currentCodeBlock.lines.join('\n') });
+        blocks.push({
+          type: 'code',
+          language: currentCodeBlock.lang,
+          code: currentCodeBlock.lines.join('\n'),
+        });
         currentCodeBlock = null;
       } else {
         if (currentList) {
@@ -63,7 +67,7 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    const ulMatch = line.match(/^[\s]*[*|-]\s+(.*)/);
+    const ulMatch = line.match(/^[\s]*[-*+]\s+(.*)/);
     const olMatch = line.match(/^[\s]*(\d+)\.\s+(.*)/);
 
     if (ulMatch) {
@@ -104,7 +108,11 @@ function parseBlocks(text: string): Block[] {
   }
 
   if (currentCodeBlock) {
-    blocks.push({ type: 'code', language: currentCodeBlock.lang, code: currentCodeBlock.lines.join('\n') });
+    blocks.push({
+      type: 'code',
+      language: currentCodeBlock.lang,
+      code: currentCodeBlock.lines.join('\n'),
+    });
   }
   if (currentList) {
     blocks.push(currentList);
@@ -150,6 +158,14 @@ function RenderBlock({ block }: { block: Block }) {
   }
 }
 
+export function sanitizeHref(href: string): string {
+  const trimmed = href.trim();
+  if (/^https?:\/\//i.test(trimmed) || /^mailto:/i.test(trimmed)) {
+    return trimmed;
+  }
+  return '#';
+}
+
 function renderInline(text: string) {
   if (!text) return null;
 
@@ -166,12 +182,17 @@ function renderInline(text: string) {
       return <em key={idx}>{part.slice(1, -1)}</em>;
     }
     if (part.startsWith('`') && part.endsWith('`')) {
-      return <code key={idx} className="md-inline-code">{part.slice(1, -1)}</code>;
+      return (
+        <code key={idx} className="md-inline-code">
+          {part.slice(1, -1)}
+        </code>
+      );
     }
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
+      const safeHref = sanitizeHref(linkMatch[2]);
       return (
-        <a key={idx} href={linkMatch[2]} target="_blank" rel="noreferrer" className="md-link">
+        <a key={idx} href={safeHref} target="_blank" rel="noreferrer" className="md-link">
           {linkMatch[1]}
         </a>
       );

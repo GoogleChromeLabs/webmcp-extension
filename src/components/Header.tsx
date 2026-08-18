@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { EditSquareIcon } from './Icons.jsx';
+import { EditSquareIcon } from './Icons';
 
 export interface HeaderProps {
   title?: string;
@@ -18,11 +18,7 @@ export interface HeaderProps {
  * Header Component
  * Renders header action controls: Start New Chat aligned to the right.
  */
-export function Header({
-  iconColor = '#012c6f',
-  onEdit,
-  className = '',
-}: HeaderProps) {
+export function Header({ iconColor = '#012c6f', onEdit, className = '' }: HeaderProps) {
   return (
     <header className={`agent-header ${className}`}>
       {/* Action Controls aligned to the right */}

@@ -1,93 +1,15 @@
-/* ==========================================================================
-   AGENT AGENT DESIGN SYSTEM TOKENS
-   Importing CDDS Foundations
-   ========================================================================== */
-
-@import url('../foundation/tokens/tokens.css');
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 :root {
-  /* Colors - Gemini System Palette */
-  --gem-sys-color--primary: var(--cdds-color-primary, #0b57d0);
-  --gem-sys-color--on-primary: var(--cdds-color-on-primary, #ffffff);
-  --gem-sys-color--primary-container: var(--cdds-color-primary-container, #d3e3fd);
-  --gem-sys-color--on-primary-container: var(--cdds-color-on-primary-container, #0842a0);
-  --gem-ref-palette-blue20: var(--cdds-color-blue20, #012c6f);
-  
-  --gem-sys-color--surface: var(--cdds-color-surface, #ffffff);
-  --gem-sys-color--surface-container: var(--cdds-color-surface-container, #f0f4f9);
-  --gem-sys-color--on-surface: var(--cdds-color-on-surface, #1b1c1d);
-  --gem-sys-color--on-surface-variant: var(--cdds-color-on-surface-variant, #444746);
-  --gem-sys-color--outline-low: var(--cdds-color-outline-low, #e1e3e1);
-
-  --gem-sys-color--error: var(--cdds-color-error, #b3261e);
-  --gem-sys-color--error-container: var(--cdds-color-error-container, #f9dedc);
-  --gem-sys-color--on-error-container: var(--cdds-color-on-error-container, #8c1d18);
-  --gem-sys-color--on-tertiary: #ffffff;
-
-  --desktop-sys-container-colors-on-tonal-container: var(--cdds-color-on-tonal-container, #041e49);
-
-  /* Typography */
-  --font-family-body: var(--cdds-font-body);
-  --font-family-flex: var(--cdds-font-flex);
-  --font-family-inter: var(--cdds-font-inter);
-  --font-family-symbols: var(--cdds-font-symbols);
-
-  /* Text Styles */
-  --font-size-header: 14px;
-  --line-height-header: 20px;
-
-  --font-size-body-3: 13px;
-  --line-height-body-3: 20px;
-
-  --font-size-body-4: 12px;
-  --line-height-body-4: 18px;
-
-  --font-size-body-5: 11px;
-  --line-height-body-5: 16px;
-
-  --font-size-button: 10px;
-  --line-height-button: 14px;
-
-  /* Spacings */
-  --gem-sys-spacing--xs: var(--cdds-space-xs, 4px);
-  --gem-sys-spacing--s: var(--cdds-space-s, 8px);
-  --gem-sys-spacing--m: var(--cdds-space-m, 12px);
-  --gem-sys-spacing--l: var(--cdds-space-l, 16px);
-  --gem-sys-spacing--xl: var(--cdds-space-xl, 20px);
-
-  --desktop-spacing-2: 2px;
-  --desktop-spacing-4: 4px;
-  --desktop-spacing-6: 6px;
-  --desktop-spacing-8: 8px;
-  --desktop-spacing-10: 10px;
-  --desktop-spacing-12: 12px;
-
-  /* Radii */
-  --gem-sys-shape--corner-full: var(--cdds-radius-full, 999px);
-  --desktop-corner-radius-fully-rounded: var(--cdds-radius-full, 999px);
-  --radius-bubble: var(--cdds-radius-l, 16px);
-  --radius-tab-top: var(--cdds-radius-l, 16px);
-  --radius-button: var(--cdds-radius-button, 30px);
-  --radius-fav: 3px;
-
-  /* Transitions */
-  --transition-fast: 0.15s ease-in-out;
-  --transition-normal: 0.25s ease-in-out;
-}
-
-/* Base Utility Classes */
-.agent-symbol {
-  font-family: var(--font-family-symbols);
-  font-weight: normal;
-  font-style: normal;
-  display: inline-block;
-  line-height: 1;
-  text-transform: none;
-  letter-spacing: normal;
-  word-wrap: normal;
-  white-space: nowrap;
-  direction: ltr;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  font-feature-settings: 'liga';
+  --gem-sys-color--primary: #0b57d0;
+  --gem-sys-color--on-primary: #ffffff;
+  --gem-sys-color--primary-container: #d3e3fd;
+  --gem-sys-color--on-primary-container: #0842a0;
+  --gem-ref-palette-blue10: #001944;
+  --gem-ref-palette-blue20: #012c6f;
+  --gem-ref-palette-neutral10: #1c1917;
+  --gem-sys-color--on-surface-low: #727676;
 }

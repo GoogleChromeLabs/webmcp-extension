@@ -77,7 +77,7 @@ npm test
 ```
 
 ### Test Coverage Includes:
-- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `useTheme` light mode enforcement, tool schemas, and backend bridge helpers.
+- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: Extension bridge timeouts, tool schemas, CORS authorization, and backend bridge helpers.
 - **Tool Name Encoding (`tests/toolNameEncoding.test.ts`)**: Encoded location mapping (`_0_toolName`), schema parameter normalization, and regex decoding (`/^_(\d+)_(.*)$/`).
 - **Markdown Renderer (`tests/markdownText.test.ts`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
 - **Extension Utilities (`tests/utils.test.ts`)**: Extraction of cross-origin iframe origins (`getIframeOrigins`).

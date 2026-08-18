@@ -1,14 +1,12 @@
-/* ==========================================================================
-   CDDS FOUNDATION - FONTS
-   Google Symbols, Google Sans Text, Google Sans Flex, Inter
-   ========================================================================== */
-
-@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Text:ital,wght@0,400;0,500;0,700;1,400&family=Google+Sans+Flex:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 @font-face {
-  font-family: 'Google Symbols';
+  font-family: 'Material Symbols Outlined';
   font-style: normal;
   font-weight: 100 700;
-  font-display: block;
-  src: url('./GoogleSymbols.woff2') format('woff2');
+  src: url('https://fonts.gstatic.com/s/materialsymbolsoutlined/v215/kJEhBvYX7BgnkSrUwT8OhrdQw4oELdPIeeII9v6oFsI.woff2')
+    format('woff2');
 }

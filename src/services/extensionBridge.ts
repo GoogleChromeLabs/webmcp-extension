@@ -4,7 +4,7 @@
  */
 
 import { getIframeOrigins } from '../../extension/utils.js';
-import { WebMCPTool } from '../types/index.js';
+import { WebMCPTool } from '../types';
 
 interface GlobalWindowWithChrome {
   chrome?: typeof chrome;
@@ -12,30 +12,45 @@ interface GlobalWindowWithChrome {
 
 // Setup browser fallback for chrome extension APIs when outside Extension context
 export function ensureChromeAPI(): void {
-  const win = (typeof window !== 'undefined'
-    ? window
-    : typeof globalThis !== 'undefined'
-    ? globalThis
-    : null) as (Window & GlobalWindowWithChrome) | null;
+  const win = (
+    typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : null
+  ) as (Window & GlobalWindowWithChrome) | null;
   if (!win) return;
 
   if (!win.chrome || !win.chrome.tabs) {
     let messageListeners: Array<(message: unknown, sender: unknown) => void> = [];
     win.chrome = {
       tabs: {
-        query: async () => [
-          { id: 1, url: 'https://example.com', favIconUrl: 'https://example.com/favicon.ico' },
-        ] as chrome.tabs.Tab[],
+        query: async () =>
+          [
+            { id: 1, url: 'https://example.com', favIconUrl: 'https://example.com/favicon.ico' },
+          ] as chrome.tabs.Tab[],
         sendMessage: async (tabId: number, message: { action: string }) => {
           console.log('[Mock Chrome] sendMessage:', message);
           if (message.action === 'LIST_TOOLS') {
             const response = {
               message: '',
               tools: [
-                { name: 'read_page', description: 'Read page', inputSchema: '{"type":"object","properties":{}}' },
-                { name: 'search_parameters', description: 'Search parameters', inputSchema: '{"type":"object","properties":{}}' },
-                { name: 'apply_parameters', description: 'Apply parameters', inputSchema: '{"type":"object","properties":{}}' },
-                { name: 'save', description: 'Save', inputSchema: '{"type":"object","properties":{}}' },
+                {
+                  name: 'read_page',
+                  description: 'Read page',
+                  inputSchema: '{"type":"object","properties":{}}',
+                },
+                {
+                  name: 'search_parameters',
+                  description: 'Search parameters',
+                  inputSchema: '{"type":"object","properties":{}}',
+                },
+                {
+                  name: 'apply_parameters',
+                  description: 'Apply parameters',
+                  inputSchema: '{"type":"object","properties":{}}',
+                },
+                {
+                  name: 'save',
+                  description: 'Save',
+                  inputSchema: '{"type":"object","properties":{}}',
+                },
               ] as WebMCPTool[],
               url: 'https://example.com',
             };
@@ -46,6 +61,7 @@ export function ensureChromeAPI(): void {
           return null;
         },
         onUpdated: { addListener: () => {}, removeListener: () => {} },
+        onActivated: { addListener: () => {}, removeListener: () => {} },
       } as unknown as typeof chrome.tabs,
       runtime: {
         onMessage: {
@@ -56,7 +72,15 @@ export function ensureChromeAPI(): void {
             messageListeners = messageListeners.filter((l) => l !== callback);
           },
         },
+        sendMessage: async () => {},
       } as unknown as typeof chrome.runtime,
+      action: {
+        setBadgeText: () => {},
+        setBadgeBackgroundColor: () => {},
+      } as unknown as typeof chrome.action,
+      sidePanel: {
+        setPanelBehavior: async () => {},
+      } as unknown as typeof chrome.sidePanel,
       webNavigation: {
         getAllFrames: async () => [{ frameId: 0, url: 'https://example.com' }],
       } as unknown as typeof chrome.webNavigation,
@@ -65,18 +89,21 @@ export function ensureChromeAPI(): void {
 }
 
 function getChrome(): typeof chrome | undefined {
-  const win = (typeof window !== 'undefined'
-    ? window
-    : typeof globalThis !== 'undefined'
-    ? globalThis
-    : null) as (Window & GlobalWindowWithChrome) | null;
+  const win = (
+    typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : null
+  ) as (Window & GlobalWindowWithChrome) | null;
   return win?.chrome;
 }
 
 /**
  * Queries active chrome tab details (URL, favicon, domain).
  */
-export async function getActiveTabInfo(): Promise<{ tabId?: number; url?: string; domain: string; favicon: string } | null> {
+export async function getActiveTabInfo(): Promise<{
+  tabId?: number;
+  url?: string;
+  domain: string;
+  favicon: string;
+} | null> {
   ensureChromeAPI();
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) return null;
@@ -116,7 +143,10 @@ export async function requestTabTools(): Promise<void> {
     await chromeApi.tabs.sendMessage(tab.id, { action: 'LIST_TOOLS', fromOrigins }, { frameId: 0 });
   } catch (err: unknown) {
     const error = err as { message?: string };
-    if (!error?.message?.includes('Could not establish connection') && !error?.message?.includes('Receiving end does not exist')) {
+    if (
+      !error?.message?.includes('Could not establish connection') &&
+      !error?.message?.includes('Receiving end does not exist')
+    ) {
       throw err;
     }
   }
@@ -125,7 +155,11 @@ export async function requestTabTools(): Promise<void> {
 /**
  * Executes a tool on the target Chrome tab/iframe.
  */
-export async function executeTabTool(name: string, inputArgs: string, location?: string): Promise<unknown> {
+export async function executeTabTool(
+  name: string,
+  inputArgs: string,
+  location?: string
+): Promise<unknown> {
   ensureChromeAPI();
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) throw new Error('No active tab available for tool execution.');
@@ -133,14 +167,43 @@ export async function executeTabTool(name: string, inputArgs: string, location?:
   const [tab] = await chromeApi.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error('No active tab available for tool execution.');
 
-  const options = !location || location === tab.url ? { frameId: 0 } : {};
+  const isSameAsTabUrl =
+    !location ||
+    !tab.url ||
+    location === tab.url ||
+    location.split('#')[0] === tab.url.split('#')[0];
+  const options = isSameAsTabUrl ? { frameId: 0 } : {};
   try {
     const result = await chromeApi.tabs.sendMessage(
       tab.id,
       { action: 'EXECUTE_TOOL', name, inputArgs, location },
       options
     );
-    if (result !== null) return result;
+    if (result !== null && result !== undefined) {
+      try {
+        let parsed = typeof result === 'string' ? JSON.parse(result) : result;
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          'content' in parsed &&
+          Array.isArray(parsed.content)
+        ) {
+          const textItem = parsed.content.find(
+            (c: { type?: string; text?: string }) => c.type === 'text' && typeof c.text === 'string'
+          );
+          if (textItem?.text) {
+            try {
+              parsed = JSON.parse(textItem.text);
+            } catch {
+              parsed = textItem.text;
+            }
+          }
+        }
+        return parsed;
+      } catch {
+        return result;
+      }
+    }
   } catch (err: unknown) {
     const error = err as { message?: string };
     if (!error.message?.includes('message channel is closed')) throw err;
@@ -153,17 +216,22 @@ export async function executeTabTool(name: string, inputArgs: string, location?:
   });
 }
 
-function waitForPageLoad(tabId: number): Promise<void> {
+export function waitForPageLoad(tabId: number, timeoutMs = 3000): Promise<void> {
   ensureChromeAPI();
   const chromeApi = getChrome();
   return new Promise((resolve) => {
     if (!chromeApi?.tabs) return resolve();
     const listener = (updatedTabId: number, changeInfo: { status?: string; url?: string }) => {
       if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        clearTimeout(timer);
         chromeApi.tabs.onUpdated.removeListener(listener);
         resolve();
       }
     };
+    const timer = setTimeout(() => {
+      chromeApi.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, timeoutMs);
     chromeApi.tabs.onUpdated.addListener(listener);
   });
 }

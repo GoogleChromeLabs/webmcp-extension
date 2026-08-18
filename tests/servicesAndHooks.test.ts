@@ -46,26 +46,7 @@ test('extensionBridge - ensureChromeAPI initializes mock chrome context safely o
   assert.equal(typeof chromeApi.tabs.query, 'function');
 });
 
-test('useTheme - enforces light mode only on dataset and localStorage', () => {
-  if (typeof globalThis.document === 'undefined') {
-    (globalThis as unknown as { document: { documentElement: { dataset: Record<string, string> } } }).document = {
-      documentElement: { dataset: {} }
-    };
-  }
-  if (typeof globalThis.localStorage === 'undefined') {
-    (globalThis as unknown as { localStorage: Record<string, string> }).localStorage = {};
-  }
 
-  globalThis.localStorage.theme = 'dark';
-  document.documentElement.dataset.theme = 'dark';
-
-  // Enforce light mode behavior
-  document.documentElement.dataset.theme = 'light';
-  globalThis.localStorage.theme = 'light';
-
-  assert.equal(document.documentElement.dataset.theme, 'light');
-  assert.equal(globalThis.localStorage.theme, 'light');
-});
 
 test('backendBridge - callBackend correctly makes fetch requests and handles backend responses', async () => {
   const { callBackend } = await import('../src/services/backendBridge.js');
@@ -76,17 +57,33 @@ test('backendBridge - callBackend correctly makes fetch requests and handles bac
       const urlStr = String(url);
       if (urlStr.endsWith('/api/model')) {
         return {
+          ok: true,
+          status: 200,
           json: async () => ({ success: true, model: 'gemini-3.6-flash' }),
         } as Response;
       }
       if (urlStr.endsWith('/api/error')) {
         return {
+          ok: true,
+          status: 200,
           json: async () => ({ error: 'Backend server error' }),
         } as Response;
       }
+      if (urlStr.endsWith('/api/http-500')) {
+        return {
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          json: async () => {
+            throw new Error('Not JSON');
+          },
+        } as unknown as Response;
+      }
       return {
+        ok: true,
+        status: 200,
         json: async () => ({ success: true }),
-      } as Response;
+      } as unknown as Response;
     };
 
     const res = await callBackend<{ success: boolean; model: string }>('/api/model', { model: 'gemini-3.6-flash' });
@@ -99,8 +96,35 @@ test('backendBridge - callBackend correctly makes fetch requests and handles bac
       },
       { message: 'Backend server error' }
     );
+
+    await assert.rejects(
+      async () => {
+        await callBackend('/api/http-500');
+      },
+      /HTTP error 500/
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('extensionBridge - waitForPageLoad resolves safely on timeout when page does not reload', async () => {
+  const { waitForPageLoad } = await import('../src/services/extensionBridge.js');
+  const start = Date.now();
+  await waitForPageLoad(999, 100);
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed >= 90, `Expected elapsed time >= 90ms, got ${elapsed}ms`);
+});
+
+test('server - isAllowedOrigin correctly permits Chrome extension and localhost origins only', async () => {
+  const { isAllowedOrigin } = await import('../server/server.js');
+  assert.equal(isAllowedOrigin('chrome-extension://abcdefghijklmnopqrstuvwxyz'), true);
+  assert.equal(isAllowedOrigin('http://localhost:3000'), true);
+  assert.equal(isAllowedOrigin('http://localhost'), true);
+  assert.equal(isAllowedOrigin('http://127.0.0.1:8080'), true);
+  assert.equal(isAllowedOrigin('https://evil-site.com'), false);
+  assert.equal(isAllowedOrigin('https://phishing.org'), false);
+  assert.equal(isAllowedOrigin(''), false);
+  assert.equal(isAllowedOrigin(undefined), false);
 });
 

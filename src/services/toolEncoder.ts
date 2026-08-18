@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { WebMCPTool, ToolDeclaration } from '../types/index.js';
+import { WebMCPTool, ToolDeclaration } from '../types';
 
 /**
  * Builds function declarations for LLM API schemas from WebMCP tool objects.
@@ -12,6 +12,7 @@ import { WebMCPTool, ToolDeclaration } from '../types/index.js';
 export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] {
   return toolsList.map((tool) => {
     const locationIndex = toolsList.findIndex((t) => t.location === tool.location);
+    const encodedLocation = locationIndex >= 0 ? locationIndex : 0;
     let parsedParameters: Record<string, unknown> = { type: 'object', properties: {} };
 
     if (tool.inputSchema) {
@@ -27,7 +28,7 @@ export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] 
     }
 
     return {
-      name: `_${locationIndex}_${tool.name}`,
+      name: `_${encodedLocation}_${tool.name}`,
       description: tool.description || '',
       parameters: parsedParameters,
     };
@@ -46,11 +47,13 @@ export function decodeToolName(
   const match = encodedName.match(/^_(\d+)_(.*)$/);
   if (match) {
     const locationIndex = Number(match[1]);
+    const targetTool = toolsList[locationIndex] ?? toolsList.find((t) => t.name === match[2]);
     return {
       name: match[2],
-      location: toolsList[locationIndex]?.location,
+      location: targetTool?.location,
     };
   }
 
-  return { name: encodedName, location: undefined };
+  const unencodedTool = toolsList.find((t) => t.name === encodedName);
+  return { name: encodedName, location: unencodedTool?.location };
 }

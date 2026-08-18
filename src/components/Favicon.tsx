@@ -24,12 +24,7 @@ export function Favicon({ customSrc, className = '' }: FaviconProps) {
 
   return (
     <div className={`fav ${className}`}>
-      <img
-        src={src}
-        alt="Page favicon"
-        className="fav__img"
-        onError={() => setImgError(true)}
-      />
+      <img src={src} alt="Page favicon" className="fav__img" onError={() => setImgError(true)} />
     </div>
   );
 }

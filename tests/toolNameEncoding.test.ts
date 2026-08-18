@@ -5,27 +5,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { buildToolDecls, decodeToolName } from '../src/services/toolEncoder.js';
 import { WebMCPTool } from '../src/types/index.js';
-
-function buildToolDecls(tools: WebMCPTool[]) {
-  return tools.map((tool) => {
-    const locationIndex = tools.findIndex((t) => t.location === tool.location);
-    return {
-      name: `_${locationIndex}_${tool.name}`,
-      description: tool.description,
-      parameters: tool.inputSchema ? (typeof tool.inputSchema === 'string' ? JSON.parse(tool.inputSchema) : tool.inputSchema) : { type: 'object', properties: {} },
-    };
-  });
-}
-
-function decodeToolName(tools: WebMCPTool[], encodedName: string) {
-  const match = encodedName.match(/^_(\d+)_(.*)$/);
-  if (match) {
-    const locationIndex = Number(match[1]);
-    return { name: match[2], location: tools[locationIndex]?.location };
-  }
-  return { name: encodedName, location: undefined };
-}
 
 test('buildToolDecls encodes tool names with frame location indices', () => {
   const mockTools: WebMCPTool[] = [

@@ -4,9 +4,9 @@
  */
 
 import React from 'react';
-import { SymbolIcon } from './Icons.js';
+import { SymbolIcon } from './Icons';
 
-export interface IPHPopoverProps {
+export interface InProductHelpPopoverProps {
   title?: string;
   description?: string;
   onClose?: () => void;
@@ -15,23 +15,21 @@ export interface IPHPopoverProps {
 }
 
 /**
- * IPHPopover Component
+ * InProductHelpPopover Component
+ *
+ * Prompts the user with in-product guidance regarding available WebMCP tools on the active page.
  */
-export function IPHPopover({
+export function InProductHelpPopover({
   title = 'Available WebMCP tools',
   description = 'Available WebMCP tools enables AI agents to perform actions quicker. You can always review available tools on a page.',
   onClose,
   onViewActions,
   onGotIt,
-}: IPHPopoverProps) {
+}: InProductHelpPopoverProps) {
   return (
     <div className="iph">
       <div className="iph__card">
-        <button
-          className="iph__close-btn"
-          onClick={onClose}
-          aria-label="Close"
-        >
+        <button className="iph__close-btn" onClick={onClose} aria-label="Close">
           <SymbolIcon name="close" size={16} color="#ffffff" />
         </button>
 
@@ -52,17 +50,11 @@ export function IPHPopover({
 
         <div className="iph__footer">
           {onViewActions && (
-            <button
-              className="iph__btn iph__btn--secondary"
-              onClick={onViewActions}
-            >
+            <button className="iph__btn iph__btn--secondary" onClick={onViewActions}>
               View actions
             </button>
           )}
-          <button
-            className="iph__btn iph__btn--primary"
-            onClick={onGotIt}
-          >
+          <button className="iph__btn iph__btn--primary" onClick={onGotIt}>
             Got it
           </button>
         </div>
@@ -72,4 +64,4 @@ export function IPHPopover({
   );
 }
 
-export default IPHPopover;
+export default InProductHelpPopover;

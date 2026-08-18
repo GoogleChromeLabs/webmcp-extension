@@ -14,6 +14,7 @@ export interface TextInputProps {
   onBlur?: (e: FocusEvent<HTMLInputElement>) => void;
   onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
   onSubmit?: () => void;
+  readOnly?: boolean;
   className?: string;
 }
 
@@ -29,6 +30,7 @@ export function TextInput({
   onBlur,
   onKeyDown,
   onSubmit,
+  readOnly,
   className = '',
 }: TextInputProps) {
   const isActive = property1 === 'Active';
@@ -42,8 +44,7 @@ export function TextInput({
   };
 
   return (
-    <div className={`text-input ${className}`}>
-      {!isActive && !value && <span className="text-input__cursor" />}
+    <div className={`text-input ${isActive ? 'text-input--active' : ''} ${className}`.trim()}>
       <input
         type="text"
         className="text-input__field"
@@ -53,8 +54,8 @@ export function TextInput({
         onFocus={onFocus}
         onBlur={onBlur}
         onKeyDown={handleKeyDown}
+        readOnly={readOnly}
       />
-      {isActive && <span className="text-input__cursor" />}
     </div>
   );
 }

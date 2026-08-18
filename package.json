@@ -2,8 +2,12 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.tsx --bundle --format=esm --jsx=automatic --loader:.woff2=file --external:node:fs --external:node:path --external:node:os --outfile=dist/sidebar.js && cp -r extension/* dist/ && cp -r src dist/",
-    "watch": "npm run build && esbuild src/index.tsx --bundle --format=esm --jsx=automatic --loader:.woff2=file --external:node:fs --external:node:path --external:node:os --outfile=dist/sidebar.js --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.js\" \"extension/**/*.js\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.js\" \"extension/**/*.js\"",
+    "build": "rm -rf dist && mkdir -p dist && npx esbuild src/index.tsx --bundle --format=esm --jsx=automatic --external:node:fs --external:node:path --external:node:os --outfile=dist/sidebar.js && cp -r extension/* dist/",
+    "watch": "npm run build && esbuild src/index.tsx --bundle --format=esm --jsx=automatic --external:node:fs --external:node:path --external:node:os --outfile=dist/sidebar.js --watch",
     "dev": "npm run watch",
     "test": "rm -rf dist/tests && npx esbuild tests/*.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/*.test.js",
     "clean": "rm -rf dist",
@@ -15,11 +19,18 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/chrome": "^0.0.310",
     "@types/node": "^22.13.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "esbuild": "^0.27.3",
-    "typescript": "^5.7.3"
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.67.0"
   }
 }
