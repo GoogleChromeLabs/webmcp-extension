@@ -104,3 +104,33 @@ test('backendBridge - callBackend correctly makes fetch requests and handles bac
   }
 });
 
+test('extensionBridge - executeTabTool dispatches message to tab with appropriate frame options', async () => {
+  const { executeTabTool, ensureChromeAPI } = await import('../src/services/extensionBridge.js');
+  ensureChromeAPI();
+
+  const sentMessages: Array<{ tabId: number; message: unknown; options?: unknown }> = [];
+  const mockChrome = (globalThis as any).chrome;
+  const origSendMessage = mockChrome.tabs.sendMessage;
+
+  try {
+    mockChrome.tabs.sendMessage = async (tabId: number, message: unknown, options?: unknown) => {
+      sentMessages.push({ tabId, message, options });
+      return { success: true, count: 42 };
+    };
+
+    // 1. Execute tool in main frame
+    const resMain = await executeTabTool('search_hotels', '{"query":"hotel"}', 'https://example.com');
+    assert.deepEqual(resMain, { success: true, count: 42 });
+    assert.equal(sentMessages[0].tabId, 1);
+    assert.deepEqual(sentMessages[0].options, { frameId: 0 });
+
+    // 2. Execute tool in cross-origin iframe
+    const resIframe = await executeTabTool('submit_booking', '{"id":123}', 'https://booking.example.com');
+    assert.deepEqual(resIframe, { success: true, count: 42 });
+    assert.deepEqual(sentMessages[1].options, {});
+  } finally {
+    mockChrome.tabs.sendMessage = origSendMessage;
+  }
+});
+
+

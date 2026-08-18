@@ -4,11 +4,11 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import ChatBubble from './components/ChatBubble.jsx';
-import WebMCPToolsDialogue from './components/WebMCPToolsDialogue.jsx';
-import IPHPopover from './components/IPHPopover.jsx';
-import ConsentScreen from './screens/ConsentScreen.jsx';
-import MarkdownText from './components/MarkdownText.jsx';
+import ChatBubble from './components/ChatBubble.js';
+import WebMCPToolsDialogue from './components/WebMCPToolsDialogue.js';
+import IPHPopover from './components/IPHPopover.js';
+import ConsentScreen from './screens/ConsentScreen.js';
+import MarkdownText from './components/MarkdownText.js';
 import ActionLog from './components/ActionLog.js';
 import { EditSquareIcon } from './components/Icons.js';
 
@@ -33,7 +33,6 @@ export function App() {
     messages,
     busy,
     activityLog,
-    setActivityLog,
     handleSendPrompt,
     handleReset,
   } = useAgentSession(toolsRef);
@@ -119,7 +118,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Chat Card Area matching Figma design */}
+              {/* Chat Messages Card */}
               {messages.length > 0 && (
                 <div className="chat-card">
                   <div className="chat-card__header">
@@ -182,7 +181,7 @@ export function App() {
               )}
             </div>
 
-            {/* Bottom Floating Composer (ChatBubble) */}
+            {/* Bottom Floating Composer */}
             <footer className="composer-footer">
               {/* Floating WebMCP Tools Dialogue Popover */}
               {showToolsDialogue && (
@@ -211,12 +210,11 @@ export function App() {
               )}
 
               <ChatBubble
-                tab={Boolean(domain && domain !== 'New Tab')}
+                showTab={Boolean(domain && domain !== 'New Tab')}
                 tabProps={{
-                  property1: 'Single',
-                  property2: tools.length > 0 ? 'With tools' : 'No tools',
                   domain: domain || 'New Tab',
                   faviconUrl: favicon,
+                  hasTools: tools.length > 0,
                   toolsCountLabel: `${tools.length} tools`,
                   onToggleExpand: handleBadgeClick,
                 }}
@@ -227,9 +225,8 @@ export function App() {
                   onSubmit: handleSendPrompt,
                 }}
                 toolbarProps={{
-                  actionButtonType: busy ? 'Stop Button' : userPrompt.trim() ? 'Send Button' : 'Live Button',
-                  actionButtonState: 'Default',
-                  onActionButtonClick: handleSendPrompt,
+                  actionVariant: busy ? 'stop' : userPrompt.trim() ? 'send' : 'live',
+                  onActionClick: handleSendPrompt,
                 }}
               />
             </footer>
@@ -241,3 +238,4 @@ export function App() {
 }
 
 export default App;
+

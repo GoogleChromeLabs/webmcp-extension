@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { SymbolIcon } from '../components/Icons.jsx';
+import { SymbolIcon } from '../components/Icons.js';
 
 export interface ConsentScreenProps {
   onGotIt?: () => void;

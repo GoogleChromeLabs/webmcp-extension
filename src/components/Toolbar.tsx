@@ -4,39 +4,46 @@
  */
 
 import React from 'react';
-import { ButtonUI } from './ButtonUI.js';
+import { ButtonUI, ButtonVariant } from './ButtonUI.js';
 
 export interface ToolbarProps {
-  onAttach?: () => void;
-  actionButtonType?: 'Live Button' | 'Send Button' | 'Stop Button';
+  actionVariant?: ButtonVariant;
+  actionPressed?: boolean;
+  onActionClick?: () => void;
+  className?: string;
+  // Legacy aliases for backward compatibility
+  actionButtonType?: ButtonVariant;
   actionButtonState?: 'Default' | 'Pressed';
   onActionButtonClick?: () => void;
-  className?: string;
 }
 
 /**
  * Toolbar Component
+ * Toolbar footer inside the prompt composer.
  */
 export function Toolbar({
-  onAttach,
-  actionButtonType = 'Live Button',
+  actionVariant,
+  actionPressed,
+  onActionClick,
+  actionButtonType = 'live',
   actionButtonState = 'Default',
   onActionButtonClick,
   className = '',
 }: ToolbarProps) {
+  const variant = actionVariant || actionButtonType;
+  const isPressed = actionPressed ?? (actionButtonState === 'Pressed');
+  const handleClick = onActionClick || onActionButtonClick;
+
   return (
     <div className={`toolbar ${className}`}>
-      <div className="toolbar__lhs">
-      </div>
-      <div className="toolbar__rhs">
-        <ButtonUI
-          property1={actionButtonType}
-          property2={actionButtonState}
-          onClick={onActionButtonClick}
-        />
-      </div>
+      <ButtonUI
+        variant={variant}
+        pressed={isPressed}
+        onClick={handleClick}
+      />
     </div>
   );
 }
 
 export default Toolbar;
+

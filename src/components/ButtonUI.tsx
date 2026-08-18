@@ -6,53 +6,48 @@
 import React from 'react';
 import { PlayArrowIcon, SquareStopIcon } from './Icons.js';
 
+export type ButtonVariant = 'live' | 'send' | 'stop';
+
 export interface ButtonUIProps {
-  property1?: 'Live Button' | 'Send Button' | 'Stop Button';
-  property2?: 'Default' | 'Pressed';
-  type?: 'Live Button' | 'Send Button' | 'Stop Button';
-  state?: 'Default' | 'Pressed';
+  variant?: ButtonVariant;
+  pressed?: boolean;
   onClick?: () => void;
   className?: string;
 }
 
 /**
  * ButtonUI Component
+ * Circular action button rendered in the prompt composer toolbar.
  */
 export function ButtonUI({
-  property1,
-  type = 'Live Button',
-  property2,
-  state = 'Default',
+  variant = 'live',
+  pressed = false,
   onClick,
   className = '',
 }: ButtonUIProps) {
-  const buttonType = property1 || type;
-  const buttonState = property2 || state;
+  const isStop = variant === 'stop';
 
   const classNames = ['button-ui'];
-  if (buttonState === 'Pressed') classNames.push('button-ui--pressed');
+  if (pressed) classNames.push('button-ui--pressed');
   if (className) classNames.push(className);
-
-  const renderIcon = () => {
-    switch (buttonType) {
-      case 'Stop Button':
-        return <SquareStopIcon size={12} color="#ffffff" />;
-      case 'Send Button':
-      case 'Live Button':
-      default:
-        return <PlayArrowIcon size={14} color="#ffffff" />;
-    }
-  };
 
   return (
     <button
+      type="button"
       className={classNames.join(' ')}
       onClick={onClick}
-      aria-label={buttonType}
+      aria-label={variant}
     >
-      <div className="button-ui__icon-wrapper">{renderIcon()}</div>
+      <div className="button-ui__icon-wrapper">
+        {isStop ? (
+          <SquareStopIcon size={12} color="#ffffff" />
+        ) : (
+          <PlayArrowIcon size={14} color="#ffffff" />
+        )}
+      </div>
     </button>
   );
 }
 
 export default ButtonUI;
+
