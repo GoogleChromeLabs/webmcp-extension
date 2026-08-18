@@ -16,7 +16,7 @@ export interface FaviconProps {
 
 /**
  * Favicon Component
- * Dynamically displays tab favicon or falls back to generic web globe icon.
+ * Dynamically displays active tab favicon or falls back to generic web globe icon.
  */
 export function Favicon({ customSrc, className = '' }: FaviconProps) {
   const [imgError, setImgError] = useState<boolean>(false);
@@ -34,24 +34,5 @@ export function Favicon({ customSrc, className = '' }: FaviconProps) {
   );
 }
 
-export interface FaviconStackProps {
-  items?: Array<{ src?: string }>;
-  className?: string;
-}
-
-/**
- * FaviconStack Component for multiple tabs representation
- */
-export function FaviconStack({ items = [], className = '' }: FaviconStackProps) {
-  const displayItems = items.length > 0 ? items.slice(0, 3) : [{}, {}, {}];
-
-  return (
-    <div className={`fav-stack ${className}`}>
-      {displayItems.map((item, index) => (
-        <Favicon key={index} customSrc={item.src} />
-      ))}
-    </div>
-  );
-}
-
 export default Favicon;
+

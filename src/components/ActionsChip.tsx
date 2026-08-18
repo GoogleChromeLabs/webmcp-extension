@@ -4,10 +4,10 @@
  */
 
 import React, { useState } from 'react';
-import { AutomationIcon } from './Icons.jsx';
+import { AutomationIcon } from './Icons.js';
 
 export interface ActionsChipProps {
-  property1?: 'Enabled' | 'Disabled';
+  disabled?: boolean;
   state?: 'Closed' | 'Hover' | 'Pressed';
   label?: string;
   disabledLabel?: string;
@@ -17,9 +17,10 @@ export interface ActionsChipProps {
 
 /**
  * ActionsChip Component
+ * Interactive chip showing WebMCP tools count. Expands on hover into a pill.
  */
 export function ActionsChip({
-  property1 = 'Enabled',
+  disabled = false,
   state: stateProp,
   label = '5 tools',
   disabledLabel = 'WebMCP disabled',
@@ -29,8 +30,6 @@ export function ActionsChip({
   const [isHovered, setIsHovered] = useState(false);
   const [isPressed, setIsPressed] = useState(false);
 
-  const isDisabled = property1 === 'Disabled';
-
   let currentState = stateProp;
   if (!currentState) {
     if (isPressed) currentState = 'Pressed';
@@ -39,17 +38,18 @@ export function ActionsChip({
   }
 
   const isClosed = currentState === 'Closed';
-  const displayLabel = isDisabled ? disabledLabel : label;
+  const displayLabel = disabled ? disabledLabel : label;
 
   const classNames = [
     'actions-chip',
-    `actions-chip--${isDisabled ? 'disabled' : 'enabled'}`,
+    `actions-chip--${disabled ? 'disabled' : 'enabled'}`,
     `actions-chip--${currentState.toLowerCase()}`,
   ];
   if (className) classNames.push(className);
 
   return (
     <button
+      type="button"
       className={classNames.join(' ')}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => {
@@ -60,6 +60,7 @@ export function ActionsChip({
       onMouseUp={() => setIsPressed(false)}
       onClick={onClick}
       title={isClosed ? displayLabel : undefined}
+      aria-label={displayLabel}
     >
       <div className="actions-chip__icon-wrapper">
         <AutomationIcon size={16} color="currentColor" />
@@ -71,3 +72,4 @@ export function ActionsChip({
 }
 
 export default ActionsChip;
+

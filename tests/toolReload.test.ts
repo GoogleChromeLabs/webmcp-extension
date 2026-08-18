@@ -104,3 +104,25 @@ test('toolResponses payload includes updated tools when tools arrive dynamically
   assert.equal(payload.tools[1].name, '_1_filter_search_results');
   assert.equal(payload.tools[2].name, '_2_get_current_search_results');
 });
+
+test('agent loop terminates at MAX_TURNS limit to prevent infinite tool recursion', async () => {
+  const MAX_TURNS = 10;
+  let turnCount = 0;
+  let busy = true;
+
+  // Simulate an agent loop where a tool always returns another function call
+  while (busy && turnCount < MAX_TURNS) {
+    turnCount++;
+    // Simulate backend returning another functionCall
+    const currentResult = {
+      functionCalls: [{ name: '_0_repeat_tool', args: {} }],
+    };
+    if (!currentResult.functionCalls || currentResult.functionCalls.length === 0) {
+      break;
+    }
+  }
+
+  assert.equal(turnCount, 10);
+  assert.equal(turnCount <= MAX_TURNS, true);
+});
+

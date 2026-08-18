@@ -6,7 +6,7 @@
 import React, { ChangeEvent, FocusEvent, KeyboardEvent } from 'react';
 
 export interface TextInputProps {
-  property1?: 'Input' | 'Active';
+  active?: boolean;
   value?: string;
   placeholder?: string;
   onChange?: (e: ChangeEvent<HTMLInputElement>) => void;
@@ -19,9 +19,10 @@ export interface TextInputProps {
 
 /**
  * TextInput Component
+ * Input field for user prompt composition.
  */
 export function TextInput({
-  property1 = 'Input',
+  active = false,
   value = '',
   placeholder = 'Ask Agent anything',
   onChange,
@@ -31,8 +32,6 @@ export function TextInput({
   onSubmit,
   className = '',
 }: TextInputProps) {
-  const isActive = property1 === 'Active';
-
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (onKeyDown) onKeyDown(e);
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -43,7 +42,7 @@ export function TextInput({
 
   return (
     <div className={`text-input ${className}`}>
-      {!isActive && !value && <span className="text-input__cursor" />}
+      {!active && !value && <span className="text-input__cursor" />}
       <input
         type="text"
         className="text-input__field"
@@ -54,9 +53,10 @@ export function TextInput({
         onBlur={onBlur}
         onKeyDown={handleKeyDown}
       />
-      {isActive && <span className="text-input__cursor" />}
+      {active && <span className="text-input__cursor" />}
     </div>
   );
 }
 
 export default TextInput;
+

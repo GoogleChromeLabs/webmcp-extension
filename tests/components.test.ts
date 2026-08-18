@@ -13,22 +13,23 @@ import { IPHPopover } from '../src/components/IPHPopover.js';
 import { WebMCPToolsDialogue } from '../src/components/WebMCPToolsDialogue.js';
 import { MarkdownText } from '../src/components/MarkdownText.js';
 import { ActionLog, formatLogLabel } from '../src/components/ActionLog.js';
-import { Header } from '../src/components/Header.js';
 import { AttachedTab } from '../src/components/AttachedTab.js';
+import { ActionsChip } from '../src/components/ActionsChip.js';
+import { TextInput } from '../src/components/TextInput.js';
+import { ChatBubble } from '../src/components/ChatBubble.js';
+import { ConsentScreen } from '../src/screens/ConsentScreen.js';
 
 test('ButtonUI renders Play Arrow and Square Stop buttons', () => {
   const playHtml = renderToString(
     React.createElement(ButtonUI, {
-      type: 'Send Button',
-      state: 'Default',
+      variant: 'send',
     })
   );
   assert.ok(playHtml.includes('button-ui'));
 
   const stopHtml = renderToString(
     React.createElement(ButtonUI, {
-      type: 'Stop Button',
-      state: 'Default',
+      variant: 'stop',
     })
   );
   assert.ok(stopHtml.includes('button-ui'));
@@ -83,7 +84,7 @@ test('formatLogLabel formats tool names into human readable labels', () => {
   assert.equal(formatLogLabel(''), 'Thinking...');
 });
 
-test('ActionLog renders initiation, running, and completed states matching Figma design', () => {
+test('ActionLog renders initiation, running, and completed states', () => {
   // 1. Initiation
   const initHtml = renderToString(
     React.createElement(ActionLog, {
@@ -122,39 +123,67 @@ test('ActionLog renders initiation, running, and completed states matching Figma
   assert.ok(completedHtml.includes('Apply filters'));
 });
 
-test('AttachedTab renders domain without X close button for single tab', () => {
-  const html = renderToString(
-    React.createElement(AttachedTab, {
-      domain: 'example.com',
-      property1: 'Single',
-    })
-  );
-
-  assert.ok(html.includes('example.com'));
-  assert.ok(!html.includes('attached-tab__close-btn'));
-  assert.ok(!html.includes('title="Close tab"'));
-});
-
 test('AttachedTab renders domain and tools count label', () => {
   const html = renderToString(
     React.createElement(AttachedTab, {
       domain: 'example.com',
       toolsCountLabel: '3 tools',
-      property2: 'With tools',
+      hasTools: true,
     })
   );
 
   assert.ok(html.includes('example.com'));
   assert.ok(html.includes('3 tools'));
+  assert.ok(!html.includes('attached-tab__close-btn'));
 });
 
-test('Header renders right-aligned action controls (Start New Chat)', () => {
+test('ActionsChip renders label and automation icon', () => {
   const html = renderToString(
-    React.createElement(Header, {
-      onEdit: () => {},
+    React.createElement(ActionsChip, {
+      label: '4 tools',
+      state: 'Closed',
     })
   );
 
-  assert.ok(html.includes('title="Start new chat"'));
-  assert.ok(!html.includes('Settings'));
+  assert.ok(html.includes('actions-chip'));
+  assert.ok(html.includes('4 tools'));
 });
+
+test('TextInput and ChatBubble render cleanly', () => {
+  const textHtml = renderToString(
+    React.createElement(TextInput, {
+      value: 'Hello Agent',
+      placeholder: 'Ask Agent anything',
+      onChange: () => {},
+    })
+  );
+  assert.ok(textHtml.includes('Hello Agent'));
+
+  const bubbleHtml = renderToString(
+    React.createElement(ChatBubble, {
+      showTab: true,
+      tabProps: { domain: 'example.com', toolsCountLabel: '2 tools' },
+      textProps: { value: 'test', onChange: () => {} },
+      toolbarProps: { actionVariant: 'send' },
+    })
+  );
+  assert.ok(bubbleHtml.includes('chat-bubble'));
+  assert.ok(bubbleHtml.includes('example.com'));
+});
+
+test('ConsentScreen renders feature cards, disclaimers, and action buttons', () => {
+  const html = renderToString(
+    React.createElement(ConsentScreen, {
+      onGotIt: () => {},
+      onClose: () => {},
+    })
+  );
+
+  assert.ok(html.includes('Reach your goals, faster'));
+  assert.ok(html.includes('Use it on trusted sites'));
+  assert.ok(html.includes('Stay in control'));
+  assert.ok(html.includes('Terms &amp; Notices'));
+  assert.ok(html.includes('Got it'));
+  assert.ok(html.includes('Close'));
+});
+

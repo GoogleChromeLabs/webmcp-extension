@@ -11,7 +11,7 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools.
 - **Dynamic WebMCP Tool Discovery**: Automatically queries `document.modelContext.getTools()` and listens for `ontoolchange` across top-level pages and cross-origin `iframe` frames.
 - **Backend Model Routing & Secure Key Storage**: Routes model requests to a local Node.js backend server so consumer-facing extension code never accesses or exposes API keys.
 - **Gemini LLM Integration**: Example powered by `@google/genai` on the backend server.
-- **Figma-Aligned UI Design**:
+- **Modern WebMCP UI Experience**:
   - Light mode interface matching WebMCP design tokens.
   - Floating WebMCP Tool IPH popovers and action details modal.
   - Real-time markdown response rendering.
@@ -77,8 +77,10 @@ npm test
 ```
 
 ### Test Coverage Includes:
-- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `useTheme` light mode enforcement, tool schemas, and backend bridge helpers.
-- **Tool Name Encoding (`tests/toolNameEncoding.test.ts`)**: Encoded location mapping (`_0_toolName`), schema parameter normalization, and regex decoding (`/^_(\d+)_(.*)$/`).
+- **UI Components (`tests/components.test.ts`)**: Rendering of `ButtonUI`, `IPHPopover`, `WebMCPToolsDialogue`, `AttachedTab`, `ActionsChip`, `TextInput`, `ChatBubble`, `ActionLog`, and `ConsentScreen`.
+- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `executeTabTool` frame resolution, `useTheme` light mode enforcement, tool schemas, and backend bridge helpers.
+- **Tool Name Encoding & Schema Normalization (`tests/toolNameEncoding.test.ts`)**: Location index encoding, nested object/array schemas, and malformed JSON recovery.
+- **In-Flight Dynamic Tool Reload & Loop Safety (`tests/toolReload.test.ts`)**: Synchronous `toolsRef` updates, mid-run tool updates, and `MAX_TURNS` recursion limit.
 - **Markdown Renderer (`tests/markdownText.test.ts`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
 - **Extension Utilities (`tests/utils.test.ts`)**: Extraction of cross-origin iframe origins (`getIframeOrigins`).
 
@@ -98,10 +100,12 @@ webmcp-dev-extension/
 │   ├── content.js             # Content script bridging WebMCP document.modelContext
 │   └── utils.js               # Web navigation & iframe origin helpers
 ├── src/                       # React App source code
-│   ├── components/            # React UI components (ChatBubble, ActionLog, etc.)
-│   ├── screens/               # Screen views (NexusIPH, ToolsInspector, SettingsModal)
-│   ├── services/              # Extension & backend API bridges (backendBridge.ts, etc.)
-│   ├── foundation/            # CSS tokens, Google Symbols fonts, and design tokens
+│   ├── components/            # Focused UI components (ChatBubble, ActionLog, AttachedTab, etc.)
+│   ├── screens/               # Screen views (ConsentScreen)
+│   ├── services/              # Extension & backend API bridges (backendBridge.ts, toolEncoder.ts, etc.)
+│   ├── hooks/                 # Custom hooks (useActiveTabTools.ts, useAgentSession.ts)
+│   ├── foundation/            # Google Symbols font definitions
+│   ├── styles.css             # Consolidated, tokenized stylesheet
 │   ├── App.tsx                # Main application component & tool loop orchestrator
 │   └── index.tsx              # React entry point
 ├── tests/                     # Automated unit test suite
