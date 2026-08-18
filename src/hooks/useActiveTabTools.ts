@@ -4,8 +4,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef, MutableRefObject } from 'react';
-import { ensureChromeAPI, requestTabTools } from '../services/extensionBridge.js';
-import { WebMCPTool } from '../types/index.js';
+import { ensureChromeAPI, requestTabTools } from '../services/extensionBridge';
+import { WebMCPTool } from '../types';
 
 export interface UseActiveTabToolsReturn {
   tools: WebMCPTool[];
@@ -25,7 +25,10 @@ export function useActiveTabTools(): UseActiveTabToolsReturn {
   const [favicon, setFavicon] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState<string>('');
   const toolsRef = useRef<WebMCPTool[]>(tools);
-  toolsRef.current = tools;
+
+  useEffect(() => {
+    toolsRef.current = tools;
+  }, [tools]);
 
   const refreshActiveTab = useCallback(async () => {
     ensureChromeAPI();
@@ -41,7 +44,9 @@ export function useActiveTabTools(): UseActiveTabToolsReturn {
         try {
           const u = new URL(tab.url);
           setFavicon(`https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`);
-        } catch {}
+        } catch {
+          setFavicon('');
+        }
       }
 
       if (tab.url) {
@@ -56,7 +61,10 @@ export function useActiveTabTools(): UseActiveTabToolsReturn {
       await requestTabTools();
     } catch (err: unknown) {
       const error = err as { message?: string };
-      if (!error?.message?.includes('Could not establish connection') && !error?.message?.includes('Receiving end does not exist')) {
+      if (
+        !error?.message?.includes('Could not establish connection') &&
+        !error?.message?.includes('Receiving end does not exist')
+      ) {
         setStatusMsg(String(err));
       }
     }
@@ -85,7 +93,9 @@ export function useActiveTabTools(): UseActiveTabToolsReturn {
         const parsedUrl = new URL(pageUrl);
         setDomain(parsedUrl.hostname);
         const iconUrl =
-          sender?.tab?.favIconUrl || tab?.favIconUrl || `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=32`;
+          sender?.tab?.favIconUrl ||
+          tab?.favIconUrl ||
+          `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=32`;
         setFavicon(iconUrl);
       } catch {
         setDomain(pageUrl || 'New Tab');
@@ -108,10 +118,16 @@ export function useActiveTabTools(): UseActiveTabToolsReturn {
       window.chrome.tabs.onActivated?.addListener(onTabActivated);
       window.chrome.tabs.onUpdated?.addListener(onTabUpdated);
     }
-
-    refreshActiveTab();
+    let isMounted = true;
+    const init = async () => {
+      if (isMounted) {
+        await refreshActiveTab();
+      }
+    };
+    void init();
 
     return () => {
+      isMounted = false;
       window.chrome.runtime.onMessage.removeListener(listener);
       if (window.chrome.tabs) {
         window.chrome.tabs.onActivated?.removeListener(onTabActivated);

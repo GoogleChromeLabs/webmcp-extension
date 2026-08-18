@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { AutomationIcon, CloseIcon, SymbolIcon } from './Icons.js';
+import { AutomationIcon, CloseIcon, SymbolIcon } from './Icons';
 
 export interface WebMCPToolsDialogueProps {
   domain?: string;
@@ -34,14 +34,12 @@ export function WebMCPToolsDialogue({
           </div>
           <div className="tools-dialogue__titles">
             <h3 className="tools-dialogue__title">Available WebMCP tools</h3>
-            <p className="tools-dialogue__subtitle">{domain} • {toolsCount} tools</p>
+            <p className="tools-dialogue__subtitle">
+              {domain} • {toolsCount} tools
+            </p>
           </div>
         </div>
-        <button
-          className="tools-dialogue__close-btn"
-          onClick={onClose}
-          title="Close dialogue"
-        >
+        <button className="tools-dialogue__close-btn" onClick={onClose} title="Close dialogue">
           <CloseIcon size={18} color="#474747" />
         </button>
       </div>
@@ -51,8 +49,14 @@ export function WebMCPToolsDialogue({
       {/* Description Row */}
       <div className="tools-dialogue__desc-row">
         <p className="tools-dialogue__desc-text">
-          Available WebMCP tools on this page that enables AI agents to complete following tasks quicker.{' '}
-          <a href="#" className="tools-dialogue__link" onClick={(e) => e.preventDefault()}>
+          Available WebMCP tools on this page that enables AI agents to complete following tasks
+          quicker.{' '}
+          <a
+            href="https://developer.chrome.com/docs/ai/webmcp"
+            target="_blank"
+            rel="noreferrer"
+            className="tools-dialogue__link"
+          >
             Learn more about tools and WebMCP
           </a>
         </p>

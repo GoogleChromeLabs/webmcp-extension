@@ -4,11 +4,9 @@
  */
 
 import React from 'react';
-import { PlayArrowIcon, SquareStopIcon } from './Icons.js';
+import { PlayArrowIcon, SquareStopIcon } from './Icons';
 
 export interface ButtonUIProps {
-  property1?: 'Live Button' | 'Send Button' | 'Stop Button';
-  property2?: 'Default' | 'Pressed';
   type?: 'Live Button' | 'Send Button' | 'Stop Button';
   state?: 'Default' | 'Pressed';
   onClick?: () => void;
@@ -17,17 +15,16 @@ export interface ButtonUIProps {
 
 /**
  * ButtonUI Component
+ * Primary circular action trigger (Play Arrow for Send/Live, Square for Stop).
  */
 export function ButtonUI({
-  property1,
   type = 'Live Button',
-  property2,
   state = 'Default',
   onClick,
   className = '',
 }: ButtonUIProps) {
-  const buttonType = property1 || type;
-  const buttonState = property2 || state;
+  const buttonType = type;
+  const buttonState = state;
 
   const classNames = ['button-ui'];
   if (buttonState === 'Pressed') classNames.push('button-ui--pressed');
@@ -46,6 +43,7 @@ export function ButtonUI({
 
   return (
     <button
+      type="button"
       className={classNames.join(' ')}
       onClick={onClick}
       aria-label={buttonType}

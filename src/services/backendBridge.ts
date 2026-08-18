@@ -13,20 +13,31 @@ export async function callBackend<T = unknown>(
   data?: unknown,
   options: RequestInit = {}
 ): Promise<T> {
+  const { headers, ...restOptions } = options;
   const res = await fetch(`${SERVER_URL}${endpoint}`, {
     method: data ? 'POST' : 'GET',
-    ...(data
-      ? {
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        }
-      : {}),
-    ...options,
+    headers: {
+      ...(data ? { 'Content-Type': 'application/json' } : {}),
+      ...(headers as Record<string, string>),
+    },
+    ...(data ? { body: JSON.stringify(data) } : {}),
+    ...restOptions,
   });
 
-  const json = await res.json();
+  let json: { error?: string } = {};
+  try {
+    json = await res.json();
+  } catch {
+    if (res.ok === false || (res.status && (res.status < 200 || res.status >= 300))) {
+      throw new Error(`HTTP error ${res.status || 'unknown'}: ${res.statusText || 'Server error'}`);
+    }
+  }
+
   if (json.error) {
     throw new Error(json.error);
+  }
+  if (res.ok === false || (res.status && (res.status < 200 || res.status >= 300))) {
+    throw new Error(`Server returned status ${res.status}`);
   }
   return json as T;
 }

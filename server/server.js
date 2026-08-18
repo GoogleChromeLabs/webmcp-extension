@@ -27,7 +27,10 @@ function loadDotEnv(filePath) {
       if (equalsIdx > 0) {
         const key = trimmed.substring(0, equalsIdx).trim();
         let value = trimmed.substring(equalsIdx + 1).trim();
-        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        if (
+          (value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))
+        ) {
           value = value.substring(1, value.length - 1);
         }
         envVars[key] = value;
@@ -41,7 +44,12 @@ function loadDotEnv(filePath) {
 
 const env = loadDotEnv(envPath);
 
-const apiKey = env.GEMINI_API_KEY || env.API_KEY || env.apiKey || process.env.GEMINI_API_KEY || process.env.API_KEY;
+const apiKey =
+  env.GEMINI_API_KEY ||
+  env.API_KEY ||
+  env.apiKey ||
+  process.env.GEMINI_API_KEY ||
+  process.env.API_KEY;
 let activeModel = env.MODEL || env.model || 'gemini-3.6-flash';
 
 if (!apiKey) {
@@ -70,7 +78,7 @@ function recordServerLog(logEntry) {
   for (const clientRes of logClients) {
     try {
       clientRes.write(eventData);
-    } catch (e) {
+    } catch {
       logClients.delete(clientRes);
     }
   }
@@ -113,14 +121,30 @@ function parseJsonBody(req) {
   });
 }
 
-function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+export function isAllowedOrigin(origin) {
+  if (!origin) return false;
+  return (
+    origin.startsWith('chrome-extension://') ||
+    origin.startsWith('http://localhost:') ||
+    origin === 'http://localhost' ||
+    origin.startsWith('http://127.0.0.1:') ||
+    origin === 'http://127.0.0.1'
+  );
+}
+
+export function setCorsHeaders(res, req) {
+  const origin = req?.headers?.origin;
+  if (origin && isAllowedOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
 const server = http.createServer(async (req, res) => {
-  setCorsHeaders(res);
+  const startTime = performance.now();
+  setCorsHeaders(res, req);
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -137,7 +161,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
+          Connection: 'keep-alive',
         });
         res.socket?.setNoDelay(true);
         res.write(`data: ${JSON.stringify({ type: 'init', logs })}\n\n`);
@@ -158,8 +182,6 @@ const server = http.createServer(async (req, res) => {
       res.end(fs.readFileSync(path.join(__dirname, 'logs.html'), 'utf-8'));
       return;
     }
-
-    const startTime = performance.now();
 
     if (url.pathname === '/api/model') {
       let requestPayload = null;
@@ -224,12 +246,19 @@ const server = http.createServer(async (req, res) => {
       }
 
       const functionDeclarations = (tools || []).map((tool) => {
-        let name = tool.name;
+        const name = tool.name;
         let parametersJsonSchema = { type: 'object', properties: {} };
         if (tool.parameters) {
           parametersJsonSchema = tool.parameters;
         } else if (tool.inputSchema) {
-          parametersJsonSchema = typeof tool.inputSchema === 'string' ? JSON.parse(tool.inputSchema) : tool.inputSchema;
+          try {
+            parametersJsonSchema =
+              typeof tool.inputSchema === 'string'
+                ? JSON.parse(tool.inputSchema)
+                : tool.inputSchema;
+          } catch {
+            parametersJsonSchema = { type: 'object', properties: {} };
+          }
         }
         return {
           name,
@@ -246,15 +275,24 @@ const server = http.createServer(async (req, res) => {
       let sendMessageParams;
 
       if (toolResponses) {
-        console.log(`  Tool responses received for [${chatId}]:`, JSON.stringify(toolResponses, null, 2));
+        console.log(
+          `  Tool responses received for [${chatId}]:`,
+          JSON.stringify(toolResponses, null, 2)
+        );
         if (tools && tools.length > 0) {
-          console.log(`  [${chatId}] Tools provided (${tools.length}):`, tools.map((t) => t.name).join(', '));
+          console.log(
+            `  [${chatId}] Tools provided (${tools.length}):`,
+            tools.map((t) => t.name).join(', ')
+          );
         }
         sendMessageParams = { message: toolResponses, config };
       } else {
         console.log(`  [${chatId}] User message: "${message}"`);
         if (tools && tools.length > 0) {
-          console.log(`  [${chatId}] Tools provided (${tools.length}):`, tools.map((t) => t.name).join(', '));
+          console.log(
+            `  [${chatId}] Tools provided (${tools.length}):`,
+            tools.map((t) => t.name).join(', ')
+          );
         }
         sendMessageParams = { message, config };
       }
@@ -269,7 +307,10 @@ const server = http.createServer(async (req, res) => {
       };
 
       if (result.functionCalls && result.functionCalls.length > 0) {
-        console.log(`  [${chatId}] Gemini Function Calls:`, JSON.stringify(result.functionCalls, null, 2));
+        console.log(
+          `  [${chatId}] Gemini Function Calls:`,
+          JSON.stringify(result.functionCalls, null, 2)
+        );
       }
       if (result.text) {
         console.log(`  [${chatId}] Gemini Response Text: "${result.text}"`);
@@ -281,7 +322,7 @@ const server = http.createServer(async (req, res) => {
         statusCode: 200,
         startTime,
         requestPayload: { message, tools, toolResponses, chatId },
-        responsePayload
+        responsePayload,
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(responsePayload));
@@ -311,8 +352,6 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-
-
     console.warn(`  404 Not Found: ${url.pathname}`);
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
@@ -331,6 +370,17 @@ const server = http.createServer(async (req, res) => {
 });
 
 const PORT = process.env.PORT || env.port || 3000;
-server.listen(PORT, () => {
-  console.log(`🚀 Backend Gemini server listening on http://localhost:${PORT}`);
-});
+
+export function startServer(port = PORT) {
+  return server.listen(port, () => {
+    console.log(`🚀 Backend Gemini server listening on http://localhost:${port}`);
+  });
+}
+
+const isDirectRun = Boolean(process.argv[1] && path.basename(process.argv[1]) === 'server.js');
+
+if (isDirectRun) {
+  startServer();
+}
+
+export { server };

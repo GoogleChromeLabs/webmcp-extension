@@ -4,32 +4,33 @@
  */
 
 import React, { useState } from 'react';
-import { AutomationIcon } from './Icons.jsx';
+import { AutomationIcon } from './Icons';
 
 export interface ActionsChipProps {
-  property1?: 'Enabled' | 'Disabled';
-  state?: 'Closed' | 'Hover' | 'Pressed';
   label?: string;
+  disabled?: boolean;
   disabledLabel?: string;
+  state?: 'Closed' | 'Hover' | 'Pressed';
   onClick?: () => void;
   className?: string;
 }
 
 /**
  * ActionsChip Component
+ * Interactive chip showing the count of discovered WebMCP tools on the page.
  */
 export function ActionsChip({
-  property1 = 'Enabled',
-  state: stateProp,
   label = '5 tools',
+  disabled = false,
   disabledLabel = 'WebMCP disabled',
+  state: stateProp,
   onClick,
   className = '',
 }: ActionsChipProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isPressed, setIsPressed] = useState(false);
 
-  const isDisabled = property1 === 'Disabled';
+  const isDisabled = disabled;
 
   let currentState = stateProp;
   if (!currentState) {
@@ -50,6 +51,7 @@ export function ActionsChip({
 
   return (
     <button
+      type="button"
       className={classNames.join(' ')}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => {
@@ -64,7 +66,6 @@ export function ActionsChip({
       <div className="actions-chip__icon-wrapper">
         <AutomationIcon size={16} color="currentColor" />
       </div>
-
       <span className="actions-chip__label">{displayLabel}</span>
     </button>
   );

@@ -24,32 +24,7 @@ export function Favicon({ customSrc, className = '' }: FaviconProps) {
 
   return (
     <div className={`fav ${className}`}>
-      <img
-        src={src}
-        alt="Page favicon"
-        className="fav__img"
-        onError={() => setImgError(true)}
-      />
-    </div>
-  );
-}
-
-export interface FaviconStackProps {
-  items?: Array<{ src?: string }>;
-  className?: string;
-}
-
-/**
- * FaviconStack Component for multiple tabs representation
- */
-export function FaviconStack({ items = [], className = '' }: FaviconStackProps) {
-  const displayItems = items.length > 0 ? items.slice(0, 3) : [{}, {}, {}];
-
-  return (
-    <div className={`fav-stack ${className}`}>
-      {displayItems.map((item, index) => (
-        <Favicon key={index} customSrc={item.src} />
-      ))}
+      <img src={src} alt="Page favicon" className="fav__img" onError={() => setImgError(true)} />
     </div>
   );
 }

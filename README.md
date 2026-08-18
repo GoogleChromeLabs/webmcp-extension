@@ -77,7 +77,7 @@ npm test
 ```
 
 ### Test Coverage Includes:
-- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `useTheme` light mode enforcement, tool schemas, and backend bridge helpers.
+- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: Extension bridge timeouts, tool schemas, CORS authorization, and backend bridge helpers.
 - **Tool Name Encoding (`tests/toolNameEncoding.test.ts`)**: Encoded location mapping (`_0_toolName`), schema parameter normalization, and regex decoding (`/^_(\d+)_(.*)$/`).
 - **Markdown Renderer (`tests/markdownText.test.ts`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
 - **Extension Utilities (`tests/utils.test.ts`)**: Extraction of cross-origin iframe origins (`getIframeOrigins`).
@@ -96,12 +96,15 @@ webmcp-dev-extension/
 │   ├── manifest.json          # Chrome Extension Manifest V3 configuration
 │   ├── background.js          # Service worker for tab navigation & tool badge updates
 │   ├── content.js             # Content script bridging WebMCP document.modelContext
+│   ├── sidebar.html           # Side panel HTML entry point
 │   └── utils.js               # Web navigation & iframe origin helpers
 ├── src/                       # React App source code
-│   ├── components/            # React UI components (ChatBubble, ActionLog, etc.)
-│   ├── screens/               # Screen views (NexusIPH, ToolsInspector, SettingsModal)
-│   ├── services/              # Extension & backend API bridges (backendBridge.ts, etc.)
-│   ├── foundation/            # CSS tokens, Google Symbols fonts, and design tokens
+│   ├── components/            # React UI components (ChatBubble, ActionLog, AttachedTab, etc.)
+│   ├── hooks/                 # React hooks (useActiveTabTools, useAgentSession)
+│   ├── screens/               # Screen views (ConsentScreen)
+│   ├── services/              # Extension & backend API bridges (backendBridge.ts, extensionBridge.ts, toolEncoder.ts)
+│   ├── types/                 # TypeScript interfaces (WebMCPTool, ActivityEntry, etc.)
+│   ├── styles.css             # Consolidated design tokens and UI styles
 │   ├── App.tsx                # Main application component & tool loop orchestrator
 │   └── index.tsx              # React entry point
 ├── tests/                     # Automated unit test suite

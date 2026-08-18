@@ -4,9 +4,9 @@
  */
 
 import React from 'react';
-import { TextInput, TextInputProps } from './TextInput.js';
-import { Toolbar, ToolbarProps } from './Toolbar.js';
-import { AttachedTab, AttachedTabProps } from './AttachedTab.js';
+import { TextInput, TextInputProps } from './TextInput';
+import { Toolbar, ToolbarProps } from './Toolbar';
+import { AttachedTab, AttachedTabProps } from './AttachedTab';
 
 export interface ChatBubbleProps {
   tab?: boolean;
@@ -36,10 +36,12 @@ export function ChatBubble({
       {/* 1. Attached Tab Bar */}
       {isTab && <AttachedTab {...tabProps} />}
 
-      {/* 2. Input Field Box (Text + Toolbar) */}
+      {/* 2. Input Field Box (Text + Bottom Toolbar) */}
       <div className="chat-bubble__input-field">
         <TextInput {...textProps} />
-        <Toolbar {...toolbarProps} />
+        <div className="chat-bubble__toolbar-row">
+          <Toolbar {...toolbarProps} />
+        </div>
       </div>
     </div>
   );

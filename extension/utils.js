@@ -4,7 +4,11 @@
  */
 
 async function getIframeOrigins(tabId) {
-  if (typeof chrome === 'undefined' || !chrome.webNavigation || !chrome.webNavigation.getAllFrames) {
+  if (
+    typeof chrome === 'undefined' ||
+    !chrome.webNavigation ||
+    !chrome.webNavigation.getAllFrames
+  ) {
     return [];
   }
   try {
@@ -14,14 +18,14 @@ async function getIframeOrigins(tabId) {
       .map((frame) => {
         try {
           return new URL(frame.url).origin;
-        } catch (e) {
+        } catch {
           return 'null';
         }
       })
       .filter((origin) => origin !== 'null');
 
     return [...new Set(origins)];
-  } catch (e) {
+  } catch {
     return [];
   }
 }

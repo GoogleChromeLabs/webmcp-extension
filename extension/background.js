@@ -8,17 +8,18 @@ import { getIframeOrigins } from './utils.js';
 // Allows users to open the side panel by clicking the action icon.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
-// Inject content script in all tabs first.
+// Inject content script in all injectable tabs first.
 chrome.runtime.onInstalled.addListener(async () => {
   const tabs = await chrome.tabs.query({});
-  tabs.forEach(({ id: tabId }) => {
+  for (const tab of tabs) {
+    if (!tab.id || !tab.url || !/^https?:\/\//i.test(tab.url)) continue;
     chrome.scripting
       .executeScript({
-        target: { tabId, allFrames: true },
+        target: { tabId: tab.id, allFrames: true },
         files: ['content.js'],
       })
       .catch(() => {});
-  });
+  }
 });
 
 // Update badge text with the number of tools per tab.
@@ -37,9 +38,9 @@ async function updateBadge(tabId) {
   });
 }
 
-chrome.runtime.onMessage.addListener(({ tools }, { tab }) => {
-  if (tab?.id) {
-    const text = tools?.length ? `${tools.length}` : '';
-    chrome.action.setBadgeText({ text, tabId: tab.id });
+chrome.runtime.onMessage.addListener(({ tools }, sender) => {
+  if (sender?.tab?.id && Array.isArray(tools)) {
+    const text = tools.length ? `${tools.length}` : '';
+    chrome.action.setBadgeText({ text, tabId: sender.tab.id });
   }
 });

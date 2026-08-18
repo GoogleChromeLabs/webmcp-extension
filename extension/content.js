@@ -16,26 +16,42 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
       document.modelContext.ontoolchange = listTools.bind(null, fromOrigins);
     }
     if (action === 'EXECUTE_TOOL') {
-      if (location && location !== window.location.href) return;
-      console.debug(`[WebMCP] Execute tool "${name}" with ${inputArgs} in ${location}`);
+      const isMainFrame = window === window.top;
+      const cleanLocation = location ? location.split('#')[0] : '';
+      const cleanCurrent = window.location.href.split('#')[0];
+      const isMatchingLocation =
+        !location ||
+        location === window.location.href ||
+        (isMainFrame && (!cleanLocation || cleanLocation === cleanCurrent));
+
+      if (!isMatchingLocation) return;
+      console.debug(
+        `[WebMCP] Execute tool "${name}" with ${inputArgs} in ${location || window.location.href}`
+      );
       let targetFrame, loadPromise;
       // Check if this tool is associated with a form target
-      const formTarget = document.querySelector(`form[toolname="${name}"]`)?.target;
+      const escapedName = CSS?.escape ? CSS.escape(name) : name.replace(/["\\]/g, '\\$&');
+      const formTarget = document.querySelector(`form[toolname="${escapedName}"]`)?.target;
       if (formTarget) {
-        targetFrame = document.querySelector(`[name=${formTarget}]`);
+        const escapedTarget = CSS?.escape
+          ? CSS.escape(formTarget)
+          : formTarget.replace(/["\\]/g, '\\$&');
+        targetFrame = document.querySelector(`[name="${escapedTarget}"]`);
         loadPromise = new Promise((resolve) => {
-          targetFrame.addEventListener('load', resolve, { once: true });
+          targetFrame?.addEventListener('load', resolve, { once: true });
         });
       }
       // Execute the experimental tool
       document.modelContext
         .getTools()
         .then((tools) => {
-          const tool = tools.find((t) => t.name === name && t.window === window);
+          const tool = tools.find((t) => t.name === name);
           if (!tool) {
             throw new Error(`Tool "${name}" not found in ${window.location.href}`);
           }
-          return document.modelContext.executeTool(tool, inputArgs);
+          const stringArgs =
+            typeof inputArgs === 'string' ? inputArgs : JSON.stringify(inputArgs || {});
+          return document.modelContext.executeTool(tool, stringArgs);
         })
         .then(async (result) => {
           // If result is null and we have a target frame, wait for the frame to reload.
@@ -43,9 +59,13 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
             console.debug(`[WebMCP] Waiting for form target ${targetFrame} to load`);
             await loadPromise;
             console.debug('[WebMCP] Get cross document script tool result');
-            result = targetFrame.contentWindow.document.querySelector(
-              'script[type="application/ld+json"]',
-            )?.textContent;
+            try {
+              result = targetFrame.contentWindow?.document?.querySelector(
+                'script[type="application/ld+json"]'
+              )?.textContent;
+            } catch {
+              result = null;
+            }
           }
           reply(result);
         })
@@ -58,6 +78,9 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
       reply(document.querySelector('script[type="application/ld+json"]')?.textContent);
     }
   } catch (err) {
+    if (action === 'EXECUTE_TOOL') {
+      reply(JSON.stringify(err?.message || String(err)));
+    }
     chrome.runtime.sendMessage({ message: err?.message || String(err) });
   }
 });
@@ -91,23 +114,38 @@ async function listTools(fromOrigins) {
 }
 
 function getLocation(crossOriginIframeWindow) {
-  const promise = new Promise((resolve) => {
+  return new Promise((resolve) => {
+    let timer;
     const listener = ({ data }) => {
-      if (data.action === 'GET_LOCATION_RESPONSE') {
+      if (data?.action === 'GET_LOCATION_RESPONSE') {
+        clearTimeout(timer);
         window.removeEventListener('message', listener);
         resolve(data.location);
       }
     };
+    timer = setTimeout(() => {
+      window.removeEventListener('message', listener);
+      resolve(undefined);
+    }, 500);
     window.addEventListener('message', listener);
+    try {
+      crossOriginIframeWindow.postMessage({ action: 'GET_LOCATION' }, '*');
+    } catch {
+      clearTimeout(timer);
+      window.removeEventListener('message', listener);
+      resolve(undefined);
+    }
   });
-  crossOriginIframeWindow.postMessage({ action: 'GET_LOCATION' }, '*');
-  return promise;
 }
 
 window.addEventListener('message', ({ data, origin, source }) => {
-  if (data.action === 'GET_LOCATION') {
+  if (data && typeof data === 'object' && data.action === 'GET_LOCATION') {
     const location = window.location.href;
-    source.postMessage({ action: 'GET_LOCATION_RESPONSE', location }, origin);
+    try {
+      source?.postMessage({ action: 'GET_LOCATION_RESPONSE', location }, origin || '*');
+    } catch {
+      // Ignore postMessage transmission failures
+    }
   }
 });
 

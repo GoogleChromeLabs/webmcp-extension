@@ -6,7 +6,6 @@
 import React, { ChangeEvent, FocusEvent, KeyboardEvent } from 'react';
 
 export interface TextInputProps {
-  property1?: 'Input' | 'Active';
   value?: string;
   placeholder?: string;
   onChange?: (e: ChangeEvent<HTMLInputElement>) => void;
@@ -14,24 +13,28 @@ export interface TextInputProps {
   onBlur?: (e: FocusEvent<HTMLInputElement>) => void;
   onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
   onSubmit?: () => void;
+  readOnly?: boolean;
+  active?: boolean;
   className?: string;
 }
 
 /**
  * TextInput Component
+ * Main user prompt entry field with Enter-to-submit keyboard support.
  */
 export function TextInput({
-  property1 = 'Input',
   value = '',
   placeholder = 'Ask Agent anything',
+  active = false,
   onChange,
   onFocus,
   onBlur,
   onKeyDown,
   onSubmit,
+  readOnly,
   className = '',
 }: TextInputProps) {
-  const isActive = property1 === 'Active';
+  const isActive = active;
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (onKeyDown) onKeyDown(e);
@@ -42,8 +45,7 @@ export function TextInput({
   };
 
   return (
-    <div className={`text-input ${className}`}>
-      {!isActive && !value && <span className="text-input__cursor" />}
+    <div className={`text-input ${isActive ? 'text-input--active' : ''} ${className}`.trim()}>
       <input
         type="text"
         className="text-input__field"
@@ -53,8 +55,8 @@ export function TextInput({
         onFocus={onFocus}
         onBlur={onBlur}
         onKeyDown={handleKeyDown}
+        readOnly={readOnly}
       />
-      {isActive && <span className="text-input__cursor" />}
     </div>
   );
 }

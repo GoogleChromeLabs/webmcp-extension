@@ -13,11 +13,10 @@ declare module '*.woff2' {
   export default content;
 }
 
-
-declare module '../../extension/utils.js' {
+declare module '*/extension/utils.js' {
   export function getIframeOrigins(tabId: number): Promise<string[]>;
 }
 
-declare module '../extension/utils.js' {
+declare module '*/utils.js' {
   export function getIframeOrigins(tabId: number): Promise<string[]>;
 }

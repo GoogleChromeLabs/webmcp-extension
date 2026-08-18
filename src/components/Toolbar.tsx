@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { ButtonUI } from './ButtonUI.js';
+import { ButtonUI } from './ButtonUI';
 
 export interface ToolbarProps {
   onAttach?: () => void;
@@ -16,9 +16,9 @@ export interface ToolbarProps {
 
 /**
  * Toolbar Component
+ * Container for the composer bottom action button.
  */
 export function Toolbar({
-  onAttach,
   actionButtonType = 'Live Button',
   actionButtonState = 'Default',
   onActionButtonClick,
@@ -26,14 +26,9 @@ export function Toolbar({
 }: ToolbarProps) {
   return (
     <div className={`toolbar ${className}`}>
-      <div className="toolbar__lhs">
-      </div>
+      <div className="toolbar__lhs" />
       <div className="toolbar__rhs">
-        <ButtonUI
-          property1={actionButtonType}
-          property2={actionButtonState}
-          onClick={onActionButtonClick}
-        />
+        <ButtonUI type={actionButtonType} state={actionButtonState} onClick={onActionButtonClick} />
       </div>
     </div>
   );
