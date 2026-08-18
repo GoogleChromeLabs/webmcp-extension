@@ -32,8 +32,6 @@ export function TextInput({
   onSubmit,
   className = '',
 }: TextInputProps) {
-  const isActive = active;
-
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (onKeyDown) onKeyDown(e);
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -44,7 +42,7 @@ export function TextInput({
 
   return (
     <div className={`text-input ${className}`}>
-      {!isActive && !value && <span className="text-input__cursor" />}
+      {!active && !value && <span className="text-input__cursor" />}
       <input
         type="text"
         className="text-input__field"
@@ -55,7 +53,7 @@ export function TextInput({
         onBlur={onBlur}
         onKeyDown={handleKeyDown}
       />
-      {isActive && <span className="text-input__cursor" />}
+      {active && <span className="text-input__cursor" />}
     </div>
   );
 }

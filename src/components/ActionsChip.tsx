@@ -30,8 +30,6 @@ export function ActionsChip({
   const [isHovered, setIsHovered] = useState(false);
   const [isPressed, setIsPressed] = useState(false);
 
-  const isDisabled = disabled;
-
   let currentState = stateProp;
   if (!currentState) {
     if (isPressed) currentState = 'Pressed';
@@ -40,11 +38,11 @@ export function ActionsChip({
   }
 
   const isClosed = currentState === 'Closed';
-  const displayLabel = isDisabled ? disabledLabel : label;
+  const displayLabel = disabled ? disabledLabel : label;
 
   const classNames = [
     'actions-chip',
-    `actions-chip--${isDisabled ? 'disabled' : 'enabled'}`,
+    `actions-chip--${disabled ? 'disabled' : 'enabled'}`,
     `actions-chip--${currentState.toLowerCase()}`,
   ];
   if (className) classNames.push(className);

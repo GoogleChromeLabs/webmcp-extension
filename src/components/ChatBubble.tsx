@@ -22,14 +22,14 @@ export interface ChatBubbleProps {
  * Main prompt composition container featuring the attached active tab bar and input toolbar.
  */
 export function ChatBubble({
-  showTab,
+  showTab = false,
   tab = false,
   tabProps = {},
   textProps = {},
   toolbarProps = {},
   className = '',
 }: ChatBubbleProps) {
-  const isTab = showTab ?? Boolean(tab);
+  const isTab = showTab || tab;
   const classNames = ['chat-bubble'];
   if (isTab) classNames.push('chat-bubble--with-tab');
   if (className) classNames.push(className);
