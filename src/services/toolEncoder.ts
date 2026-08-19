@@ -7,11 +7,10 @@ import { WebMCPTool, ToolDeclaration } from '../types/index.js';
 
 /**
  * Builds function declarations for LLM API schemas from WebMCP tool objects.
- * Encodes tool location index to ensure cross-frame dispatch accuracy.
+ * Encodes tool frameID to ensure cross-frame dispatch accuracy.
  */
 export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] {
   return toolsList.map((tool) => {
-    const locationIndex = toolsList.findIndex((t) => t.location === tool.location);
     let parsedParameters: Record<string, unknown> = { type: 'object', properties: {} };
 
     if (tool.inputSchema) {
@@ -26,8 +25,9 @@ export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] 
       }
     }
 
+    const frameId = tool.frameId ?? 0;
     return {
-      name: `_${locationIndex}_${tool.name}`,
+      name: `_${frameId}_${tool.name}`,
       description: tool.description || '',
       parameters: parsedParameters,
     };
@@ -35,22 +35,23 @@ export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] 
 }
 
 /**
- * Decodes encoded tool name string (e.g., "_0_searchHotels") back into tool name and location URL.
+ * Decodes encoded tool name string (e.g., "_0_searchHotels") back into tool name and frame ID.
  */
 export function decodeToolName(
-  toolsList: WebMCPTool[] = [],
   encodedName: string = ''
-): { name: string; location?: string } {
-  if (!encodedName) return { name: '', location: undefined };
+): { name: string; frameId?: number } {
+  if (!encodedName) return { name: '', frameId: undefined };
 
-  const match = encodedName.match(/^_(\d+)_(.*)$/);
+  const match = encodedName.match(/^_(\d+)_(.*)$/s);
   if (match) {
-    const locationIndex = Number(match[1]);
     return {
+      frameId: parseInt(match[1], 10),
       name: match[2],
-      location: toolsList[locationIndex]?.location,
     };
   }
 
-  return { name: encodedName, location: undefined };
+  return {
+    name: encodedName,
+    frameId: undefined,
+  };
 }

@@ -5,6 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { buildToolDecls } from '../src/services/toolEncoder.js';
 import { WebMCPTool } from '../src/types/index.js';
 
 test('toolsRef is updated synchronously when new tools arrive from content script', () => {
@@ -15,36 +16,24 @@ test('toolsRef is updated synchronously when new tools arrive from content scrip
     toolsRef.current = parsedTools;
   }
 
-  function buildToolDecls() {
-    const list = toolsRef.current;
-    return list.map((tool) => {
-      const locationIndex = list.findIndex((t) => t.location === tool.location);
-      return {
-        name: `_${locationIndex}_${tool.name}`,
-        description: tool.description,
-        parameters: tool.inputSchema ? (typeof tool.inputSchema === 'string' ? JSON.parse(tool.inputSchema) : tool.inputSchema) : { type: 'object', properties: {} },
-      };
-    });
-  }
-
   // Turn 1: Initial tools on search page
   handleToolsMessage([
-    { name: 'searchHotels', description: 'Search hotels by location', inputSchema: '{"type":"object"}', location: 'https://example.com' },
+    { name: 'searchHotels', description: 'Search hotels by location', inputSchema: '{"type":"object"}', frameId: 0 },
   ]);
 
-  let decls = buildToolDecls();
+  let decls = buildToolDecls(toolsRef.current);
   assert.equal(decls.length, 1);
   assert.equal(decls[0].name, '_0_searchHotels');
 
   // Turn 1 Mid-flight: Page submits form and loads filter tools (filterGym, filterBreakfast)
   handleToolsMessage([
-    { name: 'searchHotels', description: 'Search hotels by location', inputSchema: '{"type":"object"}', location: 'https://example.com' },
-    { name: 'filterGym', description: 'Filter by gym', inputSchema: '{"type":"object"}', location: 'https://example.com' },
-    { name: 'filterBreakfast', description: 'Filter by breakfast', inputSchema: '{"type":"object"}', location: 'https://example.com' },
+    { name: 'searchHotels', description: 'Search hotels by location', inputSchema: '{"type":"object"}', frameId: 0 },
+    { name: 'filterGym', description: 'Filter by gym', inputSchema: '{"type":"object"}', frameId: 0 },
+    { name: 'filterBreakfast', description: 'Filter by breakfast', inputSchema: '{"type":"object"}', frameId: 0 },
   ]);
 
   // Turn 1 Mid-flight: buildToolDecls immediately reflects new tools
-  decls = buildToolDecls();
+  decls = buildToolDecls(toolsRef.current);
   assert.equal(decls.length, 3);
   assert.equal(decls[0].name, '_0_searchHotels');
   assert.equal(decls[1].name, '_0_filterGym');
@@ -54,49 +43,29 @@ test('toolsRef is updated synchronously when new tools arrive from content scrip
 test('buildToolDecls handles null/missing inputSchema gracefully', () => {
   const toolsRef: { current: WebMCPTool[] } = {
     current: [
-      { name: 'simpleAction', description: 'No args action', inputSchema: null, location: 'https://example.com' },
+      { name: 'simpleAction', description: 'No args action', inputSchema: null, frameId: 0 },
     ],
   };
 
-  function buildToolDecls() {
-    const list = toolsRef.current;
-    return list.map((tool) => {
-      const locationIndex = list.findIndex((t) => t.location === tool.location);
-      return {
-        name: `_${locationIndex}_${tool.name}`,
-        description: tool.description,
-        parameters: tool.inputSchema ? (typeof tool.inputSchema === 'string' ? JSON.parse(tool.inputSchema) : tool.inputSchema) : { type: 'object', properties: {} },
-      };
-    });
-  }
-
-  const decls = buildToolDecls();
+  const decls = buildToolDecls(toolsRef.current);
   assert.equal(decls.length, 1);
   assert.deepEqual(decls[0].parameters, { type: 'object', properties: {} });
 });
 
 test('toolResponses payload includes updated tools when tools arrive dynamically mid-turn', () => {
   const toolsRef: { current: WebMCPTool[] } = {
-    current: [{ name: 'search_location', description: 'Search', inputSchema: '{}', location: 'https://example.com' }],
+    current: [{ name: 'search_location', description: 'Search', inputSchema: '{}', frameId: 0 }],
   };
-
-  function buildToolDecls() {
-    return toolsRef.current.map((tool, idx) => ({
-      name: `_${idx}_${tool.name}`,
-      description: tool.description,
-      parameters: tool.inputSchema ? (typeof tool.inputSchema === 'string' ? JSON.parse(tool.inputSchema) : tool.inputSchema) : { type: 'object', properties: {} },
-    }));
-  }
 
   // Simulate tool response construction after search_location registers new tools on DOM
   toolsRef.current.push(
-    { name: 'filter_search_results', description: 'Filter', inputSchema: '{}', location: 'https://example.com' },
-    { name: 'get_current_search_results', description: 'Get results', inputSchema: '{}', location: 'https://example.com' }
+    { name: 'filter_search_results', description: 'Filter', inputSchema: '{}', frameId: 1 },
+    { name: 'get_current_search_results', description: 'Get results', inputSchema: '{}', frameId: 2 }
   );
 
   const payload = {
     toolResponses: [{ functionResponse: { name: '_0_search_location', response: { status: 'ok' } } }],
-    tools: buildToolDecls(),
+    tools: buildToolDecls(toolsRef.current),
     chatId: 'test-chat-id',
   };
 

@@ -9,13 +9,9 @@ export interface WebMCPTool {
   name: string;
   description?: string;
   inputSchema?: string | Record<string, unknown> | null;
-  readOnlyHint?: string;
-  untrustedContentHint?: string;
-  location?: string;
-  annotations?: {
-    readOnlyHint?: boolean;
-    untrustedContentHint?: boolean;
-  };
+  readOnlyHint?: boolean;
+  untrustedContentHint?: boolean;
+  frameId?: number;
   window?: Window;
 }
 
@@ -70,12 +66,12 @@ export interface ExtensionExecuteToolMessage {
   action: 'EXECUTE_TOOL';
   name: string;
   inputArgs?: string;
-  location?: string;
+  frameId?: number;
 }
 
 export interface ExtensionGetCrossDocResultMessage {
   action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT';
-  location?: string;
+  frameId?: number;
 }
 
 export type ExtensionMessage =

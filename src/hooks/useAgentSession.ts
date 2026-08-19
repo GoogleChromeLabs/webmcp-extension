@@ -120,11 +120,11 @@ export function useAgentSession(toolsRef: MutableRefObject<WebMCPTool[]>): UseAg
         const toolResponses = [];
         for (const call of currentResult.functionCalls) {
           if (!busyRef.current) break;
-          const { name, location } = decodeToolName(toolsRef.current, call.name);
+          const { name, frameId } = decodeToolName(call.name);
           const entry = logActivity('assistant', name, call.args);
 
           try {
-            const res = await executeTabTool(name, JSON.stringify(call.args), location);
+            const res = await executeTabTool(name, JSON.stringify(call.args), frameId);
             completeActivity(entry, { result: res });
             let resVal: unknown;
             if (res === undefined || res === null || res === '') {

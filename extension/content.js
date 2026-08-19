@@ -6,23 +6,26 @@
 console.debug(`[WebMCP] Content script injected in ${window.location.href}`);
 
 chrome.runtime.onMessage.addListener((message, _, reply) => {
-  const { action, name, inputArgs, location, fromOrigins } = message;
+  const { action, name, inputArgs, fromOrigins } = message;
   try {
     if (!document.modelContext) {
       throw new Error('Error: You must run Chrome with the "WebMCP for testing" flag enabled.');
     }
-    if (action === 'LIST_TOOLS') {
-      listTools(fromOrigins);
-      document.modelContext.ontoolchange = listTools.bind(null, fromOrigins);
+    if (action == 'LIST_TOOLS') {
+      debouncedListTools(fromOrigins);
+      document.modelContext.ontoolchange = debouncedListTools.bind(null, fromOrigins);
     }
-    if (action === 'EXECUTE_TOOL') {
-      if (location && location !== window.location.href) return;
-      console.debug(`[WebMCP] Execute tool "${name}" with ${inputArgs} in ${location}`);
+    if (action == 'EXECUTE_TOOL') {
+      console.debug(`[WebMCP] Execute tool "${name}" with ${inputArgs} in ${window.location.href}`);
       let targetFrame, loadPromise;
       // Check if this tool is associated with a form target
       const formTarget = document.querySelector(`form[toolname="${name}"]`)?.target;
       if (formTarget) {
+        // May be null, e.g. for target="_blank"; the result then lives in a
+        // new tab and the sidebar retrieves it from there.
         targetFrame = document.querySelector(`[name=${formTarget}]`);
+      }
+      if (targetFrame) {
         loadPromise = new Promise((resolve) => {
           targetFrame.addEventListener('load', resolve, { once: true });
         });
@@ -32,9 +35,6 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
         .getTools()
         .then((tools) => {
           const tool = tools.find((t) => t.name === name && t.window === window);
-          if (!tool) {
-            throw new Error(`Tool "${name}" not found in ${window.location.href}`);
-          }
           return document.modelContext.executeTool(tool, inputArgs);
         })
         .then(async (result) => {
@@ -49,67 +49,63 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
           }
           reply(result);
         })
-        .catch((err) => reply(JSON.stringify(err?.message || String(err))));
+        .catch(({ message }) => reply(JSON.stringify(message)));
       return true;
     }
-    if (action === 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT') {
-      if (location && !window.location.href.startsWith(location)) return;
-      console.debug(`[WebMCP] Get cross document script tool result in ${location}`);
+    if (action == 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT') {
+      console.debug(`[WebMCP] Get cross document script tool result in ${window.location.href}`);
       reply(document.querySelector('script[type="application/ld+json"]')?.textContent);
     }
-  } catch (err) {
-    chrome.runtime.sendMessage({ message: err?.message || String(err) });
+  } catch ({ message }) {
+    chrome.runtime.sendMessage({ message });
   }
 });
 
-async function listTools(fromOrigins) {
-  try {
-    let tools = [];
-    for (const tool of await document.modelContext.getTools({ fromOrigins })) {
-      let location;
-      try {
-        location = tool.window.location.href;
-      } catch {
-        location = await getLocation(tool.window);
-      }
-      const inputSchema =
-        typeof tool.inputSchema === 'string' ? tool.inputSchema : JSON.stringify(tool.inputSchema);
-      tools.push({
-        description: tool.description,
-        inputSchema,
-        readOnlyHint: tool.annotations?.readOnlyHint ? '✓' : undefined,
-        untrustedContentHint: tool.annotations?.untrustedContentHint ? '✓' : undefined,
-        name: tool.name,
-        location,
-      });
-    }
-    console.debug(`[WebMCP] Got ${tools.length} tools`, tools);
-    chrome.runtime.sendMessage({ tools, url: window.location.href });
-  } catch (err) {
-    chrome.runtime.sendMessage({ message: err?.message || String(err) });
-  }
+let timeout;
+function debouncedListTools(fromOrigins) {
+  clearTimeout(timeout);
+  timeout = setTimeout(() => listTools(fromOrigins), 100);
 }
 
-function getLocation(crossOriginIframeWindow) {
+async function listTools(fromOrigins) {
+  let tools = [];
+  for (const tool of await document.modelContext.getTools({ fromOrigins })) {
+    const frameId = tool.window == window ? 0 : await getFrameId(tool.window);
+    const inputSchema =
+      typeof tool.inputSchema === 'string' ? tool.inputSchema : JSON.stringify(tool.inputSchema);
+    tools.push({
+      description: tool.description,
+      inputSchema,
+      readOnlyHint: tool.annotations?.readOnlyHint,
+      untrustedContentHint: tool.annotations?.untrustedContentHint,
+      name: tool.name,
+      frameId,
+    });
+  }
+  console.debug(`[WebMCP] Got ${tools.length} tools`, tools);
+  chrome.runtime.sendMessage({ tools, url: window.location.href });
+}
+
+async function getFrameId(targetWindow) {
+  await chrome.runtime.sendMessage({ action: 'INJECT_GET_FRAME_ID' });
   const promise = new Promise((resolve) => {
-    const listener = ({ data }) => {
-      if (data.action === 'GET_LOCATION_RESPONSE') {
+    let timeoutId;
+    const listener = ({ source, data }) => {
+      if (source == targetWindow && data.action === 'GET_FRAME_ID_RESPONSE') {
         window.removeEventListener('message', listener);
-        resolve(data.location);
+        clearTimeout(timeoutId);
+        resolve(data.frameId);
       }
     };
     window.addEventListener('message', listener);
+    timeoutId = setTimeout(() => {
+      window.removeEventListener('message', listener);
+      resolve(null);
+    }, 2000);
   });
-  crossOriginIframeWindow.postMessage({ action: 'GET_LOCATION' }, '*');
+  targetWindow.postMessage({ action: 'GET_FRAME_ID' }, '*');
   return promise;
 }
-
-window.addEventListener('message', ({ data, origin, source }) => {
-  if (data.action === 'GET_LOCATION') {
-    const location = window.location.href;
-    source.postMessage({ action: 'GET_LOCATION_RESPONSE', location }, origin);
-  }
-});
 
 window.addEventListener('toolactivated', ({ toolName }) => {
   console.debug(`[WebMCP] Tool "${toolName}" started execution.`);
@@ -118,3 +114,7 @@ window.addEventListener('toolactivated', ({ toolName }) => {
 window.addEventListener('toolcancel', ({ toolName }) => {
   console.debug(`[WebMCP] Tool "${toolName}" execution is cancelled.`);
 });
+
+if (window === window.top) {
+  chrome.runtime.sendMessage({ type: 'contentScriptReady' }).catch(() => {});
+}

@@ -67,9 +67,11 @@ export function useActiveTabTools(): UseActiveTabToolsReturn {
     if (!window.chrome?.runtime) return;
 
     const listener = async (
-      { message, tools: newTools, url }: { message?: string; tools?: WebMCPTool[]; url?: string },
+      { message, tools: newTools, url, type }: { message?: string; tools?: WebMCPTool[]; url?: string; type?: string },
       sender?: chrome.runtime.MessageSender
     ) => {
+      // Internal signals (e.g. contentScriptReady) are handled elsewhere.
+      if (type) return;
       if (sender?.frameId && sender.frameId !== 0) return;
       const [tab] = await window.chrome.tabs.query({ active: true, currentWindow: true });
       if (sender?.tab && tab?.id && sender.tab.id !== tab.id) return;

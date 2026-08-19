@@ -11,8 +11,8 @@ import { WebMCPTool } from '../src/types/index.js';
 
 test('toolEncoder - buildToolDecls correctly formats WebMCP tools into LLM schemas', () => {
   const tools: WebMCPTool[] = [
-    { name: 'read_page', description: 'Read DOM content', inputSchema: '{"type":"object","properties":{"selector":{"type":"string"}}}', location: 'https://example.com' },
-    { name: 'submit_form', description: 'Submit form data', inputSchema: { type: 'object', properties: {} }, location: 'https://example.com/iframe' }
+    { name: 'read_page', description: 'Read DOM content', inputSchema: '{"type":"object","properties":{"selector":{"type":"string"}}}', frameId: 0 },
+    { name: 'submit_form', description: 'Submit form data', inputSchema: { type: 'object', properties: {} }, frameId: 1 }
   ];
 
   const decls = buildToolDecls(tools);
@@ -23,19 +23,19 @@ test('toolEncoder - buildToolDecls correctly formats WebMCP tools into LLM schem
   assert.equal(decls[1].name, '_1_submit_form');
 });
 
-test('toolEncoder - decodeToolName parses location and original name correctly', () => {
+test('toolEncoder - decodeToolName parses frameID and original name correctly', () => {
   const tools: WebMCPTool[] = [
-    { name: 'read_page', location: 'https://example.com' },
-    { name: 'submit_form', location: 'https://example.com/iframe' }
+    { name: 'read_page', frameId: 0 },
+    { name: 'submit_form', frameId: 1 }
   ];
 
-  const decoded0 = decodeToolName(tools, '_0_read_page');
+  const decoded0 = decodeToolName('_0_read_page');
   assert.equal(decoded0.name, 'read_page');
-  assert.equal(decoded0.location, 'https://example.com');
+  assert.equal(decoded0.frameId, 0);
 
-  const decoded1 = decodeToolName(tools, '_1_submit_form');
+  const decoded1 = decodeToolName('_1_submit_form');
   assert.equal(decoded1.name, 'submit_form');
-  assert.equal(decoded1.location, 'https://example.com/iframe');
+  assert.equal(decoded1.frameId, 1);
 });
 
 test('extensionBridge - ensureChromeAPI initializes mock chrome context safely outside extension', () => {
@@ -52,9 +52,12 @@ test('useTheme - enforces light mode only on dataset and localStorage', () => {
       documentElement: { dataset: {} }
     };
   }
-  if (typeof globalThis.localStorage === 'undefined') {
-    (globalThis as unknown as { localStorage: Record<string, string> }).localStorage = {};
-  }
+  const mockStorage: Record<string, string> = {};
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: mockStorage,
+    configurable: true,
+    writable: true,
+  });
 
   globalThis.localStorage.theme = 'dark';
   document.documentElement.dataset.theme = 'dark';
@@ -119,15 +122,15 @@ test('extensionBridge - executeTabTool dispatches message to tab with appropriat
     };
 
     // 1. Execute tool in main frame
-    const resMain = await executeTabTool('search_hotels', '{"query":"hotel"}', 'https://example.com');
+    const resMain = await executeTabTool('search_hotels', '{"query":"hotel"}', 0);
     assert.deepEqual(resMain, { success: true, count: 42 });
     assert.equal(sentMessages[0].tabId, 1);
     assert.deepEqual(sentMessages[0].options, { frameId: 0 });
 
     // 2. Execute tool in cross-origin iframe
-    const resIframe = await executeTabTool('submit_booking', '{"id":123}', 'https://booking.example.com');
+    const resIframe = await executeTabTool('submit_booking', '{"id":123}', 1);
     assert.deepEqual(resIframe, { success: true, count: 42 });
-    assert.deepEqual(sentMessages[1].options, {});
+    assert.deepEqual(sentMessages[1].options, { frameId: 1 });
   } finally {
     mockChrome.tabs.sendMessage = origSendMessage;
   }
