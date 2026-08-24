@@ -22,7 +22,6 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 // Update badge text with the number of tools per tab.
-chrome.tabs.onActivated.addListener(({ tabId }) => updateBadge(tabId));
 chrome.tabs.onUpdated.addListener((tabId) => updateBadge(tabId));
 chrome.webNavigation.onCompleted.addListener(({ tabId }) => updateBadge(tabId));
 

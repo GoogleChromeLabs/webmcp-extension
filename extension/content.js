@@ -71,11 +71,9 @@ async function listTools(fromOrigins) {
   let tools = [];
   for (const tool of await document.modelContext.getTools({ fromOrigins })) {
     const frameId = tool.window == window ? 0 : await getFrameId(tool.window);
-    const inputSchema =
-      typeof tool.inputSchema === 'string' ? tool.inputSchema : JSON.stringify(tool.inputSchema);
     tools.push({
       description: tool.description,
-      inputSchema,
+      inputSchema: tool.inputSchema,
       readOnlyHint: tool.annotations?.readOnlyHint,
       untrustedContentHint: tool.annotations?.untrustedContentHint,
       name: tool.name,
