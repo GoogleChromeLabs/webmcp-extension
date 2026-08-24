@@ -8,11 +8,11 @@ import assert from 'node:assert/strict';
 import { buildToolDecls, decodeToolName } from '../src/services/toolEncoder.js';
 import { WebMCPTool } from '../src/types/index.js';
 
-test('buildToolDecls encodes tool names with frame location indices', () => {
+test('buildToolDecls encodes tool names with frameIDs', () => {
   const mockTools: WebMCPTool[] = [
-    { name: 'searchHotels', description: 'Search hotels', inputSchema: '{"type":"object"}', location: 'https://example.com/page1' },
-    { name: 'filterGym', description: 'Filter by gym', inputSchema: '{"type":"object"}', location: 'https://example.com/page1' },
-    { name: 'iframeAction', description: 'Action in iframe', inputSchema: null, location: 'https://iframe.example.com' },
+    { name: 'searchHotels', description: 'Search hotels', inputSchema: '{"type":"object"}', frameId: 0 },
+    { name: 'filterGym', description: 'Filter by gym', inputSchema: '{"type":"object"}', frameId: 0 },
+    { name: 'iframeAction', description: 'Action in iframe', inputSchema: null, frameId: 2 },
   ];
 
   const decls = buildToolDecls(mockTools);
@@ -23,27 +23,20 @@ test('buildToolDecls encodes tool names with frame location indices', () => {
   assert.deepEqual(decls[2].parameters, { type: 'object', properties: {} });
 });
 
-test('decodeToolName decodes name and location correctly', () => {
-  const mockTools: WebMCPTool[] = [
-    { name: 'searchHotels', location: 'https://example.com/page1' },
-    { name: 'filterGym', location: 'https://example.com/page1' },
-    { name: 'iframeAction', location: 'https://iframe.example.com' },
-  ];
-
-  const tool0 = decodeToolName(mockTools, '_0_searchHotels');
+test('decodeToolName decodes name and frameID correctly', () => {
+  const tool0 = decodeToolName('_0_searchHotels');
   assert.equal(tool0.name, 'searchHotels');
-  assert.equal(tool0.location, 'https://example.com/page1');
+  assert.equal(tool0.frameId, 0);
 
-  const tool2 = decodeToolName(mockTools, '_2_iframeAction');
+  const tool2 = decodeToolName('_2_iframeAction');
   assert.equal(tool2.name, 'iframeAction');
-  assert.equal(tool2.location, 'https://iframe.example.com');
+  assert.equal(tool2.frameId, 2);
 });
 
 test('decodeToolName falls back gracefully for unencoded names', () => {
-  const mockTools: WebMCPTool[] = [];
-  const decoded = decodeToolName(mockTools, 'rawToolName');
+  const decoded = decodeToolName('rawToolName');
   assert.equal(decoded.name, 'rawToolName');
-  assert.equal(decoded.location, undefined);
+  assert.equal(decoded.frameId, undefined);
 });
 
 test('buildToolDecls handles nested schemas, arrays, and malformed JSON strings gracefully', () => {
@@ -51,12 +44,12 @@ test('buildToolDecls handles nested schemas, arrays, and malformed JSON strings 
     {
       name: 'filter_hotels',
       inputSchema: '{"type":"object","properties":{"price":{"type":"number"},"amenities":{"type":"array","items":{"type":"string"}}}}',
-      location: 'https://hotels.example.com',
+      frameId: 0,
     },
     {
       name: 'broken_schema_tool',
       inputSchema: '{ invalid json ...',
-      location: 'https://hotels.example.com',
+      frameId: 0,
     },
   ];
 

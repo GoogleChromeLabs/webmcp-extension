@@ -5,14 +5,14 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getIframeOrigins } from '../extension/utils.js';
+import { getAllFrameOrigins } from '../extension/utils.js';
 
-test('getIframeOrigins returns empty array when webNavigation is unavailable', async () => {
-  const origins = await getIframeOrigins(123);
+test('getAllFrameOrigins returns empty array when webNavigation is unavailable', async () => {
+  const origins = await getAllFrameOrigins(123);
   assert.deepEqual(origins, []);
 });
 
-test('getIframeOrigins extracts unique cross-origin iframe origins', async () => {
+test('getAllFrameOrigins extracts unique cross-origin iframe origins', async () => {
   globalThis.chrome = {
     webNavigation: {
       getAllFrames: async () => [
@@ -24,8 +24,8 @@ test('getIframeOrigins extracts unique cross-origin iframe origins', async () =>
     },
   } as unknown as typeof chrome;
 
-  const origins = await getIframeOrigins(123);
-  assert.deepEqual(origins, ['https://iframe1.example.com', 'https://iframe2.example.com']);
+  const origins = await getAllFrameOrigins(123);
+  assert.deepEqual(origins, ['https://parent.example.com', 'https://iframe1.example.com', 'https://iframe2.example.com']);
 
   delete (globalThis as { chrome?: unknown }).chrome;
 });

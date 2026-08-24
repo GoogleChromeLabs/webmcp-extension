@@ -15,9 +15,9 @@ declare module '*.woff2' {
 
 
 declare module '../../extension/utils.js' {
-  export function getIframeOrigins(tabId: number): Promise<string[]>;
+  export function getAllFrameOrigins(tabId: number): Promise<string[]>;
 }
 
 declare module '../extension/utils.js' {
-  export function getIframeOrigins(tabId: number): Promise<string[]>;
+  export function getAllFrameOrigins(tabId: number): Promise<string[]>;
 }
