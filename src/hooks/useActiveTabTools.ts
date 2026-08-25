@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, MutableRefObject } from 'react';
-import { ensureChromeAPI, requestTabTools } from '../services/extensionBridge.js';
+import { requestTabTools } from '../services/extensionBridge.js';
 import { WebMCPTool } from '../types/index.js';
 
 export interface UseActiveTabToolsReturn {
@@ -28,7 +28,6 @@ export function useActiveTabTools(): UseActiveTabToolsReturn {
   toolsRef.current = tools;
 
   const refreshActiveTab = useCallback(async () => {
-    ensureChromeAPI();
     if (!window.chrome?.tabs) return;
 
     try {
@@ -63,7 +62,6 @@ export function useActiveTabTools(): UseActiveTabToolsReturn {
   }, []);
 
   useEffect(() => {
-    ensureChromeAPI();
     if (!window.chrome?.runtime) return;
 
     const listener = async (

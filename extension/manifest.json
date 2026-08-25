@@ -4,7 +4,7 @@
   "description": "Inspect, monitor, and execute WebMCP tools",
   "version": "0.0.3",
   "minimum_chrome_version": "150.0.7861.0",
-  "permissions": ["sidePanel", "activeTab", "scripting", "webNavigation"],
+  "permissions": ["sidePanel", "scripting", "webNavigation"],
   "host_permissions": ["<all_urls>"],
   "update_url": "https://clients2.google.com/service/update2/crx",
   "icons": {

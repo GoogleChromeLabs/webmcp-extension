@@ -330,7 +330,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+const HOST = process.env.HOST || env.host || '127.0.0.1';
 const PORT = process.env.PORT || env.port || 3000;
-server.listen(PORT, () => {
-  console.log(`🚀 Backend Gemini server listening on http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`🚀 Backend Gemini server listening on http://${HOST}:${PORT}`);
 });

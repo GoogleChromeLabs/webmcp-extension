@@ -4,64 +4,9 @@
  */
 
 import { getAllFrameOrigins } from '../../extension/utils.js';
-import { WebMCPTool } from '../types/index.js';
 
 interface GlobalWindowWithChrome {
   chrome?: typeof chrome;
-}
-
-// Setup browser fallback for chrome extension APIs when outside Extension context
-export function ensureChromeAPI(): void {
-  const win = (typeof window !== 'undefined'
-    ? window
-    : typeof globalThis !== 'undefined'
-    ? globalThis
-    : null) as (Window & GlobalWindowWithChrome) | null;
-  if (!win) return;
-
-  if (!win.chrome || !win.chrome.tabs) {
-    let messageListeners: Array<(message: unknown, sender: unknown) => void> = [];
-    win.chrome = {
-      tabs: {
-        query: async () => [
-          { id: 1, url: 'https://example.com', favIconUrl: 'https://example.com/favicon.ico' },
-        ] as chrome.tabs.Tab[],
-        sendMessage: async (tabId: number, message: { action: string }) => {
-          console.log('[Mock Chrome] sendMessage:', message);
-          if (message.action === 'LIST_TOOLS') {
-            const response = {
-              message: '',
-              tools: [
-                { name: 'read_page', description: 'Read page', inputSchema: '{"type":"object","properties":{}}' },
-                { name: 'search_parameters', description: 'Search parameters', inputSchema: '{"type":"object","properties":{}}' },
-                { name: 'apply_parameters', description: 'Apply parameters', inputSchema: '{"type":"object","properties":{}}' },
-                { name: 'save', description: 'Save', inputSchema: '{"type":"object","properties":{}}' },
-              ] as WebMCPTool[],
-              url: 'https://example.com',
-            };
-            for (const listener of messageListeners) {
-              listener(response, { frameId: 0, tab: { id: 1 } });
-            }
-          }
-          return null;
-        },
-        onUpdated: { addListener: () => {}, removeListener: () => {} },
-      } as unknown as typeof chrome.tabs,
-      runtime: {
-        onMessage: {
-          addListener: (callback: (message: unknown, sender: unknown) => void) => {
-            messageListeners.push(callback);
-          },
-          removeListener: (callback: (message: unknown, sender: unknown) => void) => {
-            messageListeners = messageListeners.filter((l) => l !== callback);
-          },
-        },
-      } as unknown as typeof chrome.runtime,
-      webNavigation: {
-        getAllFrames: async () => [{ frameId: 0, url: 'https://example.com' }],
-      } as unknown as typeof chrome.webNavigation,
-    } as typeof chrome;
-  }
 }
 
 function getChrome(): typeof chrome | undefined {
@@ -77,7 +22,6 @@ function getChrome(): typeof chrome | undefined {
  * Queries active chrome tab details (URL, favicon, domain).
  */
 export async function getActiveTabInfo(): Promise<{ tabId?: number; url?: string; domain: string; favicon: string } | null> {
-  ensureChromeAPI();
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) return null;
   const [tab] = await chromeApi.tabs.query({ active: true, currentWindow: true });
@@ -105,7 +49,6 @@ export async function getActiveTabInfo(): Promise<{ tabId?: number; url?: string
  * Requests tools list from current active tab.
  */
 export async function requestTabTools(): Promise<void> {
-  ensureChromeAPI();
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) return;
   const [tab] = await chromeApi.tabs.query({ active: true, currentWindow: true });
@@ -126,7 +69,6 @@ export async function requestTabTools(): Promise<void> {
  * Executes a tool on the target Chrome tab/iframe.
  */
 export async function executeTabTool(name: string, inputArgs: string, frameId?: number): Promise<unknown> {
-  ensureChromeAPI();
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) throw new Error('No active tab available for tool execution.');
 
@@ -200,7 +142,6 @@ export async function executeTabTool(name: string, inputArgs: string, frameId?: 
 }
 
 function waitForPageLoad(tabId: number): Promise<void> {
-  ensureChromeAPI();
   const chromeApi = getChrome();
   return new Promise((resolve) => {
     if (!chromeApi?.tabs) return resolve();
