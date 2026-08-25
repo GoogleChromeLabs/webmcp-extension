@@ -30,6 +30,21 @@ interface BackendChatResponse {
   functionCalls?: Array<{ id?: string; name: string; args: Record<string, unknown> }>;
 }
 
+export const MAX_TOOL_RESPONSE_CHARS = 8000;
+
+export function applyTokenLimit(result: unknown): unknown {
+  if (result === undefined || result === null) return result;
+  const str = typeof result === 'string' ? result : JSON.stringify(result);
+  if (str && str.length > MAX_TOOL_RESPONSE_CHARS) {
+    console.warn(
+      `[WebMCP Security] Tool payload exceeded limit: ${str.length} chars (max: ${MAX_TOOL_RESPONSE_CHARS})`
+    );
+    const truncated = str.slice(0, MAX_TOOL_RESPONSE_CHARS);
+    return `${truncated}\n\n[WEBMCP_SECURITY_WARNING: Tool response exceeded maximum allowable limit (${str.length} > ${MAX_TOOL_RESPONSE_CHARS} characters) and was truncated to protect against context exhaustion and prompt injection.]`;
+  }
+  return result;
+}
+
 let nextId = Date.now();
 const generateId = (): number => ++nextId;
 
@@ -187,8 +202,10 @@ export function useAgentSession(
           const entry = logActivity('assistant', name, call.args);
 
           try {
-            const res = await executeTabTool(name, JSON.stringify(call.args), frameId);
+            const rawRes = await executeTabTool(name, JSON.stringify(call.args), frameId);
             if (signal.aborted) break;
+
+            const res = applyTokenLimit(rawRes);
             completeActivity(entry, { result: res });
             let resVal: unknown;
             if (res === undefined || res === null || res === '') {
