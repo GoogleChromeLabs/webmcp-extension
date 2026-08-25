@@ -5,11 +5,13 @@
 
 import React from 'react';
 import { ButtonUI, ButtonVariant } from './ButtonUI.js';
+import { SettingsIcon } from './Icons.js';
 
 export interface ToolbarProps {
   actionVariant?: ButtonVariant;
   actionPressed?: boolean;
   onActionClick?: () => void;
+  onSettingsClick?: () => void;
   className?: string;
   // Legacy aliases for backward compatibility
   actionButtonType?: ButtonVariant;
@@ -25,6 +27,7 @@ export function Toolbar({
   actionVariant,
   actionPressed,
   onActionClick,
+  onSettingsClick,
   actionButtonType = 'live',
   actionButtonState = 'Default',
   onActionButtonClick,
@@ -36,6 +39,17 @@ export function Toolbar({
 
   return (
     <div className={`toolbar ${className}`}>
+      {onSettingsClick && (
+        <button
+          type="button"
+          className="toolbar__settings-btn"
+          onClick={onSettingsClick}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <SettingsIcon size={20} color="var(--color-on-surface-variant)" />
+        </button>
+      )}
       <ButtonUI
         variant={variant}
         pressed={isPressed}

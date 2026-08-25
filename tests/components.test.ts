@@ -16,9 +16,13 @@ import { ActionLog, formatLogLabel } from '../src/components/ActionLog.js';
 import { AttachedTab } from '../src/components/AttachedTab.js';
 import { ActionsChip } from '../src/components/ActionsChip.js';
 import { TextInput } from '../src/components/TextInput.js';
+import { Toolbar } from '../src/components/Toolbar.js';
 import { ChatBubble } from '../src/components/ChatBubble.js';
 import { ConsentScreen } from '../src/screens/ConsentScreen.js';
 import { Favicon } from '../src/components/Favicon.js';
+import { Switch } from '../src/components/Switch.js';
+import { SettingsScreen } from '../src/screens/SettingsScreen.js';
+import { AllowToolPermissionCard } from '../src/components/AllowToolPermissionCard.js';
 
 test('ButtonUI renders Play Arrow and Square Stop buttons with distinct accessible labels and icons', () => {
   const playHtml = renderToString(
@@ -243,4 +247,120 @@ test('ActionLog renders aria-expanded and aria-controls for accessibility', () =
   assert.ok(html.includes('aria-expanded="true"'));
   assert.ok(html.includes('aria-controls='));
 });
+
+test('Switch renders checked and unchecked states with accessibility attributes', () => {
+  const checkedHtml = renderToString(
+    React.createElement(Switch, {
+      checked: true,
+      onChange: () => { },
+      'aria-label': 'Test Switch',
+    })
+  );
+  assert.ok(checkedHtml.includes('cdds-switch--checked'));
+  assert.ok(checkedHtml.includes('role="switch"'));
+  assert.ok(checkedHtml.includes('aria-checked="true"'));
+  assert.ok(checkedHtml.includes('aria-label="Test Switch"'));
+
+  const uncheckedHtml = renderToString(
+    React.createElement(Switch, {
+      checked: false,
+      onChange: () => { },
+      'aria-label': 'Test Switch',
+    })
+  );
+  assert.ok(!uncheckedHtml.includes('cdds-switch--checked'));
+  assert.ok(uncheckedHtml.includes('aria-checked="false"'));
+});
+
+test('SettingsScreen renders header, permissions section, sensitive action alerts, and switch', () => {
+  const html = renderToString(
+    React.createElement(SettingsScreen, {
+      sensitiveActionAlerts: true,
+      onToggleSensitiveActionAlerts: () => { },
+      onClose: () => { },
+    })
+  );
+
+  assert.ok(html.includes('Settings'));
+  assert.ok(html.includes('Permissions'));
+  assert.ok(html.includes('Sensitive action alerts'));
+  assert.ok(html.includes('Get a prompt before tools make changes to your data or accounts'));
+  assert.ok(html.includes('aria-label="Close settings"'));
+  assert.ok(html.includes('cdds-switch--checked'));
+});
+
+test('AllowToolPermissionCard renders shield icon, title, tool details, and allow/deny buttons', () => {
+  const html = renderToString(
+    React.createElement(AllowToolPermissionCard, {
+      toolName: 'book_table',
+      toolDescription: 'Books a restaurant reservation at the selected time.',
+      onAllow: () => { },
+      onDeny: () => { },
+    })
+  );
+
+  assert.ok(html.includes('Allow tool actions'));
+  assert.ok(html.includes('Let this tool complete task for you'));
+  assert.ok(html.includes('book_table'));
+  assert.ok(html.includes('Books a restaurant reservation at the selected time.'));
+  assert.ok(html.includes('Don’t allow'));
+  assert.ok(html.includes('Allow'));
+});
+
+test('Toolbar renders settings gear button when onSettingsClick is provided', () => {
+  const withSettingsHtml = renderToString(
+    React.createElement(Toolbar, {
+      actionVariant: 'live',
+      onSettingsClick: () => { },
+    })
+  );
+  assert.ok(withSettingsHtml.includes('toolbar__settings-btn'));
+  assert.ok(withSettingsHtml.includes('aria-label="Settings"'));
+
+  const withoutSettingsHtml = renderToString(
+    React.createElement(Toolbar, {
+      actionVariant: 'live',
+    })
+  );
+  assert.ok(!withoutSettingsHtml.includes('toolbar__settings-btn'));
+});
+
+test('ChatBubble renders AllowToolPermissionCard when permissionProps is passed', () => {
+  const permissionBubbleHtml = renderToString(
+    React.createElement(ChatBubble, {
+      showTab: true,
+      tabProps: { domain: 'restaurant.com', toolsCountLabel: '1 tool' },
+      permissionProps: {
+        toolName: 'create_reservation',
+        toolDescription: 'Create dinner booking',
+        onAllow: () => { },
+        onDeny: () => { },
+      },
+    })
+  );
+
+  assert.ok(permissionBubbleHtml.includes('chat-bubble--permission'));
+  assert.ok(permissionBubbleHtml.includes('restaurant.com'));
+  assert.ok(permissionBubbleHtml.includes('Allow tool actions'));
+  assert.ok(permissionBubbleHtml.includes('create_reservation'));
+  assert.ok(permissionBubbleHtml.includes('Create dinner booking'));
+  assert.ok(!permissionBubbleHtml.includes('chat-bubble__input-field'));
+});
+
+test('ActionLog renders Waiting for permission state with atom logo and header', () => {
+  const html = renderToString(
+    React.createElement(ActionLog, {
+      status: 'permission',
+      statusText: 'Waiting for permission',
+      activityLogs: [
+        { id: 1, time: '12:00', source: 'assistant', name: 'delete_account', args: {}, start: 0, status: 'running' },
+      ],
+      defaultOpen: true,
+    })
+  );
+
+  assert.ok(html.includes('Waiting for permission'));
+  assert.ok(html.includes('Delete account'));
+});
+
 

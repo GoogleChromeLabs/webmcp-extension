@@ -94,6 +94,7 @@ export const SettingsIcon = (p: IconProp) => <SymbolIcon name="settings" size={2
 export const MoreVertIcon = (p: IconProp) => <SymbolIcon name="more_vert" size={20} {...p} />;
 export const ArrowDownIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_down" size={16} {...p} />;
 export const ArrowUpIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_up" size={16} {...p} />;
+export const ShieldIcon = (p: IconProp) => <SymbolIcon name="shield" size={20} {...p} />;
 export const KeyboardArrowDownIcon = ArrowDownIcon;
 export const KeyboardArrowUpIcon = ArrowUpIcon;
 

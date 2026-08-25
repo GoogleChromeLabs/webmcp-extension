@@ -13,12 +13,25 @@ import {
   WebMCPTool,
 } from '../types/index.js';
 
+export interface UseAgentSessionOptions {
+  sensitiveActionAlerts?: boolean;
+}
+
+export interface PendingToolPermission {
+  toolName: string;
+  toolDescription?: string;
+  args?: unknown;
+  allow: () => void;
+  deny: () => void;
+}
+
 export interface UseAgentSessionReturn {
   userPrompt: string;
   setUserPrompt: Dispatch<SetStateAction<string>>;
   messages: ChatMessage[];
   busy: boolean;
   activityLog: ActivityEntry[];
+  pendingPermission: PendingToolPermission | null;
   handleSendPrompt: () => Promise<void>;
   handleStop: () => void;
   handleReset: () => void;
@@ -34,13 +47,21 @@ let nextId = Date.now();
 const generateId = (): number => ++nextId;
 
 export function useAgentSession(
-  toolsOrRef: WebMCPTool[] | MutableRefObject<WebMCPTool[]>
+  toolsOrRef: WebMCPTool[] | MutableRefObject<WebMCPTool[]>,
+  options?: UseAgentSessionOptions
 ): UseAgentSessionReturn {
   // Chat & Execution State
   const [userPrompt, setUserPrompt] = useState<string>('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState<boolean>(false);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
+  const [pendingPermission, setPendingPermission] = useState<PendingToolPermission | null>(null);
+
+  // Settings sync ref
+  const sensitiveActionAlertsRef = useRef<boolean>(options?.sensitiveActionAlerts ?? true);
+  useEffect(() => {
+    sensitiveActionAlertsRef.current = options?.sensitiveActionAlerts ?? true;
+  }, [options?.sensitiveActionAlerts]);
 
   // Safely support either MutableRefObject or raw tools array without breaking encapsulation
   const internalToolsRef = useRef<WebMCPTool[]>([]);
@@ -58,6 +79,7 @@ export function useAgentSession(
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
+      setPendingPermission(null);
     };
   }, []);
 
@@ -100,6 +122,7 @@ export function useAgentSession(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    setPendingPermission(null);
     setBusy(false);
   }, []);
 
@@ -117,6 +140,7 @@ export function useAgentSession(
     setUserPrompt('');
     setMessages([]);
     setActivityLog([]);
+    setPendingPermission(null);
     setBusy(false);
   }, []);
 
@@ -135,6 +159,7 @@ export function useAgentSession(
 
     setBusy(true);
     setUserPrompt('');
+    setPendingPermission(null);
     turnLogsRef.current = [];
     setActivityLog([]);
     setMessages((prev) => [
@@ -184,7 +209,63 @@ export function useAgentSession(
         for (const call of currentResult.functionCalls) {
           if (signal.aborted) break;
           const { name, frameId } = decodeToolName(call.name);
+
+          // Find the tool declaration in activeToolsRef
+          const targetTool =
+            activeToolsRef.current.find(
+              (t) => t.name === name && (frameId === undefined || t.frameId === frameId)
+            ) ||
+            activeToolsRef.current.find((t) => t.name === name);
+
+          const isReadOnly = targetTool?.readOnlyHint === true;
           const entry = logActivity('assistant', name, call.args);
+
+          // If sensitive action alerts is enabled and tool is not readonly, prompt the user before execution
+          if (sensitiveActionAlertsRef.current && !isReadOnly) {
+            const allowed = await new Promise<boolean>((resolve) => {
+              const onAbort = () => {
+                signal.removeEventListener('abort', onAbort);
+                setPendingPermission(null);
+                resolve(false);
+              };
+
+              if (signal.aborted) {
+                resolve(false);
+                return;
+              }
+
+              signal.addEventListener('abort', onAbort, { once: true });
+
+              setPendingPermission({
+                toolName: targetTool?.name || name,
+                toolDescription: targetTool?.description,
+                args: call.args,
+                allow: () => {
+                  signal.removeEventListener('abort', onAbort);
+                  setPendingPermission(null);
+                  resolve(true);
+                },
+                deny: () => {
+                  signal.removeEventListener('abort', onAbort);
+                  setPendingPermission(null);
+                  resolve(false);
+                },
+              });
+            });
+
+            if (signal.aborted) break;
+
+            if (!allowed) {
+              completeActivity(entry, { error: 'User denied permission' });
+              toolResponses.push({
+                functionResponse: {
+                  name: call.name,
+                  response: { error: 'User denied permission to execute this tool.' },
+                },
+              });
+              continue;
+            }
+          }
 
           try {
             const res = await executeTabTool(name, JSON.stringify(call.args), frameId);
@@ -259,6 +340,7 @@ export function useAgentSession(
       chatIdRef.current = undefined;
     } finally {
       if (!signal.aborted) {
+        setPendingPermission(null);
         setBusy(false);
       }
     }
@@ -270,6 +352,7 @@ export function useAgentSession(
     messages,
     busy,
     activityLog,
+    pendingPermission,
     handleSendPrompt,
     handleStop,
     handleReset,

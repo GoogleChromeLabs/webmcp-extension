@@ -8,6 +8,7 @@ import ChatBubble from './components/ChatBubble.js';
 import WebMCPToolsDialogue from './components/WebMCPToolsDialogue.js';
 import IPHPopover from './components/IPHPopover.js';
 import ConsentScreen from './screens/ConsentScreen.js';
+import SettingsScreen from './screens/SettingsScreen.js';
 import MarkdownText from './components/MarkdownText.js';
 import ActionLog from './components/ActionLog.js';
 import { EditSquareIcon } from './components/Icons.js';
@@ -20,8 +21,22 @@ export function App() {
   const [showConsent, setShowConsent] = useState(
     () => localStorage.getItem('agentConsent') !== 'true'
   );
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [sensitiveActionAlerts, setSensitiveActionAlerts] = useState<boolean>(() => {
+    const saved = localStorage.getItem('sensitiveActionAlerts');
+    return saved !== null ? saved === 'true' : true;
+  });
+
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
+
+  const handleToggleSensitiveActionAlerts = () => {
+    setSensitiveActionAlerts((prev) => {
+      const next = !prev;
+      localStorage.setItem('sensitiveActionAlerts', String(next));
+      return next;
+    });
+  };
 
   // Custom Hooks
   const { tools, toolsRef, domain, favicon, statusMsg } = useActiveTabTools();
@@ -31,10 +46,11 @@ export function App() {
     messages,
     busy,
     activityLog,
+    pendingPermission,
     handleSendPrompt,
     handleStop,
     handleReset,
-  } = useAgentSession(toolsRef);
+  } = useAgentSession(toolsRef, { sensitiveActionAlerts });
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -87,6 +103,12 @@ export function App() {
           <ConsentScreen
             onGotIt={dismissConsent}
             onClose={dismissConsent}
+          />
+        ) : showSettings ? (
+          <SettingsScreen
+            sensitiveActionAlerts={sensitiveActionAlerts}
+            onToggleSensitiveActionAlerts={handleToggleSensitiveActionAlerts}
+            onClose={() => setShowSettings(false)}
           />
         ) : (
           <section className="view chat-view">
@@ -170,7 +192,14 @@ export function App() {
                   {/* Pending/Running Action Log */}
                   {busy && (
                     <ActionLog
-                      status={activityLog.length === 0 ? 'initiation' : 'running'}
+                      status={
+                        pendingPermission
+                          ? 'permission'
+                          : activityLog.length === 0
+                          ? 'initiation'
+                          : 'running'
+                      }
+                      statusText={pendingPermission ? 'Waiting for permission' : undefined}
                       activityLogs={activityLog}
                     />
                   )}
@@ -226,7 +255,18 @@ export function App() {
                 toolbarProps={{
                   actionVariant: busy ? 'stop' : userPrompt.trim() ? 'send' : 'live',
                   onActionClick: busy ? handleStop : handleSendPrompt,
+                  onSettingsClick: () => setShowSettings(true),
                 }}
+                permissionProps={
+                  pendingPermission
+                    ? {
+                        toolName: pendingPermission.toolName,
+                        toolDescription: pendingPermission.toolDescription,
+                        onAllow: pendingPermission.allow,
+                        onDeny: pendingPermission.deny,
+                      }
+                    : null
+                }
               />
             </footer>
           </section>
