@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useId } from 'react';
 import { ArrowDownIcon, ArrowUpIcon, AtomLogo } from './Icons.js';
 import { ActivityEntry } from '../types/index.js';
 
@@ -29,7 +29,8 @@ export function ActionLog({
   activityLogs = [],
   defaultOpen,
 }: ActionLogProps) {
-  const [isOpen, setIsOpen] = useState<boolean>(defaultOpen ?? (status === 'completed' ? false : true));
+  const [isOpen, setIsOpen] = useState<boolean>(defaultOpen ?? (status !== 'completed'));
+  const contentId = useId();
 
   // Determine status label
   let headerLabel = statusText;
@@ -51,13 +52,13 @@ export function ActionLog({
   // Determine status icon on left of header
   const renderStatusIcon = () => {
     if (status === 'initiation' || status === 'running') {
-      return <span className="action-log__dots">• •</span>;
+      return <span className="action-log__dots" aria-hidden="true">• •</span>;
     }
     return <AtomLogo size={16} color="#0b57d0" />;
   };
 
   // Reverse activity logs for display so earliest step is top
-  const displayLogs = [...activityLogs].reverse();
+  const displayLogs = useMemo(() => [...activityLogs].reverse(), [activityLogs]);
 
   return (
     <div className="action-log">
@@ -65,21 +66,22 @@ export function ActionLog({
       <button
         type="button"
         className="action-log__header"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsOpen((prev) => !prev)}
         aria-expanded={isOpen}
+        aria-controls={contentId}
       >
         <div className="action-log__title-group">
           <div className="action-log__icon-wrapper">{renderStatusIcon()}</div>
           <span className="action-log__label">{headerLabel}</span>
         </div>
-        <div className="action-log__chevron">
+        <div className="action-log__chevron" aria-hidden="true">
           {isOpen ? <ArrowUpIcon size={16} /> : <ArrowDownIcon size={16} />}
         </div>
       </button>
 
       {/* Expanded Details */}
       {isOpen && (
-        <div className="action-log__content">
+        <div id={contentId} className="action-log__content">
           {/* Activity / Task Trajectory Logs */}
           <div className="action-log__items">
             {displayLogs.length > 0 ? (

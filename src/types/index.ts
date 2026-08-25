@@ -52,6 +52,7 @@ export interface ChatMessage {
   role: 'user' | 'ai' | 'error';
   text: string;
   meta?: string;
+  activityLogs?: ActivityEntry[];
 }
 
 export interface ExtensionListToolsMessage {

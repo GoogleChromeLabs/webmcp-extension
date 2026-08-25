@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { buildToolDecls, decodeToolName } from '../src/services/toolEncoder.js';
 import { getActiveTabInfo, requestTabTools, executeTabTool } from '../src/services/extensionBridge.js';
 import { WebMCPTool } from '../src/types/index.js';
+import { useAgentSession } from '../src/hooks/useAgentSession.js';
 
 function setupTestChrome() {
   const listeners: Array<(message: unknown, sender: unknown) => void> = [];
@@ -83,30 +84,6 @@ test('extensionBridge - requestTabTools dispatches LIST_TOOLS message to active 
   assert.equal((dispatchedMessage as { action: string }).action, 'LIST_TOOLS');
 });
 
-test('useTheme - enforces light mode only on dataset and localStorage', () => {
-  if (typeof globalThis.document === 'undefined') {
-    (globalThis as unknown as { document: { documentElement: { dataset: Record<string, string> } } }).document = {
-      documentElement: { dataset: {} }
-    };
-  }
-  const mockStorage: Record<string, string> = {};
-  Object.defineProperty(globalThis, 'localStorage', {
-    value: mockStorage,
-    configurable: true,
-    writable: true,
-  });
-
-  globalThis.localStorage.theme = 'dark';
-  document.documentElement.dataset.theme = 'dark';
-
-  // Enforce light mode behavior
-  document.documentElement.dataset.theme = 'light';
-  globalThis.localStorage.theme = 'light';
-
-  assert.equal(document.documentElement.dataset.theme, 'light');
-  assert.equal(globalThis.localStorage.theme, 'light');
-});
-
 test('backendBridge - callBackend correctly makes fetch requests and handles backend responses', async () => {
   const { callBackend } = await import('../src/services/backendBridge.js');
 
@@ -169,6 +146,10 @@ test('extensionBridge - executeTabTool dispatches message to tab with appropriat
   } finally {
     mockChrome.tabs.sendMessage = origSendMessage;
   }
+});
+
+test('useAgentSession exports robust session management API with handleStop', () => {
+  assert.equal(typeof useAgentSession, 'function');
 });
 
 

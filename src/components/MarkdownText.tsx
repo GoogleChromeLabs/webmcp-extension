@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 
 export interface MarkdownTextProps {
   content?: string;
@@ -21,14 +21,14 @@ type Block =
  * Lightweight Markdown renderer for AI assistant responses.
  */
 export function MarkdownText({ content = '', className = '' }: MarkdownTextProps) {
-  if (!content) return null;
+  const blocks = useMemo(() => (content ? parseBlocks(content) : []), [content]);
 
-  const blocks = parseBlocks(content);
+  if (!content) return null;
 
   return (
     <div className={`markdown ${className}`}>
       {blocks.map((block, idx) => (
-        <RenderBlock key={idx} block={block} />
+        <RenderBlock key={`${block.type}-${idx}`} block={block} />
       ))}
     </div>
   );
@@ -170,8 +170,16 @@ function renderInline(text: string) {
     }
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
+      const href = linkMatch[2].trim();
+      const isSafe = /^https?:\/\//i.test(href) || href.startsWith('/') || href.startsWith('#');
       return (
-        <a key={idx} href={linkMatch[2]} target="_blank" rel="noreferrer" className="md-link">
+        <a
+          key={idx}
+          href={isSafe ? href : '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="md-link"
+        >
           {linkMatch[1]}
         </a>
       );

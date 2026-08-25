@@ -18,6 +18,7 @@ import { ActionsChip } from '../src/components/ActionsChip.js';
 import { TextInput } from '../src/components/TextInput.js';
 import { ChatBubble } from '../src/components/ChatBubble.js';
 import { ConsentScreen } from '../src/screens/ConsentScreen.js';
+import { Favicon } from '../src/components/Favicon.js';
 
 test('ButtonUI renders Play Arrow and Square Stop buttons', () => {
   const playHtml = renderToString(
@@ -185,5 +186,45 @@ test('ConsentScreen renders feature cards, disclaimers, and action buttons', () 
   assert.ok(html.includes('Terms &amp; Notices'));
   assert.ok(html.includes('Got it'));
   assert.ok(html.includes('Close'));
+});
+
+test('Favicon renders customSrc and fallback gracefully', () => {
+  const customHtml = renderToString(
+    React.createElement(Favicon, {
+      customSrc: 'https://example.com/icon.png',
+    })
+  );
+  assert.ok(customHtml.includes('https://example.com/icon.png'));
+  assert.ok(customHtml.includes('fav__img'));
+
+  const fallbackHtml = renderToString(React.createElement(Favicon));
+  assert.ok(fallbackHtml.includes('data:image/svg+xml'));
+});
+
+test('MarkdownText sanitizes malicious javascript links', () => {
+  const markdown = '[Click Me](javascript:alert(1)) and [Legit](https://example.com)';
+  const html = renderToString(
+    React.createElement(MarkdownText, { content: markdown })
+  );
+
+  assert.ok(!html.includes('javascript:alert(1)'));
+  assert.ok(html.includes('href="#"'));
+  assert.ok(html.includes('href="https://example.com"'));
+  assert.ok(html.includes('rel="noopener noreferrer"'));
+});
+
+test('ActionLog renders aria-expanded and aria-controls for accessibility', () => {
+  const html = renderToString(
+    React.createElement(ActionLog, {
+      status: 'completed',
+      activityLogs: [
+        { id: 1, time: '12:00', source: 'assistant', name: 'search_items', args: {}, start: 0, status: 'ok' },
+      ],
+      defaultOpen: true,
+    })
+  );
+
+  assert.ok(html.includes('aria-expanded="true"'));
+  assert.ok(html.includes('aria-controls='));
 });
 

@@ -25,9 +25,20 @@ export function IPHPopover({
   onGotIt,
 }: IPHPopoverProps) {
   return (
-    <div className="iph">
+    <div
+      className="iph"
+      role="region"
+      aria-label={title}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && onClose) {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
       <div className="iph__card">
         <button
+          type="button"
           className="iph__close-btn"
           onClick={onClose}
           aria-label="Close"
@@ -53,6 +64,7 @@ export function IPHPopover({
         <div className="iph__footer">
           {onViewActions && (
             <button
+              type="button"
               className="iph__btn iph__btn--secondary"
               onClick={onViewActions}
             >
@@ -60,6 +72,7 @@ export function IPHPopover({
             </button>
           )}
           <button
+            type="button"
             className="iph__btn iph__btn--primary"
             onClick={onGotIt}
           >
@@ -67,7 +80,7 @@ export function IPHPopover({
           </button>
         </div>
       </div>
-      <div className="iph__pointer"></div>
+      <div className="iph__pointer" aria-hidden="true"></div>
     </div>
   );
 }

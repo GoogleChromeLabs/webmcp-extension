@@ -8,11 +8,9 @@ import { PlayArrowIcon, SquareStopIcon } from './Icons.js';
 
 export type ButtonVariant = 'live' | 'send' | 'stop';
 
-export interface ButtonUIProps {
+export interface ButtonUIProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   pressed?: boolean;
-  onClick?: () => void;
-  className?: string;
 }
 
 /**
@@ -24,6 +22,9 @@ export function ButtonUI({
   pressed = false,
   onClick,
   className = '',
+  type = 'button',
+  'aria-label': ariaLabel,
+  ...restProps
 }: ButtonUIProps) {
   const isStop = variant === 'stop';
 
@@ -33,10 +34,11 @@ export function ButtonUI({
 
   return (
     <button
-      type="button"
+      type={type}
       className={classNames.join(' ')}
       onClick={onClick}
-      aria-label={variant}
+      aria-label={ariaLabel || variant}
+      {...restProps}
     >
       <div className="button-ui__icon-wrapper">
         {isStop ? (

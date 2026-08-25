@@ -19,16 +19,17 @@ export interface FaviconProps {
  * Dynamically displays active tab favicon or falls back to generic web globe icon.
  */
 export function Favicon({ customSrc, className = '' }: FaviconProps) {
-  const [imgError, setImgError] = useState<boolean>(false);
-  const src = !imgError && customSrc ? customSrc : GENERIC_FAVICON;
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const src = customSrc && customSrc !== failedSrc ? customSrc : GENERIC_FAVICON;
 
   return (
     <div className={`fav ${className}`}>
       <img
         src={src}
-        alt="Page favicon"
+        alt=""
+        aria-hidden="true"
         className="fav__img"
-        onError={() => setImgError(true)}
+        onError={() => setFailedSrc(customSrc || null)}
       />
     </div>
   );

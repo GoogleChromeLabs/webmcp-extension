@@ -30,6 +30,7 @@ export function SymbolIcon({
   return (
     <span
       className={`cdds-symbol ${className}`}
+      aria-hidden="true"
       style={{
         fontFamily: "'Google Symbols', sans-serif",
         fontSize: typeof size === 'number' ? `${size}px` : size,
@@ -64,6 +65,7 @@ export function AtomLogo({ size = 18, color = '#012c6f', className = '' }: LogoP
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
+      aria-hidden="true"
       style={{ display: 'block' }}
     >
       <g id="atom">
@@ -104,6 +106,7 @@ export function PlayArrowIcon({ size = 14, color = 'currentColor', className = '
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
+      aria-hidden="true"
       style={{ display: 'block' }}
     >
       <path
@@ -126,6 +129,7 @@ export function SquareStopIcon({ size = 12, color = 'currentColor', className = 
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
+      aria-hidden="true"
       style={{ display: 'block' }}
     >
       <rect x="2" y="2" width="8" height="8" rx="1.5" fill={color} />

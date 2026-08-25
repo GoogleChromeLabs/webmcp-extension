@@ -25,7 +25,18 @@ export function WebMCPToolsDialogue({
   className = '',
 }: WebMCPToolsDialogueProps) {
   return (
-    <div className={`tools-dialogue ${className}`}>
+    <div
+      className={`tools-dialogue ${className}`}
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="webmcp-tools-dialog-title"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && onClose) {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
       {/* Header Row */}
       <div className="tools-dialogue__header">
         <div className="tools-dialogue__header-left">
@@ -33,14 +44,16 @@ export function WebMCPToolsDialogue({
             <AutomationIcon size={16} color="#0842a0" />
           </div>
           <div className="tools-dialogue__titles">
-            <h3 className="tools-dialogue__title">Available WebMCP tools</h3>
+            <h3 id="webmcp-tools-dialog-title" className="tools-dialogue__title">Available WebMCP tools</h3>
             <p className="tools-dialogue__subtitle">{domain} • {toolsCount} tools</p>
           </div>
         </div>
         <button
+          type="button"
           className="tools-dialogue__close-btn"
           onClick={onClose}
           title="Close dialogue"
+          aria-label="Close dialogue"
         >
           <CloseIcon size={18} color="#474747" />
         </button>
@@ -64,7 +77,7 @@ export function WebMCPToolsDialogue({
       <div className="tools-dialogue__list-row">
         <div className="tools-dialogue__list">
           {toolsList.map((toolName, idx) => (
-            <div key={idx} className="tools-dialogue__item">
+            <div key={`${toolName}-${idx}`} className="tools-dialogue__item">
               <SymbolIcon name="check" size={16} color="#1c1917" />
               <span className="tools-dialogue__item-name">{toolName}</span>
             </div>

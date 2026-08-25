@@ -12,20 +12,18 @@ import MarkdownText from './components/MarkdownText.js';
 import ActionLog from './components/ActionLog.js';
 import { EditSquareIcon } from './components/Icons.js';
 
-import { useTheme } from './hooks/useTheme.js';
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
 
 export function App() {
   // Navigation & View State
-  const [showConsent, setShowConsent] = useState<boolean>(
-    (localStorage.agentConsent ?? localStorage.agentConsent) !== 'true'
+  const [showConsent, setShowConsent] = useState(
+    () => localStorage.getItem('agentConsent') !== 'true'
   );
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
 
   // Custom Hooks
-  useTheme();
   const { tools, toolsRef, domain, favicon, statusMsg } = useActiveTabTools();
   const {
     userPrompt,
@@ -34,6 +32,7 @@ export function App() {
     busy,
     activityLog,
     handleSendPrompt,
+    handleStop,
     handleReset,
   } = useAgentSession(toolsRef);
 
@@ -41,9 +40,10 @@ export function App() {
 
   // Auto scroll chat to bottom on new messages
   useEffect(() => {
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       chatStreamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 50);
+    return () => clearTimeout(timer);
   }, [messages, busy]);
 
   // Derive dynamic welcome subtitle topic based on active domain
@@ -72,6 +72,11 @@ export function App() {
     }
   };
 
+  const dismissConsent = () => {
+    localStorage.setItem('agentConsent', 'true');
+    setShowConsent(false);
+  };
+
   return (
     <div className="agent-screen-shell">
       {/* Error / Status Notice */}
@@ -80,14 +85,8 @@ export function App() {
       <main>
         {showConsent ? (
           <ConsentScreen
-            onGotIt={() => {
-              localStorage.agentConsent = 'true';
-              setShowConsent(false);
-            }}
-            onClose={() => {
-              localStorage.agentConsent = 'true';
-              setShowConsent(false);
-            }}
+            onGotIt={dismissConsent}
+            onClose={dismissConsent}
           />
         ) : (
           <section className="view chat-view">
@@ -105,9 +104,9 @@ export function App() {
                   </p>
 
                   <div className="action-chips">
-                    {welcomeActionChips.map((chip, idx) => (
+                    {welcomeActionChips.map((chip) => (
                       <button
-                        key={idx}
+                        key={chip.text}
                         className="action-chip"
                         onClick={() => setUserPrompt(chip.text)}
                       >
@@ -148,7 +147,7 @@ export function App() {
                         <React.Fragment key={msg.id}>
                           <ActionLog
                             status="completed"
-                            activityLogs={activityLog}
+                            activityLogs={msg.activityLogs}
                           />
                           <div className="ai-response">
                             <MarkdownText content={msg.text} />
@@ -221,12 +220,12 @@ export function App() {
                 textProps={{
                   value: userPrompt,
                   placeholder: 'Ask Agent anything',
-                  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setUserPrompt(e.target.value),
+                  onChange: (e) => setUserPrompt(e.target.value),
                   onSubmit: handleSendPrompt,
                 }}
                 toolbarProps={{
                   actionVariant: busy ? 'stop' : userPrompt.trim() ? 'send' : 'live',
-                  onActionClick: handleSendPrompt,
+                  onActionClick: busy ? handleStop : handleSendPrompt,
                 }}
               />
             </footer>

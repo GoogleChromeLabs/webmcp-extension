@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { AutomationIcon } from './Icons.js';
 
 export interface ActionsChipProps {
@@ -21,29 +21,19 @@ export interface ActionsChipProps {
  */
 export function ActionsChip({
   disabled = false,
-  state: stateProp,
+  state: stateProp = 'Closed',
   label = '5 tools',
   disabledLabel = 'WebMCP disabled',
   onClick,
   className = '',
 }: ActionsChipProps) {
-  const [isHovered, setIsHovered] = useState(false);
-  const [isPressed, setIsPressed] = useState(false);
-
-  let currentState = stateProp;
-  if (!currentState) {
-    if (isPressed) currentState = 'Pressed';
-    else if (isHovered) currentState = 'Hover';
-    else currentState = 'Closed';
-  }
-
-  const isClosed = currentState === 'Closed';
+  const isClosed = stateProp === 'Closed';
   const displayLabel = disabled ? disabledLabel : label;
 
   const classNames = [
     'actions-chip',
     `actions-chip--${disabled ? 'disabled' : 'enabled'}`,
-    `actions-chip--${currentState.toLowerCase()}`,
+    `actions-chip--${stateProp.toLowerCase()}`,
   ];
   if (className) classNames.push(className);
 
@@ -51,13 +41,7 @@ export function ActionsChip({
     <button
       type="button"
       className={classNames.join(' ')}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => {
-        setIsHovered(false);
-        setIsPressed(false);
-      }}
-      onMouseDown={() => setIsPressed(true)}
-      onMouseUp={() => setIsPressed(false)}
+      disabled={disabled}
       onClick={onClick}
       title={isClosed ? displayLabel : undefined}
       aria-label={displayLabel}

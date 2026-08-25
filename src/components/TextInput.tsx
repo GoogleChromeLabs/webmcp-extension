@@ -22,7 +22,6 @@ export interface TextInputProps {
  * Input field for user prompt composition.
  */
 export function TextInput({
-  active = false,
   value = '',
   placeholder = 'Ask Agent anything',
   onChange,
@@ -42,18 +41,17 @@ export function TextInput({
 
   return (
     <div className={`text-input ${className}`}>
-      {!active && !value && <span className="text-input__cursor" />}
       <input
         type="text"
         className="text-input__field"
         value={value}
         placeholder={placeholder}
+        aria-label={placeholder}
         onChange={onChange}
         onFocus={onFocus}
         onBlur={onBlur}
         onKeyDown={handleKeyDown}
       />
-      {active && <span className="text-input__cursor" />}
     </div>
   );
 }
