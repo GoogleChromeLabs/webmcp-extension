@@ -78,9 +78,9 @@ npm test
 
 ### Test Coverage Includes:
 - **UI Components (`tests/components.test.ts`)**: Rendering of `ButtonUI`, `IPHPopover`, `WebMCPToolsDialogue`, `AttachedTab`, `ActionsChip`, `TextInput`, `ChatBubble`, `ActionLog`, and `ConsentScreen`.
-- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `executeTabTool` frame resolution, session lifecycle management, tool schemas, and backend bridge helpers.
-- **Tool Name Encoding & Schema Normalization (`tests/toolNameEncoding.test.ts`)**: FrameID encoding, nested object/array schemas, and malformed JSON recovery.
-- **In-Flight Dynamic Tool Reload & Loop Safety (`tests/toolReload.test.ts`)**: Synchronous `toolsRef` updates, mid-run tool updates, and `MAX_TURNS` recursion limit.
+- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `executeTabTool` frame resolution, active tab discovery, and `backendBridge` `callBackend` with `AbortSignal` cancellation.
+- **Tool Name Encoding & Schema Normalization (`tests/toolNameEncoding.test.ts`)**: FrameID encoding, decoding fallbacks, nested object/array schemas, and malformed JSON recovery.
+- **Dynamic Tool Reload & Navigation Recovery (`tests/toolReload.test.ts`)**: Cross-frame same-name collision resolution, dynamic DOM tool transitions, and cross-document navigation recovery.
 - **Markdown Renderer (`tests/markdownText.test.ts`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
 - **Extension Utilities (`tests/utils.test.ts`)**: Extraction of cross-origin iframe origins (`getAllFrameOrigins`).
 

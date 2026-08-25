@@ -5,10 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildToolDecls, decodeToolName } from '../src/services/toolEncoder.js';
 import { getActiveTabInfo, requestTabTools, executeTabTool } from '../src/services/extensionBridge.js';
-import { WebMCPTool } from '../src/types/index.js';
-import { useAgentSession } from '../src/hooks/useAgentSession.js';
 
 function setupTestChrome() {
   const listeners: Array<(message: unknown, sender: unknown) => void> = [];
@@ -35,32 +32,6 @@ function setupTestChrome() {
     } as unknown as typeof chrome.webNavigation,
   } as typeof chrome;
 }
-
-test('toolEncoder - buildToolDecls correctly formats WebMCP tools with structured objects and strings into LLM schemas', () => {
-  const tools: WebMCPTool[] = [
-    { name: 'read_page', description: 'Read DOM content', inputSchema: { type: 'object', properties: { selector: { type: 'string' } } }, frameId: 0 },
-    { name: 'submit_form', description: 'Submit form data', inputSchema: { type: 'object', properties: {} }, frameId: 1 },
-    { name: 'legacy_string_tool', description: 'Legacy string schema', inputSchema: '{"type":"object","properties":{"id":{"type":"number"}}}', frameId: 0 }
-  ];
-
-  const decls = buildToolDecls(tools);
-  assert.equal(decls.length, 3);
-  assert.equal(decls[0].name, '_0_read_page');
-  assert.equal(decls[0].description, 'Read DOM content');
-  assert.equal((decls[0].parameters.properties as Record<string, { type: string }>).selector.type, 'string');
-  assert.equal(decls[1].name, '_1_submit_form');
-  assert.equal((decls[2].parameters.properties as Record<string, { type: string }>).id.type, 'number');
-});
-
-test('toolEncoder - decodeToolName parses frameID and original name correctly', () => {
-  const decoded0 = decodeToolName('_0_read_page');
-  assert.equal(decoded0.name, 'read_page');
-  assert.equal(decoded0.frameId, 0);
-
-  const decoded1 = decodeToolName('_1_submit_form');
-  assert.equal(decoded1.name, 'submit_form');
-  assert.equal(decoded1.frameId, 1);
-});
 
 test('extensionBridge - getActiveTabInfo returns tab metadata when chrome.tabs is available', async () => {
   setupTestChrome();
@@ -148,8 +119,44 @@ test('extensionBridge - executeTabTool dispatches message to tab with appropriat
   }
 });
 
-test('useAgentSession exports robust session management API with handleStop', () => {
-  assert.equal(typeof useAgentSession, 'function');
+test('backendBridge - callBackend supports AbortSignal cancellation', async () => {
+  const { callBackend } = await import('../src/services/backendBridge.js');
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    async () => {
+      await callBackend('/api/model', {}, { signal: controller.signal });
+    },
+    (err: Error) => err.name === 'AbortError' || err.message.includes('aborted')
+  );
+});
+
+test('extensionBridge - getActiveTabInfo returns null when no active tab exists', async () => {
+  setupTestChrome();
+  const origQuery = globalThis.chrome.tabs.query;
+  try {
+    globalThis.chrome.tabs.query = async () => [];
+    const info = await getActiveTabInfo();
+    assert.equal(info, null);
+  } finally {
+    globalThis.chrome.tabs.query = origQuery;
+  }
+});
+
+test('extensionBridge - executeTabTool throws error when chrome.tabs is unavailable', async () => {
+  const origTabs = globalThis.chrome.tabs;
+  try {
+    (globalThis.chrome as { tabs?: unknown }).tabs = undefined;
+    await assert.rejects(
+      async () => {
+        await executeTabTool('search', '{}', 0);
+      },
+      { message: 'No active tab available for tool execution.' }
+    );
+  } finally {
+    globalThis.chrome.tabs = origTabs;
+  }
 });
 
 

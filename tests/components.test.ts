@@ -20,20 +20,26 @@ import { ChatBubble } from '../src/components/ChatBubble.js';
 import { ConsentScreen } from '../src/screens/ConsentScreen.js';
 import { Favicon } from '../src/components/Favicon.js';
 
-test('ButtonUI renders Play Arrow and Square Stop buttons', () => {
+test('ButtonUI renders Play Arrow and Square Stop buttons with distinct accessible labels and icons', () => {
   const playHtml = renderToString(
     React.createElement(ButtonUI, {
       variant: 'send',
     })
   );
   assert.ok(playHtml.includes('button-ui'));
+  assert.ok(playHtml.includes('aria-label="send"'));
+  assert.ok(playHtml.includes('<svg'));
 
   const stopHtml = renderToString(
     React.createElement(ButtonUI, {
       variant: 'stop',
+      pressed: true,
     })
   );
   assert.ok(stopHtml.includes('button-ui'));
+  assert.ok(stopHtml.includes('button-ui--pressed'));
+  assert.ok(stopHtml.includes('aria-label="stop"'));
+  assert.ok(stopHtml.includes('<svg'));
 });
 
 test('IPHPopover renders dark blue IPH card text', () => {
@@ -124,18 +130,28 @@ test('ActionLog renders initiation, running, and completed states', () => {
   assert.ok(completedHtml.includes('Apply filters'));
 });
 
-test('AttachedTab renders domain and tools count label', () => {
-  const html = renderToString(
+test('AttachedTab renders domain and tools count label conditionally', () => {
+  const openHtml = renderToString(
     React.createElement(AttachedTab, {
       domain: 'example.com',
       toolsCountLabel: '3 tools',
       hasTools: true,
+      isOpen: true,
     })
   );
 
-  assert.ok(html.includes('example.com'));
-  assert.ok(html.includes('3 tools'));
-  assert.ok(!html.includes('attached-tab__close-btn'));
+  assert.ok(openHtml.includes('example.com'));
+  assert.ok(openHtml.includes('3 tools'));
+  assert.ok(openHtml.includes('attached-tab--open'));
+
+  const noToolsHtml = renderToString(
+    React.createElement(AttachedTab, {
+      domain: 'example.com',
+      hasTools: false,
+    })
+  );
+  assert.ok(noToolsHtml.includes('example.com'));
+  assert.ok(!noToolsHtml.includes('actions-chip'));
 });
 
 test('ActionsChip renders label and automation icon', () => {

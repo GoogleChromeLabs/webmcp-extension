@@ -59,4 +59,26 @@ test('buildToolDecls handles nested schemas, arrays, and malformed JSON strings 
   // Fallback to empty object schema on invalid JSON without throwing
   assert.deepEqual(decls[1].parameters, { type: 'object', properties: {} });
 });
+test('buildToolDecls handles empty and object-based schemas', () => {
+  assert.deepEqual(buildToolDecls(), []);
+  assert.deepEqual(buildToolDecls([]), []);
 
+  const tools: WebMCPTool[] = [
+    {
+      name: 'direct_object_tool',
+      description: 'Tool with object schema',
+      inputSchema: { type: 'object', properties: { count: { type: 'number' } } },
+      frameId: 1,
+    },
+  ];
+
+  const decls = buildToolDecls(tools);
+  assert.equal(decls.length, 1);
+  assert.equal(decls[0].name, '_1_direct_object_tool');
+  assert.deepEqual(decls[0].parameters, { type: 'object', properties: { count: { type: 'number' } } });
+});
+
+test('decodeToolName handles empty or missing inputs gracefully', () => {
+  assert.deepEqual(decodeToolName(''), { name: '', frameId: undefined });
+  assert.deepEqual(decodeToolName(), { name: '', frameId: undefined });
+});

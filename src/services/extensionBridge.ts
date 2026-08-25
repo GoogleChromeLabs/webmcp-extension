@@ -118,15 +118,8 @@ export async function executeTabTool(name: string, inputArgs: string, frameId?: 
 
     // A navigation was triggered. The result will be on the next document,
     // which may live in a new tab if the tool opened one.
-    await Promise.race([
-      contentScriptReadyPromise,
-      new Promise((r) => setTimeout(r, 2000)),
-    ]);
-
-    await Promise.race([
-      toolsPromise,
-      new Promise((r) => setTimeout(r, 2000)),
-    ]);
+    await raceWithTimeout(contentScriptReadyPromise, 2000);
+    await raceWithTimeout(toolsPromise, 2000);
 
     await waitForPageLoad(targetTabId);
 
@@ -139,6 +132,16 @@ export async function executeTabTool(name: string, inputArgs: string, frameId?: 
   } finally {
     chromeApi.runtime.onMessage.removeListener(listener);
   }
+}
+
+function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | void> {
+  let timerId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<void>((resolve) => {
+    timerId = setTimeout(resolve, ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timerId);
+  });
 }
 
 function waitForPageLoad(tabId: number): Promise<void> {
