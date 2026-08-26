@@ -26,12 +26,22 @@ export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] 
     }
 
     const frameId = tool.frameId ?? 0;
+    const isUntrusted = isToolUntrusted(tool);
+    const securityAnnotation = `[Security: untrustedData=${isUntrusted}]`;
     return {
       name: `_${frameId}_${tool.name}`,
-      description: tool.description || '',
+      description: `${tool.description || ''} ${securityAnnotation}`.trim(),
       parameters: parsedParameters,
     };
   });
+}
+
+/**
+ * Checks whether a tool's output is marked as untrusted web content.
+ */
+export function isToolUntrusted(tool?: WebMCPTool): boolean {
+  if (!tool) return true; // Default to untrusted for web content
+  return tool.untrustedContentHint !== false;
 }
 
 /**

@@ -6,7 +6,7 @@
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { callBackend } from '../services/backendBridge.js';
 import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
-import { buildToolDecls, decodeToolName } from '../services/toolEncoder.js';
+import { buildToolDecls, decodeToolName, isToolUntrusted } from '../services/toolEncoder.js';
 import {
   ActivityEntry,
   ChatMessage,
@@ -56,6 +56,17 @@ export function applyTokenLimit(result: unknown): unknown {
     return `${truncated}\n\n[WEBMCP_SECURITY_WARNING: Tool response exceeded maximum allowable limit (${str.length} > ${MAX_TOOL_RESPONSE_CHARS} characters) and was truncated to protect against context exhaustion and prompt injection.]`;
   }
   return result;
+}
+
+export function applySpotlighting(result: unknown, tool?: WebMCPTool): unknown {
+  if (!isToolUntrusted(tool)) return result;
+
+  const rawStr = typeof result === 'string' ? result : JSON.stringify(result);
+  try {
+    return btoa(unescape(encodeURIComponent(rawStr || '')));
+  } catch {
+    return Buffer.from(rawStr || '', 'utf-8').toString('base64');
+  }
 }
 
 let nextId = Date.now();
@@ -224,7 +235,6 @@ export function useAgentSession(
         for (const call of currentResult.functionCalls) {
           if (signal.aborted) break;
           const { name, frameId } = decodeToolName(call.name);
-
           // Find the tool declaration in activeToolsRef
           const targetTool =
             activeToolsRef.current.find(
@@ -286,16 +296,11 @@ export function useAgentSession(
             const rawRes = await executeTabTool(name, JSON.stringify(call.args), frameId);
             if (signal.aborted) break;
 
-            const res = applyTokenLimit(rawRes);
+            const limitedRes = applyTokenLimit(rawRes);
+            const res = applySpotlighting(limitedRes, targetTool);
             completeActivity(entry, { result: res });
-            let resVal: unknown;
-            if (res === undefined || res === null || res === '') {
-              resVal = { status: 'success', message: 'Tool executed successfully on page.' };
-            } else {
-              resVal = { result: res };
-            }
             toolResponses.push({
-              functionResponse: { name: call.name, response: resVal },
+              functionResponse: { name: call.name, response: { result: res } },
             });
           } catch (err: unknown) {
             if (signal.aborted) break;
