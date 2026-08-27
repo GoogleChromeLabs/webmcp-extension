@@ -26,11 +26,9 @@ export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] 
     }
 
     const frameId = tool.frameId ?? 0;
-    const isUntrusted = isToolUntrusted(tool);
-    const securityAnnotation = `[Security: untrustedData=${isUntrusted}]`;
     return {
       name: `_${frameId}_${tool.name}`,
-      description: `${tool.description || ''} ${securityAnnotation}`.trim(),
+      description: tool.description || '',
       parameters: parsedParameters,
     };
   });

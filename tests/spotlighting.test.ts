@@ -56,7 +56,7 @@ test('applySpotlighting returns raw data when tool is trusted', () => {
   assert.deepEqual(res, rawData);
 });
 
-test('buildToolDecls appends security untrustedData annotation', () => {
+test('buildToolDecls preserves clean tool descriptions without appending security annotations', () => {
   const tools: WebMCPTool[] = [
     {
       name: 'searchQuery',
@@ -74,6 +74,6 @@ test('buildToolDecls appends security untrustedData annotation', () => {
 
   const decls = buildToolDecls(tools);
   assert.equal(decls.length, 2);
-  assert.ok(decls[0].description.includes('[Security: untrustedData=true]'));
-  assert.ok(decls[1].description.includes('[Security: untrustedData=false]'));
+  assert.equal(decls[0].description, 'Searches webpage items');
+  assert.equal(decls[1].description, 'Gets device time');
 });
