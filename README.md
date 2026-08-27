@@ -11,12 +11,9 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools.
 - **Dynamic WebMCP Tool Discovery**: Automatically queries `document.modelContext.getTools()` and listens for `ontoolchange` across top-level pages and cross-origin `iframe` frames.
 - **Backend Model Routing & Secure Key Storage**: Routes model requests to a local Node.js backend server so consumer-facing extension code never accesses or exposes API keys.
 - **Gemini LLM Integration**: Example powered by `@google/genai` on the backend server.
-- **Modern WebMCP UI Experience**:
-  - Light mode interface matching WebMCP design tokens.
-  - Floating WebMCP Tool IPH popovers and action details modal.
-  - Real-time markdown response rendering.
-  - Quick action chips and status badges.
-- **Protocol Inspector**: Dedicated tools tab for inspecting registered WebMCP tool declarations, parameter JSON schemas, and manual tool invocation.
+- **Base64 Spotlighting & Untrusted Content Defense**: Classifies tools via `untrustedContentHint` (defaulting to untrusted for arbitrary web content), annotates tool declarations (`[Security: untrustedData=...]`), and encapsulates untrusted tool execution results in a Base64 spotlighting envelope to defend against indirect prompt injection. Backend Gemini system instructions enforce strict directives to decode tool output strictly for facts/context and never execute instructions found in page data.
+- **Inbound Token & Payload Size Limits**: Enforces an 8,000-character ceiling (`MAX_TOOL_RESPONSE_CHARS`) on string and JSON tool responses from web pages, automatically truncating oversized payloads and appending a `WEBMCP_SECURITY_WARNING` notice to protect against context window exhaustion and prompt expansion attacks.
+- **Sensitive Action Permissions**: Prompts user confirmation before executing mutating/non-readonly tools (based on `readOnlyHint`), configurable via the Sensitive Action Alerts toggle in Settings.
 - **In-Flight Tool Re-discovery**: Mid-run tool listing updates ensure newly revealed form tools (e.g. search filters) are immediately made available to the model within multi-turn runs.
 - **Real-Time Debug Server Call Inspector**: Browse `http://localhost:3000/logs` in any web browser to inspect live, streaming request/response payloads, latency, and status codes for all calls made to the backend server.
 
@@ -76,14 +73,6 @@ Run the automated test suite powered by Node's native test runner and `esbuild`:
 npm test
 ```
 
-### Test Coverage Includes:
-- **UI Components (`tests/components.test.ts`)**: Rendering of `ButtonUI`, `IPHPopover`, `WebMCPToolsDialogue`, `AttachedTab`, `ActionsChip`, `TextInput`, `ChatBubble`, `ActionLog`, and `ConsentScreen`.
-- **Services & Hooks (`tests/servicesAndHooks.test.ts`)**: `executeTabTool` frame resolution, active tab discovery, and `backendBridge` `callBackend` with `AbortSignal` cancellation.
-- **Tool Name Encoding & Schema Normalization (`tests/toolNameEncoding.test.ts`)**: FrameID encoding, decoding fallbacks, nested object/array schemas, and malformed JSON recovery.
-- **Dynamic Tool Reload & Navigation Recovery (`tests/toolReload.test.ts`)**: Cross-frame same-name collision resolution, dynamic DOM tool transitions, and cross-document navigation recovery.
-- **Markdown Renderer (`tests/markdownText.test.ts`)**: Parsing for bold, italic, inline code, links, headers, and code block formatting.
-- **Extension Utilities (`tests/utils.test.ts`)**: Extraction of cross-origin iframe origins (`getAllFrameOrigins`).
-
 ---
 
 ## Project Structure
@@ -91,25 +80,29 @@ npm test
 ```
 webmcp-dev-extension/
 ├── .env                       # Root environment file (GEMINI_API_KEY=...)
-├── server/                    # Node.js backend server
-│   ├── server.js              # Backend model routing server & call logger (port 3000)
+├── server/                    # Node.js backend model server & call logger
+│   ├── server.js              # Model routing server (port 3000)
 │   └── logs.html              # Real-time web dashboard for inspecting backend server calls (http://localhost:3000/logs)
-├── extension/                 # Chrome extension manifest & background/content scripts
+├── extension/                 # Chrome extension (Manifest V3) assets
 │   ├── manifest.json          # Chrome Extension Manifest V3 configuration
+│   ├── sidebar.html           # Side panel host HTML page
 │   ├── background.js          # Service worker for tab navigation & tool badge updates
 │   ├── content.js             # Content script bridging WebMCP document.modelContext
-│   └── utils.js               # Web navigation & iframe origin helpers
-├── src/                       # React App source code
-│   ├── components/            # Focused UI components (ChatBubble, ActionLog, AttachedTab, etc.)
-│   ├── screens/               # Screen views (ConsentScreen)
-│   ├── services/              # Extension & backend API bridges (backendBridge.ts, toolEncoder.ts, etc.)
+│   ├── utils.js               # Web navigation & iframe origin helpers
+│   └── icons/                 # Extension toolbar and store icons
+├── src/                       # React extension side panel application
+│   ├── components/            # UI components (ChatBubble, ActionLog, AllowToolPermissionCard, Switch, etc.)
+│   ├── screens/               # Screen views (ConsentScreen, SettingsScreen)
+│   ├── services/              # Extension & backend API bridges (backendBridge.ts, extensionBridge.ts, toolEncoder.ts)
 │   ├── hooks/                 # Custom hooks (useActiveTabTools.ts, useAgentSession.ts)
-│   ├── foundation/            # Google Symbols font definitions
-│   ├── styles.css             # Consolidated, tokenized stylesheet
+│   ├── types/                 # TypeScript interfaces and declarations
+│   ├── foundation/            # Typography and icon assets
+│   ├── styles.css             # Component styling and design tokens
 │   ├── App.tsx                # Main application component & tool loop orchestrator
 │   └── index.tsx              # React entry point
 ├── tests/                     # Automated unit test suite
-└── package.json
+├── package.json               # Scripts and dependencies
+└── tsconfig.json              # TypeScript compiler configuration
 ```
 
 ---
