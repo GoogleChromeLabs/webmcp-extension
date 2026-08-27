@@ -7,7 +7,8 @@
     "dev": "npm run watch",
     "test": "rm -rf dist/tests && npx esbuild tests/*.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/*.test.js",
     "clean": "rm -rf dist",
-    "server": "node server/server.js"
+    "server": "node server/server.js",
+    "sync:polyfill": "curl -sSL https://raw.githubusercontent.com/GoogleChromeLabs/webmcp-tools/main/demos/shared/webmcp-polyfill.js -o extension/webmcp-polyfill.js"
   },
   "dependencies": {
     "@google/genai": "^1.38.0",

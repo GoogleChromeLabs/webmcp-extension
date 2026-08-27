@@ -35,7 +35,21 @@
       "all_frames": true,
       "match_about_blank": true,
       "runAt": "document_start",
+      "world": "MAIN",
+      "js": ["webmcp-polyfill.js"]
+    },
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "runAt": "document_start",
       "js": ["content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["webmcp-polyfill.js"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

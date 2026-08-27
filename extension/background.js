@@ -8,10 +8,17 @@ import { getAllFrameOrigins } from './utils.js';
 // Allows users to open the side panel by clicking the action icon.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
-// Inject content script in all tabs first.
+// Inject content scripts in all tabs first.
 chrome.runtime.onInstalled.addListener(async () => {
   const tabs = await chrome.tabs.query({});
   tabs.forEach(({ id: tabId }) => {
+    chrome.scripting
+      .executeScript({
+        target: { tabId, allFrames: true },
+        world: 'MAIN',
+        files: ['webmcp-polyfill.js'],
+      })
+      .catch(() => {});
     chrome.scripting
       .executeScript({
         target: { tabId, allFrames: true },

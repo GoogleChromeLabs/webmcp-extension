@@ -27,7 +27,7 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools.
 ### Prerequisites
 
 - Node.js `v20.0.0+`
-- Google Chrome with the `WebMCP for testing` flag enabled (`chrome://flags`).
+- Google Chrome (either standard Chrome with the bundled WebMCP polyfill or Chrome with the `WebMCP for testing` flag enabled via `chrome://flags`).
 
 ### Environment Configuration (`.env`)
 
@@ -98,6 +98,7 @@ webmcp-dev-extension/
 │   ├── manifest.json          # Chrome Extension Manifest V3 configuration
 │   ├── background.js          # Service worker for tab navigation & tool badge updates
 │   ├── content.js             # Content script bridging WebMCP document.modelContext
+│   ├── webmcp-polyfill.js     # Bundled WebMCP runtime polyfill for document.modelContext
 │   └── utils.js               # Web navigation & iframe origin helpers
 ├── src/                       # React App source code
 │   ├── components/            # Focused UI components (ChatBubble, ActionLog, AttachedTab, etc.)
