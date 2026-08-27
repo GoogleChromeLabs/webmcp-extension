@@ -8,6 +8,10 @@ import { WebMCPTool, ToolDeclaration } from '../types/index.js';
 /**
  * Builds function declarations for LLM API schemas from WebMCP tool objects.
  * Encodes tool frameID to ensure cross-frame dispatch accuracy.
+ *
+ * Security Note:
+ * This is where you might utilize a prompt injection classifier to detect any prompt
+ * injection in the tool descriptions or manifests before the model reads them.
  */
 export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] {
   return toolsList.map((tool) => {
