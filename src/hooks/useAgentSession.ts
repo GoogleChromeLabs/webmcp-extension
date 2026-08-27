@@ -293,11 +293,16 @@ export function useAgentSession(
           }
 
           try {
+            // Security Note: This is where you might utilize a critic to check that the
+            // tool call and parameters align with the user's intent before execution.
             const rawRes = await executeTabTool(name, JSON.stringify(call.args), frameId);
             if (signal.aborted) break;
 
             const limitedRes = applyTokenLimit(rawRes);
             const res = applySpotlighting(limitedRes, targetTool);
+
+            // Security Note: This is where you might utilize a prompt injection classifier to
+            // detect any prompt injection in the tool output before returning it to the model.
             completeActivity(entry, { result: res });
             toolResponses.push({
               functionResponse: { name: call.name, response: { result: res } },
