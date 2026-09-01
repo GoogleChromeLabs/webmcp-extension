@@ -10,36 +10,21 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 
+import {
+  loadDotEnv,
+  ensureAuthToken,
+  isAllowedOrigin,
+  validateAuthToken,
+  setCorsHeaders,
+} from './security.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.resolve(__dirname, '../.env');
 
-// Helper to load plain .env file
-function loadDotEnv(filePath) {
-  const envVars = {};
-  if (!fs.existsSync(filePath)) return envVars;
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const lines = content.split(/\r?\n/);
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const equalsIdx = trimmed.indexOf('=');
-      if (equalsIdx > 0) {
-        const key = trimmed.substring(0, equalsIdx).trim();
-        let value = trimmed.substring(equalsIdx + 1).trim();
-        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-          value = value.substring(1, value.length - 1);
-        }
-        envVars[key] = value;
-      }
-    }
-  } catch (e) {
-    console.warn('Could not load .env file:', e.message);
-  }
-  return envVars;
-}
-
 const env = loadDotEnv(envPath);
+const authToken = ensureAuthToken(env, envPath);
+const allowedExtensionId = env.ALLOWED_EXTENSION_ID || process.env.ALLOWED_EXTENSION_ID || null;
+
 
 const apiKey = env.GEMINI_API_KEY || env.API_KEY || env.apiKey || process.env.GEMINI_API_KEY || process.env.API_KEY;
 let activeModel = env.MODEL || env.model || 'gemini-3.6-flash';
@@ -118,26 +103,76 @@ function parseJsonBody(req) {
   });
 }
 
-function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
-
 const server = http.createServer(async (req, res) => {
-  setCorsHeaders(res);
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const origin = req.headers.origin;
+  const isAllowed = isAllowedOrigin(origin, url.pathname, allowedExtensionId);
+
+  if (isAllowed && origin) {
+    setCorsHeaders(res, origin);
+  }
 
   if (req.method === 'OPTIONS') {
+    if (!isAllowed) {
+      console.warn(`  🚫 Blocked CORS preflight from unauthorized origin: "${origin || 'none'}" to ${url.pathname}`);
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Origin is not authorized' }));
+      return;
+    }
     res.writeHead(204);
     res.end();
     return;
   }
 
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  console.log(`\n📥 [${req.method}] ${url.pathname}`);
+  console.log(`\n📥 [${req.method}] ${url.pathname} (origin: ${origin || 'none'})`);
 
   try {
+    if (url.pathname.startsWith('/api/')) {
+      // 1. Origin verification
+      if (!isAllowed) {
+        console.warn(`  🚫 Blocked API request from unauthorized origin: "${origin || 'none'}"`);
+        recordServerLog({
+          method: req.method,
+          path: url.pathname,
+          statusCode: 403,
+          error: `Forbidden: Origin "${origin || 'none'}" is not an authorized Chrome extension.`,
+        });
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden: Request origin is not an authorized Chrome extension.' }));
+        return;
+      }
+
+      // 2. Auth token verification
+      if (!validateAuthToken(req.headers, authToken)) {
+        const receivedToken =
+          req.headers['x-webmcp-auth'] ||
+          (req.headers.authorization?.startsWith('Bearer ')
+            ? req.headers.authorization.slice(7).trim()
+            : null);
+        console.warn(
+          `  🔒 Unauthorized API request: missing or invalid WebMCP auth token (received: ${
+            receivedToken ? `"${receivedToken}"` : 'none'
+          }).`
+        );
+        recordServerLog({
+          method: req.method,
+          path: url.pathname,
+          statusCode: 401,
+          error: 'Unauthorized: Missing or invalid WebMCP auth token.',
+        });
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized: Missing or invalid WebMCP auth token.' }));
+        return;
+      }
+    }
+
     if (url.pathname === '/logs' && req.method === 'GET') {
+      if (!isAllowed) {
+        console.warn(`  🚫 Blocked /logs request from unauthorized origin: "${origin || 'none'}"`);
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden: Origin is not authorized to access logs.' }));
+        return;
+      }
       if (url.searchParams.get('stream') === 'true') {
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
