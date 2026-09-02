@@ -126,16 +126,3 @@ export function validateAuthToken(headers, expectedToken) {
 
   return headerToken === expectedToken;
 }
-
-/**
- * Sets restricted CORS headers tailored to the verified origin.
- * @param {any} res
- * @param {string} [origin]
- */
-export function setCorsHeaders(res, origin) {
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-WebMCP-Auth, Authorization');
-}

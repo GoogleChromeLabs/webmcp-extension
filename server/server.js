@@ -15,7 +15,6 @@ import {
   ensureAuthToken,
   isAllowedOrigin,
   validateAuthToken,
-  setCorsHeaders,
 } from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -109,7 +108,9 @@ const server = http.createServer(async (req, res) => {
   const isAllowed = isAllowedOrigin(origin, url.pathname, allowedExtensionId);
 
   if (isAllowed && origin) {
-    setCorsHeaders(res, origin);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-WebMCP-Auth, Authorization');
   }
 
   if (req.method === 'OPTIONS') {

@@ -8,7 +8,6 @@ import assert from 'node:assert/strict';
 import {
   isAllowedOrigin,
   validateAuthToken,
-  setCorsHeaders,
 } from '../server/security.js';
 import {
   callBackend,
@@ -89,20 +88,6 @@ test('security - validateAuthToken verifies X-WebMCP-Auth and Bearer authorizati
   assert.equal(validateAuthToken({ 'x-webmcp-auth': '' }, secret), false);
 });
 
-test('security - setCorsHeaders configures dynamic origin without wildcards', () => {
-  const headers: Record<string, string> = {};
-  const mockRes = {
-    setHeader(name: string, value: string) {
-      headers[name] = value;
-    },
-  };
-
-  setCorsHeaders(mockRes as any, 'chrome-extension://trusted-id');
-  assert.equal(headers['Access-Control-Allow-Origin'], 'chrome-extension://trusted-id');
-  assert.ok(headers['Access-Control-Allow-Headers'].includes('X-WebMCP-Auth'));
-  assert.ok(!headers['Access-Control-Allow-Origin'].includes('*'));
-});
-
 test('security - backendBridge includes X-WebMCP-Auth header when auth token is configured', async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.WEBMCP_AUTH_TOKEN;
@@ -142,7 +127,9 @@ test('security - HTTP server integration rejects unauthorized web origins and re
     const isAllowed = isAllowedOrigin(origin, url.pathname);
 
     if (isAllowed && origin) {
-      setCorsHeaders(res, origin);
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-WebMCP-Auth, Authorization');
     }
 
     if (req.method === 'OPTIONS') {
@@ -208,6 +195,9 @@ test('security - HTTP server integration rejects unauthorized web origins and re
     assert.equal(
       resPreflightExtension.headers.get('Access-Control-Allow-Origin'),
       'chrome-extension://test-ext-id'
+    );
+    assert.ok(
+      resPreflightExtension.headers.get('Access-Control-Allow-Headers')?.includes('X-WebMCP-Auth')
     );
 
     // 3. Web origin direct POST to /api/chat -> 403 Forbidden
