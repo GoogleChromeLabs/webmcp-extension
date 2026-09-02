@@ -31,12 +31,6 @@ function copyStaticAssets() {
 
 copyStaticAssets();
 
-// Persist token in dist/auth.json for extension runtime verification
-fs.writeFileSync(
-  path.join(distDir, 'auth.json'),
-  JSON.stringify({ token: authToken }, null, 2),
-  'utf-8'
-);
 
 
 const buildOptions = {
