@@ -35,8 +35,10 @@ Create a `.env` file at the **root directory** of the project (`webmcp-dev-exten
 # Gemini API Key (Required)
 GEMINI_API_KEY=your_gemini_api_key_here
 
-# Security Settings (Auto-generated and persisted automatically if omitted)
+# Security: Auth Token (Auto-generated and persisted automatically if omitted)
 WEBMCP_AUTH_TOKEN=your_secure_auth_token_here
+
+# Security: Extension Restriction (Optional: set manually to restrict access to a specific extension ID)
 ALLOWED_EXTENSION_ID=optional_specific_extension_id_to_restrict
 
 # Optional Server Settings
