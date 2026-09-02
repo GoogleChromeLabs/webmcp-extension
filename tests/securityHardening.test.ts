@@ -12,7 +12,6 @@ import {
 } from '../server/security.js';
 import {
   callBackend,
-  setAuthToken,
   getAuthToken,
 } from '../src/services/backendBridge.js';
 
@@ -106,10 +105,11 @@ test('security - setCorsHeaders configures dynamic origin without wildcards', ()
 
 test('security - backendBridge includes X-WebMCP-Auth header when auth token is configured', async () => {
   const originalFetch = globalThis.fetch;
+  const originalToken = process.env.WEBMCP_AUTH_TOKEN;
   let capturedHeaders: Record<string, string> = {};
 
   try {
-    setAuthToken('unit-test-secret-token');
+    process.env.WEBMCP_AUTH_TOKEN = 'unit-test-secret-token';
     assert.equal(getAuthToken(), 'unit-test-secret-token');
 
     globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
@@ -124,7 +124,11 @@ test('security - backendBridge includes X-WebMCP-Auth header when auth token is 
     assert.equal(capturedHeaders['X-WebMCP-Auth'], 'unit-test-secret-token');
     assert.equal(capturedHeaders['Content-Type'], 'application/json');
   } finally {
-    setAuthToken(null);
+    if (originalToken !== undefined) {
+      process.env.WEBMCP_AUTH_TOKEN = originalToken;
+    } else {
+      delete process.env.WEBMCP_AUTH_TOKEN;
+    }
     globalThis.fetch = originalFetch;
   }
 });

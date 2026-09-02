@@ -5,29 +5,13 @@
 
 const SERVER_URL = 'http://localhost:3000';
 
-let runtimeAuthToken: string | null = null;
-
-/**
- * Explicitly sets or overrides the WebMCP auth token in memory.
- */
-export function setAuthToken(token: string | null): void {
-  runtimeAuthToken = token;
-}
-
 /**
  * Retrieves the active WebMCP auth token.
  * At build time, esbuild statically replaces `process.env.WEBMCP_AUTH_TOKEN`
  * with the string literal token from .env.
  */
 export function getAuthToken(): string {
-  if (runtimeAuthToken !== null) {
-    return runtimeAuthToken;
-  }
-  const buildToken = process.env.WEBMCP_AUTH_TOKEN;
-  if (buildToken) {
-    return buildToken;
-  }
-  return '';
+  return process.env.WEBMCP_AUTH_TOKEN || '';
 }
 
 
