@@ -10,6 +10,7 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools.
 
 - **Dynamic WebMCP Tool Discovery**: Automatically queries `document.modelContext.getTools()` and listens for `ontoolchange` across top-level pages and cross-origin `iframe` frames.
 - **Backend Model Routing & Secure Key Storage**: Routes model requests to a local Node.js backend server so consumer-facing extension code never accesses or exposes API keys.
+- **Hardened Origin & Auth Token Verification**: Secures backend `/api/*` endpoints with strict Origin validation (requiring `chrome-extension://...`) and a shared `WEBMCP_AUTH_TOKEN` (automatically generated on first run and injected at build time), completely blocking malicious web scripts and rogue local processes from hijacking the local model server.
 - **Gemini LLM Integration**: Example powered by `@google/genai` on the backend server.
 - **Base64 Spotlighting & Untrusted Content Defense**: Classifies tools via `untrustedContentHint` (defaulting to untrusted for arbitrary web content) and encodes untrusted tool execution results in Base64 to defend against indirect prompt injection. Backend Gemini system instructions enforce strict directives to decode tool output strictly for facts/context and never execute instructions found in page data.
 - **Inbound Token & Payload Size Limits**: Enforces an 8,000-character ceiling (`MAX_TOOL_RESPONSE_CHARS`) on string and JSON tool responses from web pages, automatically truncating oversized payloads and appending a `WEBMCP_SECURITY_WARNING` notice to protect against context window exhaustion and prompt expansion attacks.
@@ -33,6 +34,12 @@ Create a `.env` file at the **root directory** of the project (`webmcp-dev-exten
 ```env
 # Gemini API Key (Required)
 GEMINI_API_KEY=your_gemini_api_key_here
+
+# Security: Auth Token (Auto-generated and persisted automatically if omitted)
+WEBMCP_AUTH_TOKEN=your_secure_auth_token_here
+
+# Security: Extension Restriction (Optional: set manually to restrict access to a specific extension ID)
+ALLOWED_EXTENSION_ID=optional_specific_extension_id_to_restrict
 
 # Optional Server Settings
 PORT=3000
@@ -79,9 +86,12 @@ npm test
 
 ```
 webmcp-dev-extension/
-├── .env                       # Root environment file (GEMINI_API_KEY=...)
+├── .env                       # Root environment file (GEMINI_API_KEY=..., WEBMCP_AUTH_TOKEN=...)
+├── scripts/                   # Automated build & bundle scripts
+│   └── build.js               # Injects WEBMCP_AUTH_TOKEN and bundles extension
 ├── server/                    # Node.js backend model server & call logger
 │   ├── server.js              # Model routing server (port 3000)
+│   ├── security.js            # Origin validation, CORS configuration & token authentication
 │   └── logs.html              # Real-time web dashboard for inspecting backend server calls (http://localhost:3000/logs)
 ├── extension/                 # Chrome extension (Manifest V3) assets
 │   ├── manifest.json          # Chrome Extension Manifest V3 configuration
