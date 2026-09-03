@@ -18,23 +18,20 @@ test('applyTokenLimit leaves responses under the maximum character limit untouch
   assert.equal(applyTokenLimit(undefined), undefined);
 });
 
-test('applyTokenLimit truncates oversized string payloads and appends security warning', () => {
+test('applyTokenLimit rejects oversized string payloads', () => {
   const oversizedPayload = 'A'.repeat(MAX_TOOL_RESPONSE_CHARS + 500);
-  const result = applyTokenLimit(oversizedPayload) as string;
-
-  assert.ok(typeof result === 'string');
-  assert.ok(result.startsWith('A'.repeat(MAX_TOOL_RESPONSE_CHARS)));
-  assert.ok(result.includes('WEBMCP_SECURITY_WARNING'));
-  assert.ok(result.includes('Tool response exceeded maximum allowable limit'));
+  assert.throws(
+    () => applyTokenLimit(oversizedPayload),
+    /Tool response exceeded maximum allowable limit .* and was rejected\./
+  );
 });
 
-test('applyTokenLimit truncates oversized JSON payloads and appends security warning', () => {
+test('applyTokenLimit rejects oversized JSON payloads', () => {
   const largeObject = {
     content: 'X'.repeat(MAX_TOOL_RESPONSE_CHARS + 200),
   };
-  const result = applyTokenLimit(largeObject) as string;
-
-  assert.ok(typeof result === 'string');
-  assert.ok(result.includes('WEBMCP_SECURITY_WARNING'));
-  assert.ok(result.includes('Tool response exceeded maximum allowable limit'));
+  assert.throws(
+    () => applyTokenLimit(largeObject),
+    /Tool response exceeded maximum allowable limit .* and was rejected\./
+  );
 });

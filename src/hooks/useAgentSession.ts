@@ -52,8 +52,9 @@ export function applyTokenLimit(result: unknown): unknown {
     console.warn(
       `[WebMCP Security] Tool payload exceeded limit: ${str.length} chars (max: ${MAX_TOOL_RESPONSE_CHARS})`
     );
-    const truncated = str.slice(0, MAX_TOOL_RESPONSE_CHARS);
-    return `${truncated}\n\n[WEBMCP_SECURITY_WARNING: Tool response exceeded maximum allowable limit (${str.length} > ${MAX_TOOL_RESPONSE_CHARS} characters) and was truncated to protect against context exhaustion and prompt injection.]`;
+    throw new Error(
+      `Tool response exceeded maximum allowable limit (${str.length} > ${MAX_TOOL_RESPONSE_CHARS} characters) and was rejected.`
+    );
   }
   return result;
 }
