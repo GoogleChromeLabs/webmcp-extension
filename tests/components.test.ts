@@ -277,6 +277,9 @@ test('SettingsScreen renders header, permissions section, sensitive action alert
     React.createElement(SettingsScreen, {
       sensitiveActionAlerts: true,
       onToggleSensitiveActionAlerts: () => { },
+      onDeviceModel: false,
+      onToggleOnDeviceModel: () => { },
+      onDeviceModelSupported: true,
       onClose: () => { },
     })
   );

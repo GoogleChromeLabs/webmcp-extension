@@ -4,12 +4,15 @@
  */
 
 import React from 'react';
-import { CloseIcon, ShieldIcon } from '../components/Icons.js';
+import { CloseIcon, DeviceIcon, ShieldIcon } from '../components/Icons.js';
 import { Switch } from '../components/Switch.js';
 
 export interface SettingsScreenProps {
   sensitiveActionAlerts: boolean;
   onToggleSensitiveActionAlerts: () => void;
+  onDeviceModel: boolean;
+  onToggleOnDeviceModel: () => void;
+  onDeviceModelSupported: boolean;
   onClose: () => void;
 }
 
@@ -20,6 +23,9 @@ export interface SettingsScreenProps {
 export function SettingsScreen({
   sensitiveActionAlerts,
   onToggleSensitiveActionAlerts,
+  onDeviceModel,
+  onToggleOnDeviceModel,
+  onDeviceModelSupported,
   onClose,
 }: SettingsScreenProps) {
   return (
@@ -58,6 +64,33 @@ export function SettingsScreen({
                 checked={sensitiveActionAlerts}
                 onChange={onToggleSensitiveActionAlerts}
                 aria-label="Sensitive action alerts"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Model Section */}
+        <div className="settings-section">
+          <h2 className="settings-section__title">Model</h2>
+
+          <div className="settings-item">
+            <div className="settings-item__icon">
+              <DeviceIcon size={24} color="var(--color-on-surface-variant)" />
+            </div>
+            <div className="settings-item__content">
+              <span className="settings-item__title">On-device model</span>
+              <p className="settings-item__desc">
+                {onDeviceModelSupported
+                  ? 'Run the model in your browser with the Prompt API, instead of sending prompts and page data to the backend server. No API key needed.'
+                  : 'Unavailable: this browser does not expose the Prompt API. Prompts go to the backend server.'}
+              </p>
+            </div>
+            <div className="settings-item__control">
+              <Switch
+                checked={onDeviceModel}
+                onChange={onToggleOnDeviceModel}
+                disabled={!onDeviceModelSupported}
+                aria-label="On-device model"
               />
             </div>
           </div>

@@ -4,17 +4,20 @@
  */
 
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
-import { callBackend } from '../services/backendBridge.js';
+import { resetChatSession, sendChatTurn } from '../services/chatBridge.js';
 import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
 import { buildToolDecls, decodeToolName, isToolUntrusted } from '../services/toolEncoder.js';
 import {
   ActivityEntry,
   ChatMessage,
+  ChatTurnResponse,
   WebMCPTool,
 } from '../types/index.js';
 
 export interface UseAgentSessionOptions {
   sensitiveActionAlerts?: boolean;
+  /** Run the model on the device through the Prompt API instead of the server. */
+  onDeviceModel?: boolean;
 }
 
 export interface PendingToolPermission {
@@ -35,12 +38,6 @@ export interface UseAgentSessionReturn {
   handleSendPrompt: () => Promise<void>;
   handleStop: () => void;
   handleReset: () => void;
-}
-
-interface BackendChatResponse {
-  chatId?: string;
-  text?: string;
-  functionCalls?: Array<{ id?: string; name: string; args: Record<string, unknown> }>;
 }
 
 export const MAX_TOOL_RESPONSE_CHARS = 8000;
@@ -83,11 +80,22 @@ export function useAgentSession(
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [pendingPermission, setPendingPermission] = useState<PendingToolPermission | null>(null);
 
-  // Settings sync ref
+  // Settings sync refs
   const sensitiveActionAlertsRef = useRef<boolean>(options?.sensitiveActionAlerts ?? true);
   useEffect(() => {
     sensitiveActionAlertsRef.current = options?.sensitiveActionAlerts ?? true;
   }, [options?.sensitiveActionAlerts]);
+
+  const onDeviceModelRef = useRef<boolean>(options?.onDeviceModel ?? false);
+  useEffect(() => {
+    // Switching backends starts a new conversation: neither one can carry on
+    // where the other left off.
+    if (onDeviceModelRef.current !== (options?.onDeviceModel ?? false)) {
+      resetChatSession({ chatId: chatIdRef.current, onDevice: onDeviceModelRef.current });
+      chatIdRef.current = undefined;
+    }
+    onDeviceModelRef.current = options?.onDeviceModel ?? false;
+  }, [options?.onDeviceModel]);
 
   // Safely support either MutableRefObject or raw tools array without breaking encapsulation
   const internalToolsRef = useRef<WebMCPTool[]>([]);
@@ -158,9 +166,7 @@ export function useAgentSession(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    if (chatIdRef.current) {
-      callBackend('/api/reset', { chatId: chatIdRef.current }).catch(() => {});
-    }
+    resetChatSession({ chatId: chatIdRef.current, onDevice: onDeviceModelRef.current });
     chatIdRef.current = undefined;
     turnLogsRef.current = [];
     setUserPrompt('');
@@ -195,14 +201,13 @@ export function useAgentSession(
 
     try {
       const toolDecls = buildToolDecls(activeToolsRef.current);
-      let currentResult = await callBackend<BackendChatResponse>(
-        '/api/chat',
+      let currentResult: ChatTurnResponse = await sendChatTurn(
         {
           message: textToSend,
           tools: toolDecls,
           chatId: chatIdRef.current,
         },
-        { signal }
+        { signal, onDevice: onDeviceModelRef.current }
       );
 
       if (signal.aborted) return;
@@ -329,14 +334,13 @@ export function useAgentSession(
 
         const updatedTools = buildToolDecls(activeToolsRef.current);
 
-        currentResult = await callBackend<BackendChatResponse>(
-          '/api/chat',
+        currentResult = await sendChatTurn(
           {
             toolResponses,
             tools: updatedTools,
             chatId: chatIdRef.current,
           },
-          { signal }
+          { signal, onDevice: onDeviceModelRef.current }
         );
 
         if (signal.aborted) break;

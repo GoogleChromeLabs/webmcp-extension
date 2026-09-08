@@ -15,6 +15,7 @@ import { EditSquareIcon } from './components/Icons.js';
 
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
+import { isPromptApiSupported } from './services/promptApiBackend.js';
 
 export function App() {
   // Navigation & View State
@@ -27,6 +28,14 @@ export function App() {
     return saved !== null ? saved === 'true' : true;
   });
 
+  // Off unless the browser has the Prompt API, so a browser without it keeps
+  // using the backend server.
+  const onDeviceModelSupported = isPromptApiSupported();
+  const [onDeviceModel, setOnDeviceModel] = useState<boolean>(() => {
+    if (!isPromptApiSupported()) return false;
+    return localStorage.getItem('onDeviceModel') === 'true';
+  });
+
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
 
@@ -34,6 +43,14 @@ export function App() {
     setSensitiveActionAlerts((prev) => {
       const next = !prev;
       localStorage.setItem('sensitiveActionAlerts', String(next));
+      return next;
+    });
+  };
+
+  const handleToggleOnDeviceModel = () => {
+    setOnDeviceModel((prev) => {
+      const next = !prev;
+      localStorage.setItem('onDeviceModel', String(next));
       return next;
     });
   };
@@ -50,7 +67,7 @@ export function App() {
     handleSendPrompt,
     handleStop,
     handleReset,
-  } = useAgentSession(toolsRef, { sensitiveActionAlerts });
+  } = useAgentSession(toolsRef, { sensitiveActionAlerts, onDeviceModel });
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -108,6 +125,9 @@ export function App() {
           <SettingsScreen
             sensitiveActionAlerts={sensitiveActionAlerts}
             onToggleSensitiveActionAlerts={handleToggleSensitiveActionAlerts}
+            onDeviceModel={onDeviceModel}
+            onToggleOnDeviceModel={handleToggleOnDeviceModel}
+            onDeviceModelSupported={onDeviceModelSupported}
             onClose={() => setShowSettings(false)}
           />
         ) : (

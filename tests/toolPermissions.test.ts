@@ -34,7 +34,7 @@ test('Switch toggles properly on click', () => {
   assert.equal(toggledValue, true);
 });
 
-test('SettingsScreen renders permissions section with Sensitive action alerts only', () => {
+test('SettingsScreen renders the permissions and model sections', () => {
   let toggled = false;
   let closed = false;
 
@@ -43,6 +43,9 @@ test('SettingsScreen renders permissions section with Sensitive action alerts on
     onToggleSensitiveActionAlerts: () => {
       toggled = true;
     },
+    onDeviceModel: false,
+    onToggleOnDeviceModel: () => { },
+    onDeviceModelSupported: true,
     onClose: () => {
       closed = true;
     },
@@ -64,7 +67,11 @@ test('SettingsScreen renders permissions section with Sensitive action alerts on
   );
   assert.ok(html.includes('cdds-switch--checked'));
 
-  // Must NOT contain unrequested settings sections like Preferences, Models, Tabs, Microphone, Location
+  // Must contain the Model section with the on-device model toggle
+  assert.ok(html.includes('On-device model'));
+  assert.ok(html.includes('Run the model in your browser with the Prompt API'));
+
+  // Must NOT contain unrequested settings sections like Preferences, Tabs, Microphone, Location
   assert.ok(!html.includes('Show used tools in the log'));
   assert.ok(!html.includes('Share current tab by default'));
   assert.ok(!html.includes('Microphone'));
