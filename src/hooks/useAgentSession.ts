@@ -295,7 +295,7 @@ export function useAgentSession(
           try {
             // Security Note: This is where you might utilize a critic to check that the
             // tool call and parameters align with the user's intent before execution.
-            const rawRes = await executeTabTool(name, JSON.stringify(call.args), frameId);
+            const rawRes = await executeTabTool(name, call.args, frameId);
             if (signal.aborted) break;
 
             const limitedRes = applyTokenLimit(rawRes);

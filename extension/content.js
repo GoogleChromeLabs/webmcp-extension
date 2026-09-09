@@ -16,7 +16,9 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
       document.modelContext.ontoolchange = debouncedListTools.bind(null, fromOrigins);
     }
     if (action == 'EXECUTE_TOOL') {
-      console.debug(`[WebMCP] Execute tool "${name}" with ${inputArgs} in ${window.location.href}`);
+      console.debug(
+        `[WebMCP] Execute tool "${name}" with ${JSON.stringify(inputArgs)} in ${window.location.href}`,
+      );
       let targetFrame, loadPromise;
       // Check if this tool is associated with a form target
       const formTarget = document.querySelector(`form[toolname="${name}"]`)?.target;
@@ -33,9 +35,20 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
       // Execute the experimental tool
       document.modelContext
         .getTools()
-        .then((tools) => {
+        .then(async (tools) => {
           const tool = tools.find((t) => t.name === name && t.window === window);
-          return document.modelContext.executeTool(tool, inputArgs);
+          let result;
+          try {
+            result = await document.modelContext.executeTool(tool, inputArgs);
+          } catch (e) {
+            // TODO: Remove this when executeTool doesn't accept JSON stringified inputArgs anymore in Chrome Stable.
+            if (e.message.startsWith('Failed to parse input')) {
+              result = await document.modelContext.executeTool(tool, JSON.stringify(inputArgs));
+            } else {
+              throw e;
+            }
+          }
+          return result;
         })
         .then(async (result) => {
           // If result is null and we have a target frame, wait for the frame to reload.
