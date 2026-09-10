@@ -4,7 +4,7 @@
  */
 
 import { callBackend } from './backendBridge.js';
-import { resetOnDeviceChat, sendOnDeviceChat } from './promptApiBackend.js';
+import { getSpotlightFence, resetOnDeviceChat, sendOnDeviceChat } from './promptApiBackend.js';
 import { ChatTurnRequest, ChatTurnResponse } from '../types/index.js';
 
 /**
@@ -22,6 +22,15 @@ export async function sendChatTurn(
     return sendOnDeviceChat(request, { signal });
   }
   return callBackend<ChatTurnResponse>('/api/chat', request, { signal });
+}
+
+/**
+ * How untrusted tool results are spotlighted for the backend in use: the
+ * server's Gemini model decodes base64, the on-device model does not, so its
+ * results are fenced instead.
+ */
+export function getSpotlighting(options: { onDevice?: boolean } = {}): string | undefined {
+  return options.onDevice ? getSpotlightFence() : undefined;
 }
 
 /** Ends the conversation on whichever backend is holding it. */

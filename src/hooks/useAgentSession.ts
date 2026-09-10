@@ -4,7 +4,7 @@
  */
 
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
-import { resetChatSession, sendChatTurn } from '../services/chatBridge.js';
+import { getSpotlighting, resetChatSession, sendChatTurn } from '../services/chatBridge.js';
 import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
 import { buildToolDecls, decodeToolName, isToolUntrusted } from '../services/toolEncoder.js';
 import {
@@ -55,10 +55,19 @@ export function applyTokenLimit(result: unknown): unknown {
   return result;
 }
 
-export function applySpotlighting(result: unknown, tool?: WebMCPTool): unknown {
+export function applySpotlighting(result: unknown, tool?: WebMCPTool, fence?: string): unknown {
   if (!isToolUntrusted(tool)) return result;
 
   const rawStr = typeof result === 'string' ? result : JSON.stringify(result);
+
+  // Encoding is the stronger spotlighting, but it takes a model that decodes
+  // base64 reliably. Callers that pass a fence get delimiting instead, with
+  // any forged closing marker stripped so the data cannot break out.
+  if (fence) {
+    const fenced = (rawStr || '').split(`</${fence}>`).join('');
+    return `<${fence}>\n${fenced}\n</${fence}>`;
+  }
+
   try {
     return btoa(unescape(encodeURIComponent(rawStr || '')));
   } catch {
@@ -304,7 +313,11 @@ export function useAgentSession(
             if (signal.aborted) break;
 
             const limitedRes = applyTokenLimit(rawRes);
-            const res = applySpotlighting(limitedRes, targetTool);
+            const res = applySpotlighting(
+              limitedRes,
+              targetTool,
+              getSpotlighting({ onDevice: onDeviceModelRef.current })
+            );
 
             // Security Note: This is where you might utilize a prompt injection classifier to
             // detect any prompt injection in the tool output before returning it to the model.
