@@ -209,6 +209,72 @@ async function getSession(
 }
 
 /**
+ * Whether `value` is an instance of any of the named globals. Each is looked up
+ * at call time, since not every context has every one (a worker has no DOM, and
+ * neither do the tests).
+ */
+function isInstanceOf(value: unknown, names: string[]): boolean {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  return names.some((name) => {
+    const constructor = globals[name];
+    return typeof constructor === 'function' && value instanceof constructor;
+  });
+}
+
+const IMAGE_SOURCES = [
+  'Blob',
+  'HTMLCanvasElement',
+  'HTMLImageElement',
+  'HTMLVideoElement',
+  'ImageBitmap',
+  'ImageData',
+  'OffscreenCanvas',
+  'SVGImageElement',
+  'VideoFrame',
+];
+
+const AUDIO_SOURCES = ['AudioBuffer', 'HTMLAudioElement'];
+
+/**
+ * Raw bytes are a valid value for both 'image' and 'audio', so the bytes
+ * themselves decide: the common audio containers are recognized by their
+ * signature, and everything else is taken for an image.
+ */
+function sniffBufferType(buffer: ArrayBuffer | ArrayBufferView): 'image' | 'audio' {
+  const bytes = ArrayBuffer.isView(buffer)
+    ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    : new Uint8Array(buffer);
+  const ascii = (start: number, end: number) => String.fromCharCode(...bytes.subarray(start, end));
+
+  const isAudio =
+    (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WAVE') ||
+    ascii(0, 4) === 'OggS' ||
+    ascii(0, 4) === 'fLaC' ||
+    ascii(0, 3) === 'ID3' ||
+    (ascii(4, 8) === 'ftyp' && ascii(8, 12) === 'M4A ') ||
+    // An MPEG audio frame sync, which a JPEG (FF D8) does not match.
+    (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0);
+  return isAudio ? 'audio' : 'image';
+}
+
+/**
+ * Picks the result type from the concrete value, as the Prompt API wants it
+ * declared. Untrusted results reach here as strings, fenced by the spotlighting
+ * in the agent loop, while trusted tools can hand back anything.
+ */
+function toToolResultItem(value: unknown): LanguageModelToolResultItem {
+  if (typeof value === 'string') return { type: 'text', value };
+  // Not JSON-serializable, so a tool that returned nothing answers with no text.
+  if (value === undefined) return { type: 'text', value: '' };
+  if (isInstanceOf(value, AUDIO_SOURCES)) return { type: 'audio', value };
+  if (isInstanceOf(value, IMAGE_SOURCES)) return { type: 'image', value };
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    return { type: sniffBufferType(value), value };
+  }
+  return { type: 'object', value };
+}
+
+/**
  * Turns the tool responses of the agent loop, which are shaped for the Gemini
  * API, into the tool responses the Prompt API expects. Responses are matched
  * to the calls they answer by name, in the order the model made them.
@@ -234,14 +300,7 @@ function toToolResponseMessages(
     }
     return {
       type: 'tool-response' as const,
-      // Tool results reach here as strings, base64-encoded by the spotlighting
-      // in the agent loop. Chrome takes 'text' and 'object' results, not
-      // 'image' or 'audio'.
-      value: new LanguageModelToolSuccess({
-        callID,
-        name,
-        result: [{ type: 'text', value: typeof result === 'string' ? result : JSON.stringify(result ?? '') }],
-      }),
+      value: new LanguageModelToolSuccess({ callID, name, result: [toToolResultItem(result)] }),
     };
   });
 

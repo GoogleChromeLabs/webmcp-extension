@@ -187,6 +187,62 @@ test('tool responses are answered as tool successes and errors on the same call'
   }
 });
 
+test('the type of a tool result is sniffed from its value', async () => {
+  const wav = new TextEncoder().encode('RIFF\0\0\0\0WAVEfmt ');
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const mp3 = new Uint8Array([0xff, 0xfb, 0x90, 0x44]);
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+  const blob = new Blob(['<svg/>'], { type: 'image/svg+xml' });
+  const cases: Array<[unknown, string]> = [
+    ['plain text', 'text'],
+    [undefined, 'text'],
+    [{ total: 22 }, 'object'],
+    [[1, 2], 'object'],
+    [42, 'object'],
+    [false, 'object'],
+    [null, 'object'],
+    [blob, 'image'],
+    [png, 'image'],
+    [jpeg.buffer, 'image'],
+    [wav, 'audio'],
+    [new DataView(mp3.buffer), 'audio'],
+  ];
+
+  const stub = installPromptApiStub([
+    cases.map((_, i) => ({
+      type: 'tool-call' as const,
+      value: { callID: `c${i}`, name: '_0_book_table', arguments: {} },
+    })),
+  ]);
+
+  try {
+    const tools = buildToolDecls([BOOK_TOOL]);
+    const first = await sendOnDeviceChat({ message: 'Book tables', tools });
+    await sendOnDeviceChat({
+      chatId: first.chatId,
+      tools,
+      toolResponses: cases.map(([result]) => ({
+        functionResponse: { name: '_0_book_table', response: { result } },
+      })),
+    });
+
+    const [, [message]] = stub.inputs as Array<
+      Array<{ content: Array<{ value: { result: Array<{ type: string; value: unknown }> } }> }>
+    >;
+    const items = message.content.map((part) => part.value.result[0]);
+    assert.deepEqual(
+      items.map((item) => item.type),
+      cases.map(([, type]) => type)
+    );
+    // Values pass through as they are, other than an empty result.
+    assert.equal(items[1].value, '');
+    assert.equal(items[7].value, blob);
+    assert.equal(items[8].value, png);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
 test('the session is rebuilt with the new tools when the page registers different ones', async () => {
   const stub = installPromptApiStub([['Booked.'], ['Cancelled.']]);
 

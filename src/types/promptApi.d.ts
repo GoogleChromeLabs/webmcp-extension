@@ -30,10 +30,23 @@ declare global {
     arguments: Record<string, unknown>;
   }
 
+  /**
+   * - "text": a string
+   * - "image": an ImageBitmapSource or a BufferSource
+   * - "audio": an AudioBuffer, an HTMLAudioElement, or a BufferSource
+   * - "object": a JSON-serializable value
+   */
+  type LanguageModelToolResultType = 'text' | 'image' | 'audio' | 'object';
+
+  interface LanguageModelToolResultItem {
+    type: LanguageModelToolResultType;
+    value: unknown;
+  }
+
   interface LanguageModelToolSuccessInit {
     callID: string;
     name: string;
-    result: Array<{ type: 'text' | 'object'; value: unknown }>;
+    result: LanguageModelToolResultItem[];
   }
 
   interface LanguageModelToolErrorInit {
