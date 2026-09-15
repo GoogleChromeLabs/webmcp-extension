@@ -23,6 +23,7 @@ import { Favicon } from '../src/components/Favicon.js';
 import { Switch } from '../src/components/Switch.js';
 import { SettingsScreen } from '../src/screens/SettingsScreen.js';
 import { AllowToolPermissionCard } from '../src/components/AllowToolPermissionCard.js';
+import { OnDeviceModelStatus, getCompactingFraction } from '../src/components/OnDeviceModelStatus.js';
 
 test('ButtonUI renders Play Arrow and Square Stop buttons with distinct accessible labels and icons', () => {
   const playHtml = renderToString(
@@ -277,6 +278,9 @@ test('SettingsScreen renders header, permissions section, sensitive action alert
     React.createElement(SettingsScreen, {
       sensitiveActionAlerts: true,
       onToggleSensitiveActionAlerts: () => { },
+      onDeviceModel: false,
+      onToggleOnDeviceModel: () => { },
+      onDeviceModelSupported: true,
       onClose: () => { },
     })
   );
@@ -363,4 +367,18 @@ test('ActionLog renders Waiting for permission state with atom logo and header',
   assert.ok(html.includes('Delete account'));
 });
 
+test('OnDeviceModelStatus renders its download and compacting elements hidden until they are needed', () => {
+  const html = renderToString(React.createElement(OnDeviceModelStatus));
 
+  assert.match(html, /<p class="model-status__hint" hidden="">/);
+  assert.match(html, /<button type="button" class="model-status__btn" hidden="">Download model<\/button>/);
+  assert.match(html, /<progress class="model-status__progress" aria-label="On-device model download" hidden="">/);
+  assert.match(html, /<div class="model-status__compacting" hidden="">/);
+});
+
+test('the compacting progress bar fills from the status, and is indeterminate without a count', () => {
+  assert.equal(getCompactingFraction('Compacting message 3 of 12…'), 0.25);
+  assert.equal(getCompactingFraction('Compacting message 12 of 12…'), 1);
+  assert.equal(getCompactingFraction('Compacting the conversation…'), null);
+  assert.equal(getCompactingFraction('Compacting message 1 of 0…'), null);
+});

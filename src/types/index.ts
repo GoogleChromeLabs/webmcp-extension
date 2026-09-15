@@ -21,6 +21,26 @@ export interface ToolDeclaration {
   parameters: Record<string, unknown>;
 }
 
+/**
+ * One turn of a chat, as both the local backend server and the on-device
+ * Prompt API backend take it: either a user message or the tool responses for
+ * the calls of the previous turn, always with the tools of the active page.
+ */
+export interface ChatTurnRequest {
+  message?: string;
+  toolResponses?: Array<{
+    functionResponse: { name: string; response: Record<string, unknown> };
+  }>;
+  tools?: ToolDeclaration[];
+  chatId?: string;
+}
+
+export interface ChatTurnResponse {
+  chatId?: string;
+  text?: string;
+  functionCalls?: Array<{ id?: string; name: string; args: Record<string, unknown> }>;
+}
+
 export interface DecodedToolCall {
   id?: string;
   name: string;

@@ -4,17 +4,20 @@
  */
 
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
-import { callBackend } from '../services/backendBridge.js';
+import { getSpotlighting, resetChatSession, sendChatTurn } from '../services/chatBridge.js';
 import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
 import { buildToolDecls, decodeToolName, isToolUntrusted } from '../services/toolEncoder.js';
 import {
   ActivityEntry,
   ChatMessage,
+  ChatTurnResponse,
   WebMCPTool,
 } from '../types/index.js';
 
 export interface UseAgentSessionOptions {
   sensitiveActionAlerts?: boolean;
+  /** Run the model on the device through the Prompt API instead of the server. */
+  onDeviceModel?: boolean;
 }
 
 export interface PendingToolPermission {
@@ -37,12 +40,6 @@ export interface UseAgentSessionReturn {
   handleReset: () => void;
 }
 
-interface BackendChatResponse {
-  chatId?: string;
-  text?: string;
-  functionCalls?: Array<{ id?: string; name: string; args: Record<string, unknown> }>;
-}
-
 export const MAX_TOOL_RESPONSE_CHARS = 8000;
 
 export function applyTokenLimit(result: unknown): unknown {
@@ -58,14 +55,68 @@ export function applyTokenLimit(result: unknown): unknown {
   return result;
 }
 
-export function applySpotlighting(result: unknown, tool?: WebMCPTool): unknown {
+export function applySpotlighting(result: unknown, tool?: WebMCPTool, fence?: string): unknown {
   if (!isToolUntrusted(tool)) return result;
 
   const rawStr = typeof result === 'string' ? result : JSON.stringify(result);
+
+  // Encoding is the stronger spotlighting, but it takes a model that decodes
+  // base64 reliably. Callers that pass a fence get delimiting instead, with
+  // any forged closing marker stripped so the data cannot break out.
+  if (fence) {
+    const fenced = (rawStr || '').split(`</${fence}>`).join('');
+    return `<${fence}>\n${fenced}\n</${fence}>`;
+  }
+
   try {
     return btoa(unescape(encodeURIComponent(rawStr || '')));
   } catch {
     return Buffer.from(rawStr || '', 'utf-8').toString('base64');
+  }
+}
+
+/**
+ * Refreshes the page's tools after a round of tool calls, and waits until they
+ * have settled, so the next request declares the tools the page has now.
+ *
+ * A call can change them, by navigating, or by rendering a view with tools of
+ * its own, and a page can take a while to register those: the content script
+ * only reports the list once its changes have paused. So this waits for a
+ * report, then for `quietMs` without another, and gives up after `timeoutMs`,
+ * keeping whatever tools arrived by then.
+ */
+export async function waitForToolsToSettle(
+  toolsRef: MutableRefObject<WebMCPTool[]>,
+  {
+    requestTools,
+    signal,
+    quietMs = 250,
+    timeoutMs = 2000,
+    pollMs = 25,
+  }: {
+    requestTools: () => Promise<void>;
+    signal?: AbortSignal;
+    quietMs?: number;
+    timeoutMs?: number;
+    pollMs?: number;
+  }
+): Promise<void> {
+  const start = performance.now();
+  // Every report replaces the array, even when the tools are the same.
+  let seen = toolsRef.current;
+  let lastReport: number | null = null;
+
+  try {
+    await requestTools();
+  } catch {}
+
+  while (!signal?.aborted && performance.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    if (toolsRef.current !== seen) {
+      seen = toolsRef.current;
+      lastReport = performance.now();
+    }
+    if (lastReport !== null && performance.now() - lastReport >= quietMs) return;
   }
 }
 
@@ -83,11 +134,22 @@ export function useAgentSession(
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [pendingPermission, setPendingPermission] = useState<PendingToolPermission | null>(null);
 
-  // Settings sync ref
+  // Settings sync refs
   const sensitiveActionAlertsRef = useRef<boolean>(options?.sensitiveActionAlerts ?? true);
   useEffect(() => {
     sensitiveActionAlertsRef.current = options?.sensitiveActionAlerts ?? true;
   }, [options?.sensitiveActionAlerts]);
+
+  const onDeviceModelRef = useRef<boolean>(options?.onDeviceModel ?? false);
+  useEffect(() => {
+    // Switching backends starts a new conversation: neither one can carry on
+    // where the other left off.
+    if (onDeviceModelRef.current !== (options?.onDeviceModel ?? false)) {
+      resetChatSession({ chatId: chatIdRef.current, onDevice: onDeviceModelRef.current });
+      chatIdRef.current = undefined;
+    }
+    onDeviceModelRef.current = options?.onDeviceModel ?? false;
+  }, [options?.onDeviceModel]);
 
   // Safely support either MutableRefObject or raw tools array without breaking encapsulation
   const internalToolsRef = useRef<WebMCPTool[]>([]);
@@ -158,9 +220,7 @@ export function useAgentSession(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    if (chatIdRef.current) {
-      callBackend('/api/reset', { chatId: chatIdRef.current }).catch(() => {});
-    }
+    resetChatSession({ chatId: chatIdRef.current, onDevice: onDeviceModelRef.current });
     chatIdRef.current = undefined;
     turnLogsRef.current = [];
     setUserPrompt('');
@@ -195,14 +255,13 @@ export function useAgentSession(
 
     try {
       const toolDecls = buildToolDecls(activeToolsRef.current);
-      let currentResult = await callBackend<BackendChatResponse>(
-        '/api/chat',
+      let currentResult: ChatTurnResponse = await sendChatTurn(
         {
           message: textToSend,
           tools: toolDecls,
           chatId: chatIdRef.current,
         },
-        { signal }
+        { signal, onDevice: onDeviceModelRef.current }
       );
 
       if (signal.aborted) return;
@@ -299,7 +358,11 @@ export function useAgentSession(
             if (signal.aborted) break;
 
             const limitedRes = applyTokenLimit(rawRes);
-            const res = applySpotlighting(limitedRes, targetTool);
+            const res = applySpotlighting(
+              limitedRes,
+              targetTool,
+              getSpotlighting({ onDevice: onDeviceModelRef.current })
+            );
 
             // Security Note: This is where you might utilize a prompt injection classifier to
             // detect any prompt injection in the tool output before returning it to the model.
@@ -319,24 +382,18 @@ export function useAgentSession(
 
         if (signal.aborted) break;
 
-        try {
-          await requestTabTools();
-        } catch {}
-
-        // Settle pause yielding to macro-task queue for Chrome content-script tool sync
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await waitForToolsToSettle(activeToolsRef, { requestTools: requestTabTools, signal });
         if (signal.aborted) break;
 
         const updatedTools = buildToolDecls(activeToolsRef.current);
 
-        currentResult = await callBackend<BackendChatResponse>(
-          '/api/chat',
+        currentResult = await sendChatTurn(
           {
             toolResponses,
             tools: updatedTools,
             chatId: chatIdRef.current,
           },
-          { signal }
+          { signal, onDevice: onDeviceModelRef.current }
         );
 
         if (signal.aborted) break;

@@ -11,10 +11,12 @@ import ConsentScreen from './screens/ConsentScreen.js';
 import SettingsScreen from './screens/SettingsScreen.js';
 import MarkdownText from './components/MarkdownText.js';
 import ActionLog from './components/ActionLog.js';
+import OnDeviceModelStatus from './components/OnDeviceModelStatus.js';
 import { EditSquareIcon } from './components/Icons.js';
 
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
+import { isPromptApiSupported } from './services/promptApiBackend.js';
 
 export function App() {
   // Navigation & View State
@@ -25,6 +27,14 @@ export function App() {
   const [sensitiveActionAlerts, setSensitiveActionAlerts] = useState<boolean>(() => {
     const saved = localStorage.getItem('sensitiveActionAlerts');
     return saved !== null ? saved === 'true' : true;
+  });
+
+  // Off unless the browser has the Prompt API, so a browser without it keeps
+  // using the backend server.
+  const onDeviceModelSupported = isPromptApiSupported();
+  const [onDeviceModel, setOnDeviceModel] = useState<boolean>(() => {
+    if (!isPromptApiSupported()) return false;
+    return localStorage.getItem('onDeviceModel') === 'true';
   });
 
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
@@ -50,7 +60,18 @@ export function App() {
     handleSendPrompt,
     handleStop,
     handleReset,
-  } = useAgentSession(toolsRef, { sensitiveActionAlerts });
+  } = useAgentSession(toolsRef, { sensitiveActionAlerts, onDeviceModel });
+
+  const handleToggleOnDeviceModel = () => {
+    // Switching backends mid-response would pull the conversation out from
+    // under the request in flight. The switch is disabled then, too.
+    if (busy) return;
+    setOnDeviceModel((prev) => {
+      const next = !prev;
+      localStorage.setItem('onDeviceModel', String(next));
+      return next;
+    });
+  };
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -98,6 +119,9 @@ export function App() {
       {/* Error / Status Notice */}
       {statusMsg && <div id="status">{statusMsg}</div>}
 
+      {/* On-device model status, outside <main> so settings cannot unmount it mid-download */}
+      {onDeviceModelSupported && <OnDeviceModelStatus />}
+
       <main>
         {showConsent ? (
           <ConsentScreen
@@ -108,6 +132,10 @@ export function App() {
           <SettingsScreen
             sensitiveActionAlerts={sensitiveActionAlerts}
             onToggleSensitiveActionAlerts={handleToggleSensitiveActionAlerts}
+            onDeviceModel={onDeviceModel}
+            onToggleOnDeviceModel={handleToggleOnDeviceModel}
+            onDeviceModelSupported={onDeviceModelSupported}
+            responseInProgress={busy}
             onClose={() => setShowSettings(false)}
           />
         ) : (

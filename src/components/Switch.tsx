@@ -8,8 +8,14 @@ import React from 'react';
 export interface SwitchProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
+  /**
+   * Blocks toggling while keeping the switch focusable, so a screen reader
+   * still finds it and hears why it cannot be changed: exposed as
+   * `aria-disabled` rather than the `disabled` attribute.
+   */
   disabled?: boolean;
   'aria-label'?: string;
+  'aria-describedby'?: string;
   id?: string;
   className?: string;
 }
@@ -22,6 +28,7 @@ export function Switch({
   onChange,
   disabled = false,
   'aria-label': ariaLabel,
+  'aria-describedby': ariaDescribedBy,
   id,
   className = '',
 }: SwitchProps) {
@@ -32,10 +39,11 @@ export function Switch({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (disabled) return;
     if (e.key === ' ' || e.key === 'Enter') {
+      // Also when disabled: the button would otherwise turn the key into a
+      // click of its own.
       e.preventDefault();
-      onChange(!checked);
+      if (!disabled) onChange(!checked);
     }
   };
 
@@ -45,7 +53,8 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel}
-      disabled={disabled}
+      aria-describedby={ariaDescribedBy}
+      aria-disabled={disabled || undefined}
       id={id}
       onClick={handleClick}
       onKeyDown={handleKeyDown}

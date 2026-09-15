@@ -19,3 +19,4 @@ js-anthropic.js
 
 # Environment and secrets
 .env
+.claude/

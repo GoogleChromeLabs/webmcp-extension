@@ -128,6 +128,83 @@ html, body {
   margin-bottom: 4px;
 }
 
+/* On-device model status. The backend toggles `hidden` on the download
+   elements, so the card only shows while one of them is visible, or while the
+   conversation is compacted. */
+.model-status {
+  display: none;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  margin-bottom: 4px;
+  background: var(--color-surface);
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--color-on-surface);
+}
+
+.model-status:has(
+    > .model-status__btn:not([hidden]),
+    > .model-status__progress:not([hidden]),
+    > .model-status__compacting:not([hidden])
+  ) {
+  display: flex;
+}
+
+.model-status__hint {
+  margin: 0;
+}
+
+.model-status__btn {
+  align-self: flex-start;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: none;
+  background-color: var(--color-blue-title);
+  color: #ffffff;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.model-status__btn:hover {
+  background-color: #0c2759;
+}
+
+.model-status__btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.model-status__compacting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-status__progress {
+  width: 100%;
+  accent-color: var(--color-primary);
+}
+
+/* A label belongs to the progress bar before it, and hides with it. Neither
+   shows while the download still waits for a click. */
+.model-status__progress[hidden] + .model-status__label,
+.model-status__btn:not([hidden]) ~ .model-status__progress,
+.model-status__btn:not([hidden]) ~ .model-status__label {
+  display: none;
+}
+
+.model-status__label {
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
 main {
   flex: 1;
   min-height: 0;
@@ -1249,6 +1326,15 @@ main {
 .cdds-switch:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+
+/* Still focusable, so only the track and thumb fade, not the focus ring. */
+.cdds-switch[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+.cdds-switch[aria-disabled='true'] > * {
+  opacity: 0.38;
 }
 
 .cdds-switch__track {
