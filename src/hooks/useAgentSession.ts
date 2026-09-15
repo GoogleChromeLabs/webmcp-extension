@@ -75,6 +75,51 @@ export function applySpotlighting(result: unknown, tool?: WebMCPTool, fence?: st
   }
 }
 
+/**
+ * Refreshes the page's tools after a round of tool calls, and waits until they
+ * have settled, so the next request declares the tools the page has now.
+ *
+ * A call can change them, by navigating, or by rendering a view with tools of
+ * its own, and a page can take a while to register those: the content script
+ * only reports the list once its changes have paused. So this waits for a
+ * report, then for `quietMs` without another, and gives up after `timeoutMs`,
+ * keeping whatever tools arrived by then.
+ */
+export async function waitForToolsToSettle(
+  toolsRef: MutableRefObject<WebMCPTool[]>,
+  {
+    requestTools,
+    signal,
+    quietMs = 250,
+    timeoutMs = 2000,
+    pollMs = 25,
+  }: {
+    requestTools: () => Promise<void>;
+    signal?: AbortSignal;
+    quietMs?: number;
+    timeoutMs?: number;
+    pollMs?: number;
+  }
+): Promise<void> {
+  const start = performance.now();
+  // Every report replaces the array, even when the tools are the same.
+  let seen = toolsRef.current;
+  let lastReport: number | null = null;
+
+  try {
+    await requestTools();
+  } catch {}
+
+  while (!signal?.aborted && performance.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    if (toolsRef.current !== seen) {
+      seen = toolsRef.current;
+      lastReport = performance.now();
+    }
+    if (lastReport !== null && performance.now() - lastReport >= quietMs) return;
+  }
+}
+
 let nextId = Date.now();
 const generateId = (): number => ++nextId;
 
@@ -337,12 +382,7 @@ export function useAgentSession(
 
         if (signal.aborted) break;
 
-        try {
-          await requestTabTools();
-        } catch {}
-
-        // Settle pause yielding to macro-task queue for Chrome content-script tool sync
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await waitForToolsToSettle(activeToolsRef, { requestTools: requestTabTools, signal });
         if (signal.aborted) break;
 
         const updatedTools = buildToolDecls(activeToolsRef.current);

@@ -652,10 +652,17 @@ async function continueWithNewTools(
   // Stops the old session's tool loop, which never writes this turn into its
   // history, so the turn is only carried over here.
   turn.controller.abort();
-  const responses = turn.transcript.slice(-1);
+  const [responses] = turn.transcript.slice(-1);
   const history = [...toReplayHistory(state.session.history, true), ...turn.transcript.slice(0, -1)];
   const rebuilt = await buildSession(state.id, tools, history, signal);
-  return startTurn(rebuilt, responses, signal);
+  // The model cannot tell its tools changed, and tends to stop at a call that
+  // only navigated. The note names no tools: their names come from the page.
+  const note = {
+    type: 'text',
+    value: 'The page has changed and now offers different tools. Use them to fulfill the request in full.',
+  };
+  const content = Array.isArray(responses.content) ? [...responses.content, note] : [note];
+  return startTurn(rebuilt, [{ role: 'user', content }], signal);
 }
 
 /**

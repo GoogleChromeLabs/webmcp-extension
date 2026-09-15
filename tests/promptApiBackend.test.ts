@@ -321,7 +321,11 @@ test('a turn goes on with the new tools when a tool call changes them', async ()
     // ...and the new session starts from its response, with the result fenced
     // as before. The fence stays, since the replayed results use it.
     const [responses] = stub.inputs[1] as ResponseTurn;
-    assert.equal(describePrompt(responses as ReplayedPrompt), 'user: tool-response:_0_returnToHallway');
+    // With a note that the tools changed, since the model cannot tell.
+    assert.equal(
+      describePrompt(responses as ReplayedPrompt),
+      'user: tool-response:_0_returnToHallway + The page has changed and now offers different tools. Use them to fulfill the request in full.'
+    );
     assert.deepEqual(responses.content[0].value.result, [{ type: 'text', value: `<${fence}>\nThe hallway.\n</${fence}>` }]);
     assert.equal(getSpotlightFence(), fence);
     assert.ok(String(rebuilt.initialPrompts?.[0].content).includes(fence));
