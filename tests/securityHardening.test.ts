@@ -8,6 +8,14 @@ import assert from 'node:assert/strict';
 import {
   isAllowedOrigin,
   validateAuthToken,
+  timingSafeEqualStrings,
+  parseCookies,
+  authorizeLogsRequest,
+  createLogsSession,
+  hasValidLogsSession,
+  buildLogsSessionCookie,
+  LOGS_SESSION_COOKIE,
+  __clearLogsSessions,
 } from '../server/security.js';
 import {
   callBackend,
@@ -47,16 +55,17 @@ test('security - isAllowedOrigin enforces allowedExtensionId when configured', (
 });
 
 test('security - isAllowedOrigin permits same-origin and browser navigation for /logs', () => {
-  // Direct address bar navigation (no origin header)
+  // Direct address bar navigation (no origin header). Allowed at the origin
+  // layer only; authorizeLogsRequest still demands a token or session.
   assert.equal(isAllowedOrigin(undefined, '/logs'), true);
   assert.equal(isAllowedOrigin(null, '/logs'), true);
 
-  // Localhost origins
+  // Localhost origins (the dashboard's own fetch/EventSource calls)
   assert.equal(isAllowedOrigin('http://localhost:3000', '/logs'), true);
   assert.equal(isAllowedOrigin('http://127.0.0.1:3000', '/logs'), true);
 
-  // Extension origin
-  assert.equal(isAllowedOrigin('chrome-extension://abcdef', '/logs'), true);
+  // The extension never calls /logs, so extension origins are refused.
+  assert.equal(isAllowedOrigin('chrome-extension://abcdef', '/logs'), false);
 
   // External malicious web pages requesting logs
   assert.equal(isAllowedOrigin('https://evil.com', '/logs'), false);
@@ -86,6 +95,135 @@ test('security - validateAuthToken verifies X-WebMCP-Auth and Bearer authorizati
   // Missing token
   assert.equal(validateAuthToken({}, secret), false);
   assert.equal(validateAuthToken({ 'x-webmcp-auth': '' }, secret), false);
+});
+
+test('security - validateAuthToken fails closed when the server has no token configured', () => {
+  // A misconfigured server must reject everything rather than silently
+  // accepting unauthenticated requests.
+  assert.equal(validateAuthToken({ 'x-webmcp-auth': 'anything' }, ''), false);
+  assert.equal(validateAuthToken({ 'x-webmcp-auth': 'anything' }, null), false);
+  assert.equal(validateAuthToken({ 'x-webmcp-auth': 'anything' }, undefined), false);
+});
+
+test('security - timingSafeEqualStrings compares without throwing on length mismatch', () => {
+  assert.equal(timingSafeEqualStrings('abc', 'abc'), true);
+  assert.equal(timingSafeEqualStrings('abc', 'abd'), false);
+  // Differing lengths must return false, not throw.
+  assert.equal(timingSafeEqualStrings('short', 'a-much-longer-value'), false);
+  assert.equal(timingSafeEqualStrings('', ''), false);
+  assert.equal(timingSafeEqualStrings(undefined as never, 'x'), false);
+});
+
+test('security - parseCookies handles absent, malformed and multi-value headers', () => {
+  assert.deepEqual(parseCookies(undefined), {});
+  assert.deepEqual(parseCookies(''), {});
+  assert.deepEqual(parseCookies('novalue'), {});
+  assert.deepEqual(parseCookies('a=1; b=2'), { a: '1', b: '2' });
+  assert.deepEqual(parseCookies('  spaced = value  '), { spaced: 'value' });
+});
+
+test('security - authorizeLogsRequest requires a token and then accepts the issued session', () => {
+  __clearLogsSessions();
+  const secret = 'logs-dashboard-secret';
+
+  // No credentials at all -> rejected (this is the local-process bypass).
+  assert.equal(authorizeLogsRequest({ headers: {} }, secret).authorized, false);
+
+  // Wrong token -> rejected.
+  assert.equal(
+    authorizeLogsRequest({ headers: {}, queryToken: 'nope' }, secret).authorized,
+    false
+  );
+
+  // Correct token via query param -> authorized, but not yet via session.
+  const viaToken = authorizeLogsRequest({ headers: {}, queryToken: secret }, secret);
+  assert.equal(viaToken.authorized, true);
+  assert.equal(viaToken.viaSession, false);
+
+  // Correct token via header -> also authorized.
+  assert.equal(
+    authorizeLogsRequest({ headers: { 'x-webmcp-auth': secret } }, secret).authorized,
+    true
+  );
+
+  // The issued session cookie authorizes subsequent requests on its own.
+  const sessionId = createLogsSession();
+  const viaSession = authorizeLogsRequest(
+    { headers: { cookie: `${LOGS_SESSION_COOKIE}=${sessionId}` } },
+    secret
+  );
+  assert.equal(viaSession.authorized, true);
+  assert.equal(viaSession.viaSession, true);
+
+  // A forged session id is rejected.
+  assert.equal(
+    authorizeLogsRequest(
+      { headers: { cookie: `${LOGS_SESSION_COOKIE}=deadbeef` } },
+      secret
+    ).authorized,
+    false
+  );
+});
+
+test('security - log session cookie is HttpOnly, SameSite=Strict and scoped to /logs', () => {
+  const cookie = buildLogsSessionCookie('abc123');
+  assert.match(cookie, /^webmcp_logs_session=abc123/);
+  assert.ok(cookie.includes('HttpOnly'));
+  assert.ok(cookie.includes('SameSite=Strict'));
+  assert.ok(cookie.includes('Path=/logs'));
+});
+
+test('security - expired log sessions are rejected', () => {
+  __clearLogsSessions();
+  const sessionId = createLogsSession();
+  const cookieHeader = `${LOGS_SESSION_COOKIE}=${sessionId}`;
+
+  assert.equal(hasValidLogsSession(cookieHeader), true);
+  // Thirteen hours later the 12h TTL has lapsed.
+  assert.equal(hasValidLogsSession(cookieHeader, Date.now() + 13 * 60 * 60 * 1000), false);
+});
+
+test('security - log dashboard renders payloads without innerHTML or inline handlers', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  // Tests are bundled into dist/tests, so resolve the source tree from cwd.
+  const dashboard = fs.readFileSync(
+    path.resolve(process.cwd(), 'server/logs.html'),
+    'utf-8'
+  );
+
+  // Log entries contain tool names and results supplied by arbitrary web pages.
+  // Assigning them through innerHTML is how the stored XSS arose.
+  assert.equal(
+    /\.innerHTML\s*=/.test(dashboard),
+    false,
+    'logs.html must not assign to innerHTML'
+  );
+  assert.equal(
+    /\.outerHTML\s*=/.test(dashboard),
+    false,
+    'logs.html must not assign to outerHTML'
+  );
+  assert.equal(
+    /insertAdjacentHTML/.test(dashboard),
+    false,
+    'logs.html must not use insertAdjacentHTML'
+  );
+
+  // Inline handlers are blocked by the nonce-based CSP, so their presence would
+  // mean a silently broken dashboard as well as a weaker policy.
+  assert.equal(
+    /\son[a-z]+\s*=\s*"/.test(dashboard),
+    false,
+    'logs.html must not use inline on* event handler attributes'
+  );
+
+  // The server substitutes this placeholder with a per-response nonce.
+  assert.ok(
+    dashboard.includes('<script nonce="__CSP_NONCE__">'),
+    'logs.html script tag must carry the CSP nonce placeholder'
+  );
 });
 
 test('security - backendBridge includes X-WebMCP-Auth header when auth token is configured', async () => {
@@ -165,6 +303,18 @@ test('security - HTTP server integration rejects unauthorized web origins and re
         res.end(JSON.stringify({ error: 'Forbidden' }));
         return;
       }
+      const { authorized, viaSession } = authorizeLogsRequest(
+        { headers: req.headers, queryToken: url.searchParams.get('token') },
+        testSecret
+      );
+      if (!authorized) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+      if (!viaSession) {
+        res.setHeader('Set-Cookie', buildLogsSessionCookie(createLogsSession()));
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ logs: [] }));
       return;
@@ -242,9 +392,25 @@ test('security - HTTP server integration rejects unauthorized web origins and re
     });
     assert.equal(resLogsEvil.status, 403);
 
-    // 7. Direct browser navigation to /logs (no Origin header) -> 200 OK
-    const resLogsDirect = await fetch(`${baseUrl}/logs`);
-    assert.equal(resLogsDirect.status, 200);
+    // 7. Local process with no Origin header and no token -> 401 Unauthorized.
+    // This is the bypass that previously exposed every logged prompt and page
+    // payload to any process on the machine.
+    const resLogsNoToken = await fetch(`${baseUrl}/logs`);
+    assert.equal(resLogsNoToken.status, 401);
+
+    // 8. Valid token -> 200 OK, and a scoped session cookie is issued.
+    const resLogsToken = await fetch(`${baseUrl}/logs?token=${testSecret}`);
+    assert.equal(resLogsToken.status, 200);
+    const setCookie = resLogsToken.headers.get('set-cookie') || '';
+    assert.ok(setCookie.includes('webmcp_logs_session='));
+    assert.ok(setCookie.includes('HttpOnly'));
+
+    // 9. The issued session cookie alone authorizes follow-up requests.
+    const sessionCookie = setCookie.split(';')[0];
+    const resLogsSession = await fetch(`${baseUrl}/logs?json=true`, {
+      headers: { Cookie: sessionCookie },
+    });
+    assert.equal(resLogsSession.status, 200);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

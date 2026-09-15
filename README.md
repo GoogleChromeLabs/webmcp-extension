@@ -10,14 +10,14 @@ A Google Chrome extension for inspecting, executing, and testing WebMCP tools.
 
 - **Dynamic WebMCP Tool Discovery**: Automatically queries `document.modelContext.getTools()` and listens for `ontoolchange` across top-level pages and cross-origin `iframe` frames.
 - **Backend Model Routing & Secure Key Storage**: Routes model requests to a local Node.js backend server so consumer-facing extension code never accesses or exposes API keys.
-- **Hardened Origin & Auth Token Verification**: Secures backend `/api/*` endpoints with strict Origin validation (requiring `chrome-extension://...`) and a shared `WEBMCP_AUTH_TOKEN` (automatically generated on first run and injected at build time), completely blocking malicious web scripts and rogue local processes from hijacking the local model server.
+- **Origin & Auth Token Verification**: Backend `/api/*` endpoints require a `chrome-extension://` origin and a shared `WEBMCP_AUTH_TOKEN` (generated on first run, injected at build time). Comparison is constant-time, and a server with no token configured rejects everything rather than failing open. The token is inlined into the built `sidebar.js`, so treat it as an access key for the local port — it keeps web pages and other local processes out, but it is not a secret from anyone holding the build.
 - **Gemini LLM Integration**: Example powered by `@google/genai` on the backend server.
 - **On-Device Model (Prompt API)**: Optional backend that runs the model in the browser through the [Prompt API](https://developer.mozilla.org/docs/Web/API/Prompt_API), so prompts and page data never leave the device and no API key or server is needed. Sessions are created with [`EasyLanguageModel`](https://www.npmjs.com/package/easy-language-model), which shows the model download with a progress bar, asks for a click when the download needs a user gesture, and compacts the conversation with the Summarizer API when it overflows the context (the side panel says so, since the next message waits for it). Tools are declared per session, so the session is rebuilt whenever the page registers different ones, carrying the conversation over, tool results included. That includes the middle of a turn: when a tool call navigates to a page with other tools, the turn goes on in a new session with those tools. Every tool call is handed back to the agent loop, so the same permission prompts, spotlighting, and limits apply. Enable it under **Settings → Model → On-device model** (requires `chrome://flags/#prompt-api-tool-use` for tool calling).
-- **Base64 Spotlighting & Untrusted Content Defense**: Classifies tools via `untrustedContentHint` (defaulting to untrusted for arbitrary web content) and encodes untrusted tool execution results in Base64 to defend against indirect prompt injection. Backend Gemini system instructions enforce strict directives to decode tool output strictly for facts/context and never execute instructions found in page data.
+- **Base64 Spotlighting & Untrusted Content Defense**: Classifies tools via `untrustedContentHint` (defaulting to untrusted for arbitrary web content) and encodes untrusted tool execution results in Base64. This is an experimental *spotlighting* mitigation that makes the model less likely to treat page data as instructions; it reduces risk but is not a complete defense against indirect prompt injection. Backend Gemini system instructions additionally direct the model to decode tool output strictly for facts/context and never execute instructions found in page data.
 - **Inbound Token & Payload Size Limits**: Enforces an 8,000-character ceiling (`MAX_TOOL_RESPONSE_CHARS`) on string and JSON tool responses from web pages, automatically truncating oversized payloads and appending a `WEBMCP_SECURITY_WARNING` notice to protect against context window exhaustion and prompt expansion attacks.
 - **Sensitive Action Permissions**: Prompts user confirmation before executing mutating/non-readonly tools (based on `readOnlyHint`), configurable via the Sensitive Action Alerts toggle in Settings.
 - **In-Flight Tool Re-discovery**: Mid-run tool listing updates ensure newly revealed form tools (e.g. search filters) are immediately made available to the model within multi-turn runs.
-- **Real-Time Debug Server Call Inspector**: Browse `http://localhost:3000/logs` in any web browser to inspect live, streaming request/response payloads, latency, and status codes for all calls made to the backend server.
+- **Authenticated Debug Server Call Inspector**: A live dashboard for inspecting streaming request/response payloads, latency, and status codes. Access requires the server auth token — open the `/logs?token=...` URL printed in the server console on startup. See [Log dashboard](#log-dashboard).
 
 ---
 
@@ -45,6 +45,10 @@ ALLOWED_EXTENSION_ID=optional_specific_extension_id_to_restrict
 # Optional Server Settings
 PORT=3000
 MODEL=gemini-3.6-flash
+
+# Optional: keep request/response bodies out of the log dashboard entirely.
+# Useful when screen-sharing or recording demos.
+WEBMCP_LOG_REDACT_BODIES=0
 ```
 
 ### Installation & Execution
@@ -58,7 +62,7 @@ MODEL=gemini-3.6-flash
    ```bash
    npm run server
    ```
-   This starts the local model routing server on `http://localhost:3000`. You can open `http://localhost:3000/logs` in your web browser to view the real-time server call logs inspector.
+   This starts the local model routing server on `http://localhost:3000`. The console prints an authenticated URL for the log dashboard — see [Log dashboard](#log-dashboard) below.
 
 3. Build the Chrome extension (in a separate terminal):
    ```bash
@@ -70,6 +74,25 @@ MODEL=gemini-3.6-flash
    - Open Chrome and navigate to `chrome://extensions`.
    - Enable **Developer mode** in the top right.
    - Click **Load unpacked** and select the `dist/` folder.
+
+---
+
+## Log dashboard
+
+The backend keeps the last 500 calls and serves a live view of them. Entries include
+full prompts, model replies and scraped page content, so the endpoint requires the
+auth token. The server prints a ready-to-open URL on startup:
+
+```
+📊 Log dashboard: http://127.0.0.1:3000/logs?token=<WEBMCP_AUTH_TOKEN>
+```
+
+Opening it exchanges the token for a 12-hour session cookie and redirects to a clean
+`/logs`, so the token does not stay in browser history. The HTML page, `?json=true`
+and the `?stream=true` SSE feed all return `401` without that cookie or the token.
+
+Set `WEBMCP_LOG_REDACT_BODIES=1` to keep request and response bodies out of the log
+buffer while still recording method, path, status and latency.
 
 ---
 

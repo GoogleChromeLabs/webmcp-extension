@@ -20,3 +20,8 @@ js-anthropic.js
 # Environment and secrets
 .env
 .claude/
+
+# Packed extension archives and signing keys.
+*.crx
+*.pem
+*.zip
