@@ -222,7 +222,7 @@ export function useAgentSession(
     const partial = streamingTextRef.current.trim();
     if (partial) {
       const logs = [...turnLogsRef.current];
-      setMessages((prev) => [...prev, { id: generateId(), role: 'ai', text: partial, activityLogs: logs }]);
+      setMessages((prev) => [...prev, { id: generateId(), role: 'ai', text: partial, activityLogs: logs, onDevice: onDeviceModelRef.current }]);
     }
     showStreamingText('');
     setPendingPermission(null);
@@ -307,7 +307,7 @@ export function useAgentSession(
           const logs = [...turnLogsRef.current];
           setMessages((prev) => [
             ...prev,
-            { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs },
+            { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs, onDevice: onDeviceModelRef.current },
           ]);
           messageRendered = true;
         }
@@ -432,7 +432,7 @@ export function useAgentSession(
         const logs = [...turnLogsRef.current];
         setMessages((prev) => [
           ...prev,
-          { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs },
+          { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs, onDevice: onDeviceModelRef.current },
         ]);
       } else if (!messageRendered && (!currentResult.functionCalls || currentResult.functionCalls.length === 0)) {
         setMessages((prev) => [

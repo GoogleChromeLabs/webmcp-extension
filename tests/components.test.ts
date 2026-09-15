@@ -399,3 +399,16 @@ test('ContextMeter shows the share of the context in use, with the token counts 
   // Without a window to measure against, nothing.
   assert.equal(renderToString(React.createElement(ContextMeter, { used: 0, window: 0 })), '');
 });
+
+test('ActionLog can stay in the page while hidden', () => {
+  const props = {
+    status: 'completed' as const,
+    activityLogs: [{ id: 1, time: '12:00', source: 'assistant' as const, name: 'search_location', args: {}, start: 0, status: 'ok' as const }],
+  };
+  const hidden = renderToString(React.createElement(ActionLog, { ...props, hidden: true }));
+  assert.match(hidden, /^<div class="action-log" hidden="">/);
+  assert.ok(hidden.includes('Show thinking'));
+
+  const shown = renderToString(React.createElement(ActionLog, props));
+  assert.match(shown, /^<div class="action-log">/);
+});

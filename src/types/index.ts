@@ -73,6 +73,8 @@ export interface ChatMessage {
   text: string;
   meta?: string;
   activityLogs?: ActivityEntry[];
+  /** Written by the on-device model rather than the backend server. */
+  onDevice?: boolean;
 }
 
 export interface ExtensionListToolsMessage {

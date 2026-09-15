@@ -205,9 +205,11 @@ export function App() {
                     if (msg.role === 'ai') {
                       return (
                         <React.Fragment key={msg.id}>
+                          {/* Hidden, not removed, for on-device replies: the Prompt API has no thinking to show yet. */}
                           <ActionLog
                             status="completed"
                             activityLogs={msg.activityLogs}
+                            hidden={msg.onDevice}
                           />
                           <div className="ai-response">
                             <MarkdownText content={msg.text} />
