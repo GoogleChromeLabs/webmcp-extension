@@ -16,7 +16,7 @@ import { EditSquareIcon } from './components/Icons.js';
 
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
-import { isPromptApiSupported } from './services/promptApiBackend.js';
+import { isPromptApiSupported, prepareOnDeviceModel } from './services/promptApiBackend.js';
 
 export function App() {
   // Navigation & View State
@@ -67,11 +67,16 @@ export function App() {
     // Switching backends mid-response would pull the conversation out from
     // under the request in flight. The switch is disabled then, too.
     if (busy) return;
-    setOnDeviceModel((prev) => {
-      const next = !prev;
-      localStorage.setItem('onDeviceModel', String(next));
-      return next;
-    });
+    const next = !onDeviceModel;
+    localStorage.setItem('onDeviceModel', String(next));
+    setOnDeviceModel(next);
+    // Turning it on is a click, which a model download needs, so the download
+    // can start now rather than with the first message.
+    if (next) {
+      prepareOnDeviceModel().catch((error) => {
+        console.warn('[WebMCP] Could not start downloading the on-device model:', error);
+      });
+    }
   };
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);

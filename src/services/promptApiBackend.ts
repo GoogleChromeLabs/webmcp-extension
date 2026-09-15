@@ -386,6 +386,41 @@ async function pickModelLanguages(preferred: readonly string[]): Promise<string[
   return ['en'];
 }
 
+/** The wrapper options every session gets, whatever it is made for. */
+function getWrapperOptions() {
+  return {
+    // The side panel renders responses as React text nodes, never as HTML, so
+    // markup the model writes is already harmless. Sanitizing would only stop
+    // an answer that quotes a page's markup.
+    sanitizer: false as const,
+    activationButton: ui.activationButton,
+    activationHint: ui.activationHint,
+    downloadProgress: ui.downloadProgress,
+    // Looked up at call time, so compacting reports to whatever shows it now.
+    onDownloadProgress: (progress: DownloadProgress) => ui.onDownloadProgress?.(progress),
+  };
+}
+
+/**
+ * Starts downloading the model if it still needs one, while the click that
+ * turned the on-device model on still counts as the user gesture a download
+ * requires. It shows in the status card like any other download, and the
+ * first message does not have to wait for it. The session is only made to
+ * start the download, so it is not kept.
+ */
+export async function prepareOnDeviceModel(): Promise<void> {
+  if (!isPromptApiSupported()) return;
+  const expected = [{ type: 'text', languages: await getModelLanguages() }];
+  const options = { expectedInputs: expected, expectedOutputs: expected };
+  const availability = await EasyLanguageModel.availability(options);
+  if (availability !== 'downloadable' && availability !== 'downloading') return;
+  const session = await EasyLanguageModel.create({
+    ...options,
+    ...getWrapperOptions(),
+  } as Parameters<typeof EasyLanguageModel.create>[0]);
+  session.destroy();
+}
+
 async function createSession(
   state: OnDeviceSession,
   tools: PromptApiTool[],
@@ -438,15 +473,7 @@ async function createSession(
       refused.outcome = { errorMessage: response.errorMessage ?? 'The call was refused.' };
       console.warn(`[WebMCP] The on-device model's call to ${response.name} was refused: ${response.errorMessage}`);
     },
-    // The side panel renders responses as React text nodes, never as HTML, so
-    // markup the model writes is already harmless. Sanitizing would only stop
-    // an answer that quotes a page's markup.
-    sanitizer: false as const,
-    activationButton: ui.activationButton,
-    activationHint: ui.activationHint,
-    downloadProgress: ui.downloadProgress,
-    // Looked up at call time, so compacting reports to whatever shows it now.
-    onDownloadProgress: (progress: DownloadProgress) => ui.onDownloadProgress?.(progress),
+    ...getWrapperOptions(),
   };
 
   if ((await EasyLanguageModel.availability(options)) === 'unavailable') {

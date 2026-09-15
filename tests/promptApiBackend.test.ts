@@ -10,6 +10,7 @@ import {
   DownloadProgress,
   getSpotlightFence,
   isPromptApiSupported,
+  prepareOnDeviceModel,
   isToolUseSupported,
   resetOnDeviceChat,
   sendOnDeviceChat,
@@ -648,6 +649,41 @@ function installSummarizerStub(summarize: (text: string) => Promise<string>, { d
     },
   };
 }
+
+test('turning the on-device model on starts a download it still needs, and nothing else', async () => {
+  const stub = installPromptApiStub([]);
+  const reported: DownloadProgress[] = [];
+  setOnDeviceModelUi({ onDownloadProgress: (progress) => reported.push(progress) });
+
+  try {
+    // Already there: no session is made.
+    await prepareOnDeviceModel();
+    assert.equal(stub.creates.length, 0);
+
+    stub.availability = 'downloadable';
+    await prepareOnDeviceModel();
+    assert.equal(stub.creates.length, 1);
+    // Made only to start the download, with the same languages chats use.
+    assert.equal(stub.destroyed, 1);
+    const created = stub.creates[0] as { expectedInputs?: Array<{ languages?: string[] }>; tools?: unknown };
+    assert.ok(created.expectedInputs?.[0].languages?.includes('en'));
+    assert.equal(created.tools, undefined);
+    assert.deepEqual(
+      reported.map(({ resource, percent }) => [resource, percent]),
+      [
+        ['language-model', 0],
+        ['language-model', 50],
+        ['language-model', 100],
+      ]
+    );
+
+    stub.availability = 'unavailable';
+    await prepareOnDeviceModel();
+    assert.equal(stub.creates.length, 1);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
 
 test('a conversation that overflows the context is compacted before the next turn', async () => {
   const stub = installPromptApiStub([['A long answer about booking.'], ['Another long answer.'], ['Done.']]);
