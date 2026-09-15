@@ -56,7 +56,11 @@ function installPromptApiStub(script: Array<StubTurn | null>): Stub {
   let turn = 0;
 
   const globals = globalThis as unknown as Record<string, unknown>;
-  globals.LanguageModelToolCall = class {};
+  globals.LanguageModelToolCall = class {
+    constructor(init: unknown) {
+      Object.assign(this, init as object);
+    }
+  };
   globals.LanguageModelToolSuccess = class {
     constructor(init: unknown) {
       Object.assign(this, init as object, { kind: 'success' });
@@ -259,6 +263,147 @@ test('a call the wrapper refuses never reaches the agent loop', async () => {
 
     const [message] = stub.inputs[1] as ResponseTurn;
     assert.equal(message.content[0].value.kind, 'error');
+  } finally {
+    console.warn = warn;
+    uninstallPromptApiStub();
+  }
+});
+
+/** The doors demo: every door navigates to a page with tools of its own. */
+const HALLWAY_TOOLS = ['openDoor1', 'openDoor3'].map((name) => ({ name, description: `Open ${name}.`, frameId: 0 }));
+const OCEAN_TOOLS = ['dance', 'returnToHallway'].map((name) => ({ name, description: `${name}.`, frameId: 0 }));
+
+type ReplayedPrompt = { role: string; content: string | Array<{ type: string; value: Record<string, unknown> }> };
+
+/** A prompt's content as `type:name` for tool parts, and the text otherwise. */
+function describePrompt({ role, content }: ReplayedPrompt): string {
+  if (typeof content === 'string') return `${role}: ${content}`;
+  return `${role}: ${content.map((part) => (part.type === 'text' ? part.value : `${part.type}:${part.value.name}`)).join(' + ')}`;
+}
+
+test('a turn goes on with the new tools when a tool call changes them', async () => {
+  const stub = installPromptApiStub([
+    [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
+    ['Now the third door. ', { type: 'tool-call', value: { callID: '', name: '_0_openDoor3', arguments: {} } }],
+    ['Behind the third door is a magic garden.'],
+    ['You are welcome.'],
+  ]);
+
+  try {
+    const first = await sendOnDeviceChat({
+      message: 'Go back to the hallway, then open the third door.',
+      tools: buildToolDecls(OCEAN_TOOLS),
+    });
+    assert.deepEqual(first.functionCalls?.map((call) => call.name), ['_0_returnToHallway']);
+    const fence = getSpotlightFence();
+
+    // The call took the page back to the hallway, whose tools differ.
+    const second = await sendOnDeviceChat({
+      chatId: first.chatId,
+      tools: buildToolDecls(HALLWAY_TOOLS),
+      toolResponses: [{ functionResponse: { name: '_0_returnToHallway', response: { result: `<${fence}>\nThe hallway.\n</${fence}>` } } }],
+    });
+
+    // Same turn, new session: the model called a tool only the new page has.
+    assert.equal(second.text, 'Now the third door. ');
+    assert.deepEqual(second.functionCalls?.map((call) => call.name), ['_0_openDoor3']);
+    assert.equal(second.chatId, first.chatId);
+    assert.equal(stub.creates.length, 2);
+    assert.equal(stub.destroyed, 1);
+
+    const rebuilt = stub.creates[1] as { tools?: Array<{ name: string }>; initialPrompts?: ReplayedPrompt[] };
+    assert.deepEqual(rebuilt.tools?.map((tool) => tool.name), ['_0_openDoor1', '_0_openDoor3']);
+    // The turn so far is carried over, up to the call...
+    assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
+      'user: Go back to the hallway, then open the third door.',
+      'assistant: tool-call:_0_returnToHallway',
+    ]);
+    // ...and the new session starts from its response, with the result fenced
+    // as before. The fence stays, since the replayed results use it.
+    const [responses] = stub.inputs[1] as ResponseTurn;
+    assert.equal(describePrompt(responses as ReplayedPrompt), 'user: tool-response:_0_returnToHallway');
+    assert.deepEqual(responses.content[0].value.result, [{ type: 'text', value: `<${fence}>\nThe hallway.\n</${fence}>` }]);
+    assert.equal(getSpotlightFence(), fence);
+    assert.ok(String(rebuilt.initialPrompts?.[0].content).includes(fence));
+
+    const third = await sendOnDeviceChat({
+      chatId: first.chatId,
+      tools: buildToolDecls(HALLWAY_TOOLS),
+      toolResponses: [{ functionResponse: { name: '_0_openDoor3', response: { result: 'A magic garden.' } } }],
+    });
+    assert.equal(third.text, 'Behind the third door is a magic garden.');
+    assert.deepEqual(third.functionCalls, []);
+
+    // The next message stays on the new session, which has the whole turn.
+    const fourth = await sendOnDeviceChat({ chatId: first.chatId, message: 'Thanks!', tools: buildToolDecls(HALLWAY_TOOLS) });
+    assert.equal(fourth.text, 'You are welcome.');
+    assert.equal(stub.creates.length, 2);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('a turn whose calls leave the page without tools ends on the session it has', async () => {
+  const stub = installPromptApiStub([
+    [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
+    ['You are back in the hallway.'],
+    ['Hello.'],
+  ]);
+
+  try {
+    const first = await sendOnDeviceChat({ message: 'Go back to the hallway.', tools: buildToolDecls(OCEAN_TOOLS) });
+    // A session without tools cannot take the calls so far.
+    const second = await sendOnDeviceChat({
+      chatId: first.chatId,
+      tools: [],
+      toolResponses: [{ functionResponse: { name: '_0_returnToHallway', response: { result: 'ok' } } }],
+    });
+    assert.equal(second.text, 'You are back in the hallway.');
+    assert.equal(stub.creates.length, 1);
+
+    // The next message gets a session without tools, and the text so far.
+    await sendOnDeviceChat({ chatId: first.chatId, message: 'Hi', tools: [] });
+    assert.equal(stub.creates.length, 2);
+    const rebuilt = stub.creates[1] as { tools?: unknown; initialPrompts?: ReplayedPrompt[] };
+    assert.equal(rebuilt.tools, undefined);
+    assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
+      'user: Go back to the hallway.',
+      'assistant: You are back in the hallway.',
+    ]);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('a round the wrapper refused is carried over to the new session too', async () => {
+  const stub = installPromptApiStub([
+    [{ type: 'tool-call', value: { callID: '', name: '_0_swim', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
+    ['Back in the hallway.'],
+  ]);
+  const warn = console.warn;
+  console.warn = () => {};
+
+  try {
+    const first = await sendOnDeviceChat({ message: 'Swim, or go back.', tools: buildToolDecls(OCEAN_TOOLS) });
+    // The invented tool never reached the agent loop.
+    assert.deepEqual(first.functionCalls?.map((call) => call.name), ['_0_returnToHallway']);
+
+    await sendOnDeviceChat({
+      chatId: first.chatId,
+      tools: buildToolDecls(HALLWAY_TOOLS),
+      toolResponses: [{ functionResponse: { name: '_0_returnToHallway', response: { result: 'ok' } } }],
+    });
+    const rebuilt = stub.creates[1] as { initialPrompts?: ReplayedPrompt[] };
+    assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
+      'user: Swim, or go back.',
+      'assistant: tool-call:_0_swim',
+      'user: tool-response:_0_swim',
+      'assistant: tool-call:_0_returnToHallway',
+    ]);
+    const refusal = (rebuilt.initialPrompts?.[3].content as Array<{ value: Record<string, unknown> }>)[0].value;
+    assert.equal(refusal.kind, 'error');
+    assert.match(String(refusal.errorMessage), /no tool named _0_swim/);
   } finally {
     console.warn = warn;
     uninstallPromptApiStub();

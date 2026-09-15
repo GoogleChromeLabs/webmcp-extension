@@ -126,17 +126,34 @@ interface ToolCall {
   arguments: Record<string, unknown>;
 }
 
-/** A call the wrapper waits on in `execute()`, until the agent loop answers. */
-interface PendingCall {
+/**
+ * A message as sessions and their `history` hold it. The Prompt API typings do
+ * not know the tool content types yet.
+ */
+interface PromptMessage {
+  role: 'user' | 'assistant';
+  content: string | Array<{ type: string; value: unknown }>;
+}
+
+/** What became of a tool call: its result, or why it failed. */
+type CallOutcome = { result: unknown } | { errorMessage: string };
+
+/**
+ * One call of the round in progress, in the order the model made it. Calls the
+ * wrapper refuses never reach `execute()`, and are answered by the wrapper.
+ */
+interface RoundCall {
   call: ToolCall;
-  resolve: (result: unknown) => void;
-  reject: (errorMessage: string) => void;
+  /** Set once `execute()` has handed the call to the agent loop. */
+  resolve?: (result: unknown) => void;
+  reject?: (errorMessage: string) => void;
+  outcome?: CallOutcome;
 }
 
 /** What the agent loop is handed: a round of tool calls, or the answer. */
 interface TurnStep {
   text: string;
-  calls: PendingCall[];
+  calls: RoundCall[];
 }
 
 interface Deferred<T> {
@@ -167,14 +184,18 @@ interface Turn {
   controller: AbortController;
   /** Text streamed since the agent loop last heard from this turn. */
   text: string;
-  /** The round whose `execute()` calls are still coming in. */
-  round: PendingCall[];
+  /** The calls of the round in progress. */
+  round: RoundCall[];
   /** The calls handed to the agent loop, waiting for their responses. */
-  pendingCalls: PendingCall[];
-  /** The call the wrapper announced last, whose `execute()` follows. */
-  announced: ToolCall | null;
-  /** The IDs of the calls that reached `execute()`. */
-  executed: Set<string>;
+  handedOut: RoundCall[];
+  /** Whether any call of this turn has reached the agent loop. */
+  ranTools: boolean;
+  /**
+   * This turn so far: its input, then each answered round. The wrapper only
+   * writes a turn into `history` once it ends, so this is what a session made
+   * mid-turn needs on top of `history` to carry on.
+   */
+  transcript: PromptMessage[];
   /** Settles with the next round of calls, or with the answer. */
   next: Deferred<TurnStep>;
 }
@@ -186,7 +207,10 @@ interface OnDeviceSession {
   declarations: string;
   /** The turn in flight. Only a finished turn clears it. */
   turn: Turn | null;
-  /** Set when the page's tools changed while tool calls were in flight. */
+  /**
+   * Set when a turn went on after the page's tools changed, which it can only
+   * do on the session it has when the page is left without any tools.
+   */
   stale: boolean;
   /** Set when the context overflowed, so the conversation is compacted after the turn. */
   overflowed: boolean;
@@ -195,13 +219,20 @@ interface OnDeviceSession {
 
 let current: OnDeviceSession | null = null;
 
-/** Ends the on-device conversation, if there is one. */
-export function resetOnDeviceChat(): void {
+/** Stops the current session, keeping the conversation's spotlighting fence. */
+function retireSession(): void {
   current?.turn?.controller.abort();
   current?.session.destroy();
   current = null;
+}
+
+/** Ends the on-device conversation, if there is one. */
+export function resetOnDeviceChat(): void {
+  retireSession();
   fence = '';
 }
+
+type PromptApiTool = ReturnType<typeof toPromptApiTools>[number];
 
 /**
  * The tool declarations the agent loop already builds, in the shape the Prompt
@@ -217,26 +248,66 @@ function toPromptApiTools(tools: ToolDeclaration[] = []) {
 }
 
 /**
- * The text of a conversation, for replaying it into a new session. Tool calls
- * and their responses stay behind: they name tools the new session may not
- * have.
+ * A conversation's `history`, for replaying it into a new session, without the
+ * system prompt, which the new session gets fresh.
+ *
+ * Tool calls and their results are replayed as they are, so the model keeps
+ * what it learned from them, even when they name tools the new session does
+ * not declare: the Prompt API accepts that. A session without any tools cannot
+ * take tool content at all, so it only gets the text.
  */
-function toTextHistory(history: Array<{ role: string; content: unknown }>) {
-  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+function toReplayHistory(history: Array<{ role: string; content: unknown }>, withTools: boolean): PromptMessage[] {
+  const messages: PromptMessage[] = [];
   for (const { role, content } of history) {
     if (role !== 'user' && role !== 'assistant') continue;
+    if (withTools || typeof content === 'string') {
+      messages.push({ role, content } as PromptMessage);
+      continue;
+    }
     const text =
-      typeof content === 'string'
+      role === 'assistant' && Array.isArray(content)
         ? content
-        : role === 'assistant' && Array.isArray(content)
-          ? content
-              .filter((part) => part.type === 'text')
-              .map((part) => part.value)
-              .join('')
-          : '';
+            .filter((part) => part.type === 'text')
+            .map((part) => part.value)
+            .join('')
+        : '';
     if (text) messages.push({ role, content: text });
   }
   return messages;
+}
+
+/** Removes every `null` and `undefined`, which the Prompt API rejects in a result. */
+function stripNullish(value: unknown): unknown {
+  if (Array.isArray(value)) return value.filter((item) => item != null).map(stripNullish);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item != null)
+        .map(([key, item]) => [key, stripNullish(item)])
+    );
+  }
+  return value;
+}
+
+/**
+ * A tool response for the transcript, as the wrapper makes it for the session.
+ * Results reach the side panel through extension messaging, so they are JSON:
+ * text, or an object.
+ */
+function toToolResponsePart({ call, outcome }: RoundCall) {
+  const { callID, name } = call;
+  if (!outcome || 'errorMessage' in outcome) {
+    const errorMessage = outcome && 'errorMessage' in outcome ? outcome.errorMessage : 'This call was not answered.';
+    return { type: 'tool-response', value: new LanguageModelToolError({ callID, name, errorMessage }) };
+  }
+  const { result } = outcome;
+  const item =
+    typeof result === 'string'
+      ? { type: 'text' as const, value: result }
+      : result == null
+        ? { type: 'text' as const, value: '' }
+        : { type: 'object' as const, value: stripNullish(result) };
+  return { type: 'tool-response', value: new LanguageModelToolSuccess({ callID, name, result: [item] }) };
 }
 
 /**
@@ -247,31 +318,44 @@ function toTextHistory(history: Array<{ role: string; content: unknown }>) {
 function executeLater(state: OnDeviceSession, args: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const turn = state.turn;
-    const call = turn?.announced;
-    if (!turn || !call) {
+    const entry = turn?.round.at(-1);
+    if (!turn || !entry || entry.resolve) {
       reject('This call does not belong to a turn in progress.');
       return;
     }
-    turn.announced = null;
-    turn.executed.add(call.callID);
-    turn.round.push({ call: { ...call, arguments: args }, resolve, reject });
-    if (turn.round.length > 1) return;
+    Object.assign(entry, { call: { ...entry.call, arguments: args }, resolve, reject });
+    if (turn.round.filter((roundCall) => roundCall.resolve).length > 1) return;
 
     queueMicrotask(() => {
-      const calls = turn.round;
+      const calls = turn.round.filter((roundCall) => roundCall.resolve);
       const { text } = turn;
-      turn.round = [];
       turn.text = '';
-      turn.pendingCalls = calls;
+      turn.handedOut = calls;
+      turn.ranTools = true;
+      // What the model said before calling, which the transcript keeps with
+      // the calls.
+      turn.transcript.push({
+        role: 'assistant',
+        content: [
+          ...(text ? [{ type: 'text', value: text }] : []),
+          // Filled in with every call of the round once it is answered, the
+          // refused ones included.
+        ],
+      });
       turn.next.resolve({ text, calls });
     });
   });
 }
 
+/** Whether a round's call and a response report are about the same call. */
+function isSameCall(call: ToolCall, other: ToolCall): boolean {
+  return call.name === other.name && JSON.stringify(call.arguments ?? {}) === JSON.stringify(other.arguments ?? {});
+}
+
 async function createSession(
   state: OnDeviceSession,
-  tools: ReturnType<typeof toPromptApiTools>,
-  history: ReturnType<typeof toTextHistory>,
+  tools: PromptApiTool[],
+  history: PromptMessage[],
   signal?: AbortSignal
 ): Promise<EasyLanguageModel> {
   if (!isPromptApiSupported()) {
@@ -294,15 +378,27 @@ async function createSession(
     }),
     maxToolRounds: MAX_TOOL_ROUNDS,
     onToolCall(call: ToolCall) {
-      if (state.turn) state.turn.announced = call;
+      const turn = state.turn;
+      if (!turn) return;
+      // The first call of a new round, once the last one is answered.
+      if (turn.round.length > 0 && turn.round.every((roundCall) => roundCall.outcome)) {
+        // A round the wrapper refused in full never reached the agent loop,
+        // but the model saw it, so the transcript keeps it too.
+        if (!turn.round.some((roundCall) => roundCall.resolve)) recordRound(turn, turn.round);
+        turn.round = [];
+      }
+      turn.round.push({ call });
     },
-    onToolResponse({ callID, name, ok, errorMessage }: ToolCall & { ok: boolean; errorMessage?: string }) {
+    onToolResponse(response: ToolCall & { ok: boolean; errorMessage?: string }) {
       // The wrapper refuses an invented tool, a missing required argument, or
       // a repeated call without calling execute(), so the agent loop never
-      // sees those.
-      if (!ok && !state.turn?.executed.has(callID)) {
-        console.warn(`[WebMCP] The on-device model's call to ${name} was refused: ${errorMessage}`);
-      }
+      // sees those. Call IDs can be empty, so the call is found by what it asked.
+      const refused = state.turn?.round.find(
+        (roundCall) => !roundCall.resolve && !roundCall.outcome && isSameCall(roundCall.call, response)
+      );
+      if (response.ok || !refused) return;
+      refused.outcome = { errorMessage: response.errorMessage ?? 'The call was refused.' };
+      console.warn(`[WebMCP] The on-device model's call to ${response.name} was refused: ${response.errorMessage}`);
     },
     // The side panel renders responses as React text nodes, never as HTML, so
     // markup the model writes is already harmless. Sanitizing would only stop
@@ -336,14 +432,18 @@ async function createSession(
   return session;
 }
 
-/** Makes a session for `state`, carrying the conversation over as text. */
+/**
+ * Makes a session for the conversation, in place of the current one. The
+ * spotlighting fence stays: results replayed from the history are fenced with
+ * it, and the new system prompt has to name the same one.
+ */
 async function buildSession(
   id: string,
-  tools: ReturnType<typeof toPromptApiTools>,
-  history: ReturnType<typeof toTextHistory>,
+  tools: PromptApiTool[],
+  history: PromptMessage[],
   signal?: AbortSignal
 ): Promise<OnDeviceSession> {
-  resetOnDeviceChat();
+  retireSession();
   const state = {
     id,
     declarations: JSON.stringify(tools),
@@ -359,14 +459,11 @@ async function buildSession(
 
 /**
  * Tools can only be declared when a session is created, so a changed tool set
- * means a new session. The conversation carries over: its text turns are
- * replayed as initial prompts.
+ * means a new session. The conversation carries over through its history.
  *
- * Tools that appear while the model is still waiting on a tool call are the
- * exception. Rebuilding then would throw away the calls in flight, so the
- * session is only marked stale and is rebuilt on the next user message. So is
- * a session whose last turn never finished, since the model may still be
- * waiting on a call from it.
+ * So does a session whose last turn never finished, since the model may still
+ * be waiting on a call from it, and one a turn went on with after the page's
+ * tools changed.
  */
 async function getSession(request: ChatTurnRequest, signal?: AbortSignal): Promise<OnDeviceSession> {
   await current?.compacting;
@@ -381,8 +478,12 @@ async function getSession(request: ChatTurnRequest, signal?: AbortSignal): Promi
     !current.stale;
   if (current && reusable) return current;
 
-  const history = current && sameChat ? toTextHistory(current.session.history) : [];
-  return buildSession(request.chatId || crypto.randomUUID(), tools, history, signal);
+  if (!sameChat) {
+    resetOnDeviceChat();
+    return buildSession(request.chatId || crypto.randomUUID(), tools, [], signal);
+  }
+  const history = toReplayHistory(current!.session.history, tools.length > 0);
+  return buildSession(current!.id, tools, history, signal);
 }
 
 /**
@@ -425,10 +526,10 @@ function compactIfOverflowed(state: OnDeviceSession): void {
     });
 }
 
-/** Streams a user message in the background, reporting through `turn.next`. */
-async function runTurn(state: OnDeviceSession, turn: Turn, message: string, signal: AbortSignal) {
+/** Streams a turn's input in the background, reporting through `turn.next`. */
+async function runTurn(state: OnDeviceSession, turn: Turn, input: string | PromptMessage[], signal: AbortSignal) {
   try {
-    const reader = state.session.promptStreaming(message, { signal }).getReader();
+    const reader = state.session.promptStreaming(input as LanguageModelPrompt, { signal }).getReader();
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -458,49 +559,103 @@ async function nextStep(state: OnDeviceSession, turn: Turn): Promise<ChatTurnRes
   };
 }
 
-function startTurn(state: OnDeviceSession, message: string, signal?: AbortSignal): Promise<ChatTurnResponse> {
+/**
+ * Starts a turn with `input`: a user message, or the tool responses a turn
+ * begun on another session continues with.
+ */
+function startTurn(
+  state: OnDeviceSession,
+  input: string | PromptMessage[],
+  signal?: AbortSignal
+): Promise<ChatTurnResponse> {
   const controller = new AbortController();
   const turn: Turn = {
     controller,
     text: '',
     round: [],
-    pendingCalls: [],
-    announced: null,
-    executed: new Set(),
+    handedOut: [],
+    ranTools: false,
+    transcript: typeof input === 'string' ? [{ role: 'user', content: input }] : [...input],
     next: createDeferred(),
   };
   state.turn = turn;
   const turnSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
-  void runTurn(state, turn, message, turnSignal);
+  void runTurn(state, turn, input, turnSignal);
   return nextStep(state, turn);
 }
 
 /**
- * Answers the calls the agent loop was handed. Responses are matched to calls
- * by name, in the order the model made them. The wrapper turns a result into a
- * tool success and sniffs its type from the value, and turns a rejection into
- * a tool error.
+ * Records the agent loop's responses to the calls it was handed, completing
+ * the round in the transcript. Responses are matched to calls by name, in the
+ * order the model made them. A call the loop never answered, because the turn
+ * was stopped, is answered with an error, so the model is not left waiting.
  */
-function answerCalls(turn: Turn, toolResponses: NonNullable<ChatTurnRequest['toolResponses']>): void {
-  const pending = turn.pendingCalls;
-  turn.pendingCalls = [];
-
+function recordResponses(turn: Turn, toolResponses: NonNullable<ChatTurnRequest['toolResponses']>): void {
+  const unanswered = [...turn.handedOut];
   for (const { functionResponse } of toolResponses) {
-    const index = pending.findIndex(({ call }) => call.name === functionResponse.name);
+    const index = unanswered.findIndex(({ call }) => call.name === functionResponse.name);
     if (index === -1) continue;
-    const [{ resolve, reject }] = pending.splice(index, 1);
+    const [roundCall] = unanswered.splice(index, 1);
     const { error, result } = functionResponse.response as { error?: string; result?: unknown };
-    // A string rather than an Error: the model is handed String(rejection),
-    // which would otherwise start with "Error: ".
-    if (error !== undefined) reject(String(error));
-    else resolve(result);
+    roundCall.outcome = error !== undefined ? { errorMessage: String(error) } : { result };
+  }
+  for (const roundCall of unanswered) {
+    roundCall.outcome = { errorMessage: 'No response was produced for this call.' };
   }
 
-  // A call the loop never answered, because the turn was stopped, would leave
-  // the model waiting forever, so it is answered here instead.
-  for (const { reject } of pending) {
-    reject('No response was produced for this call.');
+  recordRound(turn, turn.round);
+}
+
+/**
+ * Adds a round to the transcript: the calls, joined to what the model said
+ * before them if the round was handed out, and then their responses.
+ */
+function recordRound(turn: Turn, round: RoundCall[]): void {
+  const calls = round.map(({ call }) => ({ type: 'tool-call', value: new LanguageModelToolCall(call) }));
+  const last = turn.transcript.at(-1);
+  if (last?.role === 'assistant' && Array.isArray(last.content)) last.content.push(...calls);
+  else turn.transcript.push({ role: 'assistant', content: calls });
+  turn.transcript.push({ role: 'user', content: round.map(toToolResponsePart) });
+}
+
+/**
+ * Hands the recorded responses to the wrapper, which is waiting on them in
+ * `execute()`. It turns a result into a tool success and a rejection into a
+ * tool error.
+ */
+function settleCalls(turn: Turn): void {
+  for (const { resolve, reject, outcome } of turn.handedOut) {
+    if (!outcome || 'errorMessage' in outcome) {
+      // A string rather than an Error: the model is handed String(rejection),
+      // which would otherwise start with "Error: ".
+      reject?.(outcome && 'errorMessage' in outcome ? outcome.errorMessage : 'No response was produced for this call.');
+    } else {
+      resolve?.(outcome.result);
+    }
   }
+  turn.handedOut = [];
+}
+
+/**
+ * Goes on with a turn whose tool calls left the page with different tools, as
+ * when a tool navigated to another page. A session only has the tools it was
+ * created with, so the turn moves to a new one: its history is the old
+ * session's, plus this turn up to the calls just answered, and it starts from
+ * their responses, so the model picks up where it was, with the new tools.
+ */
+async function continueWithNewTools(
+  state: OnDeviceSession,
+  turn: Turn,
+  tools: PromptApiTool[],
+  signal?: AbortSignal
+): Promise<ChatTurnResponse> {
+  // Stops the old session's tool loop, which never writes this turn into its
+  // history, so the turn is only carried over here.
+  turn.controller.abort();
+  const responses = turn.transcript.slice(-1);
+  const history = [...toReplayHistory(state.session.history, true), ...turn.transcript.slice(0, -1)];
+  const rebuilt = await buildSession(state.id, tools, history, signal);
+  return startTurn(rebuilt, responses, signal);
 }
 
 /**
@@ -533,14 +688,20 @@ export async function sendOnDeviceChat(
   if (request.toolResponses) {
     const state = current;
     const turn = state?.turn;
-    if (!state || !turn || turn.pendingCalls.length === 0) {
+    if (!state || !turn || turn.handedOut.length === 0) {
       throw new Error('The on-device model is not waiting for tool responses.');
     }
-    if (state.declarations !== JSON.stringify(toPromptApiTools(request.tools))) {
+    recordResponses(turn, request.toolResponses);
+
+    const tools = toPromptApiTools(request.tools);
+    if (state.declarations !== JSON.stringify(tools)) {
+      if (tools.length > 0) return continueWithNewTools(state, turn, tools, signal);
+      // A session without tools cannot take the tool calls so far, so the turn
+      // ends on this one, and the next message moves on.
       state.stale = true;
     }
     turn.next = createDeferred();
-    answerCalls(turn, request.toolResponses);
+    settleCalls(turn);
     return nextStep(state, turn);
   }
 
@@ -551,13 +712,14 @@ export async function sendOnDeviceChat(
   } catch (error) {
     // Only a turn that has not handed out a tool call yet can be replayed.
     // Tools that ran would run again.
-    const handedOut = (state.turn?.executed.size ?? 0) > 0;
-    if (signal?.aborted || handedOut || !isWorthRetrying(error)) throw error;
+    const ranTools = state.turn?.ranTools ?? false;
+    if (signal?.aborted || ranTools || !isWorthRetrying(error)) throw error;
 
     // The failed turn never made it into the history, so what is replayed is
     // the conversation up to it.
-    const history = toTextHistory(state.session.history);
-    const rebuilt = await buildSession(state.id, toPromptApiTools(request.tools), history, signal);
+    const tools = toPromptApiTools(request.tools);
+    const history = toReplayHistory(state.session.history, tools.length > 0);
+    const rebuilt = await buildSession(state.id, tools, history, signal);
     return startTurn(rebuilt, message, signal);
   }
 }
