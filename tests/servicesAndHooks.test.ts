@@ -104,16 +104,18 @@ test('extensionBridge - executeTabTool dispatches message to tab with appropriat
       return { success: true, count: 42 };
     };
 
-    // 1. Execute tool in main frame
+    // 1. Execute tool in main frame with string inputArgs
     const resMain = await executeTabTool('search_hotels', '{"query":"hotel"}', 0);
     assert.deepEqual(resMain, { success: true, count: 42 });
     assert.equal(sentMessages[0].tabId, 1);
     assert.deepEqual(sentMessages[0].options, { frameId: 0 });
+    assert.deepEqual((sentMessages[0].message as any).inputArgs, '{"query":"hotel"}');
 
-    // 2. Execute tool in cross-origin iframe
-    const resIframe = await executeTabTool('submit_booking', '{"id":123}', 1);
+    // 2. Execute tool in cross-origin iframe with object inputArgs
+    const resIframe = await executeTabTool('submit_booking', { id: 123 }, 1);
     assert.deepEqual(resIframe, { success: true, count: 42 });
     assert.deepEqual(sentMessages[1].options, { frameId: 1 });
+    assert.deepEqual((sentMessages[1].message as any).inputArgs, { id: 123 });
   } finally {
     mockChrome.tabs.sendMessage = origSendMessage;
   }
@@ -156,6 +158,83 @@ test('extensionBridge - executeTabTool throws error when chrome.tabs is unavaila
     );
   } finally {
     globalThis.chrome.tabs = origTabs;
+  }
+});
+
+test('content script - EXECUTE_TOOL tries object inputArgs first and falls back to JSON string on parse error', async () => {
+  setupTestChrome();
+  const origWindow = globalThis.window;
+  const origDocument = globalThis.document;
+
+  let messageListener: ((message: any, sender: any, reply: (res: any) => void) => void) | null = null;
+  globalThis.chrome.runtime.onMessage.addListener = (cb: any) => {
+    messageListener = cb;
+  };
+  globalThis.chrome.runtime.sendMessage = async () => {};
+
+  const mockWindow: any = {
+    location: { href: 'https://example.com' },
+    addEventListener: () => {},
+  };
+  mockWindow.top = mockWindow;
+  globalThis.window = mockWindow;
+
+  const executedArgs: unknown[] = [];
+  let mode: 'object' | 'string-fallback' | 'error' = 'object';
+
+  const mockTool = { name: 'book_room', window: mockWindow };
+  globalThis.document = {
+    querySelector: () => null,
+    modelContext: {
+      getTools: async () => [mockTool],
+      executeTool: async (_tool: unknown, args: unknown) => {
+        executedArgs.push(args);
+        if (mode === 'error') {
+          throw new Error('Unexpected execution error');
+        }
+        if (mode === 'string-fallback' && typeof args !== 'string') {
+          throw new Error('Failed to parse input: expected JSON string');
+        }
+        return { booked: true, receivedArgs: args };
+      },
+    },
+  } as unknown as Document;
+
+  try {
+    const fs = await import('node:fs');
+    const contentScript = fs.readFileSync(new URL('../../extension/content.js', import.meta.url), 'utf-8');
+    new Function(contentScript)();
+    assert.ok(messageListener, 'Content script should register an onMessage listener');
+
+    // 1. Object-first path succeeds directly without fallback
+    mode = 'object';
+    executedArgs.length = 0;
+    const res1 = await new Promise((resolve) => {
+      messageListener!({ action: 'EXECUTE_TOOL', name: 'book_room', inputArgs: { id: 42 } }, {}, resolve);
+    });
+    assert.deepEqual(res1, { booked: true, receivedArgs: { id: 42 } });
+    assert.deepEqual(executedArgs, [{ id: 42 }]);
+
+    // 2. Fallback path: object throws 'Failed to parse input...', catches and retries with JSON string
+    mode = 'string-fallback';
+    executedArgs.length = 0;
+    const res2 = await new Promise((resolve) => {
+      messageListener!({ action: 'EXECUTE_TOOL', name: 'book_room', inputArgs: { id: 42 } }, {}, resolve);
+    });
+    assert.deepEqual(res2, { booked: true, receivedArgs: '{"id":42}' });
+    assert.deepEqual(executedArgs, [{ id: 42 }, '{"id":42}']);
+
+    // 3. Rethrow path: other errors are not retried and reply with stringified message
+    mode = 'error';
+    executedArgs.length = 0;
+    const res3 = await new Promise((resolve) => {
+      messageListener!({ action: 'EXECUTE_TOOL', name: 'book_room', inputArgs: { id: 42 } }, {}, resolve);
+    });
+    assert.equal(res3, JSON.stringify('Unexpected execution error'));
+    assert.deepEqual(executedArgs, [{ id: 42 }]);
+  } finally {
+    globalThis.window = origWindow;
+    globalThis.document = origDocument;
   }
 });
 
