@@ -1,0 +1,65 @@
+# Copyright 2026 Google LLC
+# SPDX-License-Identifier: Apache-2.0
+
+name: Bug report
+description: Something in the extension or the companion server does not work.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not paste the contents of your `.env` file, your Gemini API
+        key, or your WebMCP auth token into this issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Number them, and say which page you were on if that matters.
+    validations:
+      required: true
+
+  - type: input
+    id: chrome-version
+    attributes:
+      label: Chrome version
+      description: From chrome://version
+      placeholder: "150.0.7861.0"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Output of `node --version`. Only needed for server or build problems.
+      placeholder: "v20.11.0"
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen
+      options:
+        - Side panel
+        - Content script / tool discovery
+        - Companion server
+        - Log dashboard
+        - Build
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output
+      description: Anything from the side panel console, the extension service worker, or the server terminal.
+      render: shell
