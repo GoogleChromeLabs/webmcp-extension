@@ -355,6 +355,37 @@ function isSameCall(call: ToolCall, other: ToolCall): boolean {
   return call.name === other.name && JSON.stringify(call.arguments ?? {}) === JSON.stringify(other.arguments ?? {});
 }
 
+/** The languages sessions are made for, worked out once per set of preferences. */
+let languageChoice: { preferences: string; languages: Promise<string[]> } | null = null;
+
+/**
+ * The languages to make sessions for: the first of the user's preferred
+ * languages the model supports, and English, which pages and tool results are
+ * often written in, as input and output alike. Declaring them lets the browser
+ * check the model handles them. Without a supported preference, English.
+ */
+function getModelLanguages(): Promise<string[]> {
+  const preferred = navigator.languages?.length ? navigator.languages : [navigator.language || 'en'];
+  const preferences = preferred.join(',');
+  if (languageChoice?.preferences !== preferences) {
+    languageChoice = { preferences, languages: pickModelLanguages(preferred) };
+  }
+  return languageChoice.languages;
+}
+
+async function pickModelLanguages(preferred: readonly string[]): Promise<string[]> {
+  // The model is asked about languages, not regions: "de", not "de-AT".
+  for (const language of new Set(preferred.map((tag) => tag.split('-')[0].toLowerCase()))) {
+    if (language === 'en') return ['en'];
+    const expected = [{ type: 'text' as const, languages: [language, 'en'] }];
+    try {
+      const availability = await LanguageModel.availability({ expectedInputs: expected, expectedOutputs: expected });
+      if (availability !== 'unavailable') return [language, 'en'];
+    } catch {}
+  }
+  return ['en'];
+}
+
 async function createSession(
   state: OnDeviceSession,
   tools: PromptApiTool[],
@@ -372,7 +403,11 @@ async function createSession(
     );
   }
 
+  const expected = [{ type: 'text', languages: await getModelLanguages() }];
   const options = {
+    // The wrapper adds the tool content types to these when there are tools.
+    expectedInputs: expected,
+    expectedOutputs: expected,
     ...(tools.length > 0 && {
       tools: tools.map((tool) => ({
         ...tool,

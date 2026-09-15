@@ -44,6 +44,8 @@ interface Stub {
   usagePerTurn: number;
   /** The prompt, counted from 1, during which the context overflows. */
   overflowOnTurn: number;
+  /** Languages the model reports as unavailable. */
+  unsupportedLanguages: string[];
 }
 
 /**
@@ -52,7 +54,7 @@ interface Stub {
  * it is aborted.
  */
 function installPromptApiStub(script: Array<StubTurn | null>): Stub {
-  const stub: Stub = { creates: [], inputs: [], sessions: [], destroyed: 0, availability: 'available', usagePerTurn: 0, overflowOnTurn: 0 };
+  const stub: Stub = { creates: [], inputs: [], sessions: [], destroyed: 0, availability: 'available', usagePerTurn: 0, overflowOnTurn: 0, unsupportedLanguages: [] };
   let turn = 0;
 
   const globals = globalThis as unknown as Record<string, unknown>;
@@ -72,7 +74,10 @@ function installPromptApiStub(script: Array<StubTurn | null>): Stub {
     }
   };
   globals.LanguageModel = {
-    availability: async () => stub.availability,
+    availability: async (options?: { expectedInputs?: Array<{ languages?: string[] }> }) => {
+      const languages = options?.expectedInputs?.flatMap((expected) => expected.languages ?? []) ?? [];
+      return languages.some((language) => stub.unsupportedLanguages.includes(language)) ? 'unavailable' : stub.availability;
+    },
     create: async (options: Record<string, unknown>) => {
       // A snapshot: the wrapper goes on to keep its history in the same array.
       const initialPrompts = options.initialPrompts as unknown[] | undefined;
@@ -505,6 +510,58 @@ test('a turn stopped while a tool call is in flight leaves no dangling call behi
     assert.deepEqual(
       rebuilt.initialPrompts?.slice(1).map((prompt) => prompt.content),
       ['Book a table', 'Booked.']
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+/** Pretends the browser prefers `languages`, for the duration of `run`. */
+async function withPreferredLanguages(languages: string[], run: () => Promise<void>) {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis.navigator, 'languages');
+  Object.defineProperty(globalThis.navigator, 'languages', { value: languages, configurable: true });
+  try {
+    await run();
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis.navigator, 'languages', descriptor);
+    else delete (globalThis.navigator as unknown as Record<string, unknown>).languages;
+  }
+}
+
+test('sessions are made for the first preferred language the model supports, and English', async () => {
+  const stub = installPromptApiStub([['Hallo.'], ['Hello.'], ['Bonjour.']]);
+  stub.unsupportedLanguages = ['it'];
+  const languagesOf = (index: number) => {
+    const created = stub.creates[index] as { expectedInputs?: Array<{ type: string; languages?: string[] }>; expectedOutputs?: Array<{ type: string; languages?: string[] }> };
+    return [created.expectedInputs?.[0].languages, created.expectedOutputs?.[0].languages];
+  };
+
+  try {
+    // Italian is skipped, and regions do not matter.
+    await withPreferredLanguages(['it-IT', 'de-AT', 'en'], async () => {
+      await sendOnDeviceChat({ message: 'Hallo', tools: [] });
+    });
+    assert.deepEqual(languagesOf(0), [['de', 'en'], ['de', 'en']]);
+
+    resetOnDeviceChat();
+    await withPreferredLanguages(['en-US', 'fr'], async () => {
+      await sendOnDeviceChat({ message: 'Hello', tools: [] });
+    });
+    assert.deepEqual(languagesOf(1), [['en'], ['en']]);
+
+    // With tools, the wrapper adds their content types to the same languages.
+    resetOnDeviceChat();
+    await withPreferredLanguages(['fr-CA'], async () => {
+      await sendOnDeviceChat({ message: 'Bonjour', tools: buildToolDecls([BOOK_TOOL]) });
+    });
+    const created = stub.creates[2] as { expectedInputs?: Array<{ type: string; languages?: string[] }> };
+    assert.deepEqual(
+      created.expectedInputs?.map(({ type, languages }) => [type, languages]),
+      [
+        ['text', ['fr', 'en']],
+        ['tool-response', undefined],
+        ['tool-call', undefined],
+      ]
     );
   } finally {
     uninstallPromptApiStub();
