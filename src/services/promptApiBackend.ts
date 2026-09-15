@@ -504,13 +504,18 @@ function answerCalls(turn: Turn, toolResponses: NonNullable<ChatTurnRequest['too
 }
 
 /**
- * The model execution service crashes now and then, and every session made
- * before it comes back fails the same way, so a crash takes the conversation
- * with it unless the turn is tried once more on a fresh session.
+ * Whether a failed turn is worth trying once more on a fresh session, which is
+ * the only thing that gets past a session the model has given up on. Chrome
+ * reports a model process that went away as an `InvalidStateError` (the session
+ * "has been destroyed"), and failures it did not expect as an `UnknownError`,
+ * whether the model fails once or keeps failing. Only the error name is
+ * checked, not any text, so a message that merely mentions an error cannot
+ * match. The one failure Chrome itself calls not retryable is left alone.
  */
-function isServiceCrash(error: unknown): boolean {
-  const message = (error as Error)?.message ?? String(error);
-  return /crash|kErrorUnknown|UnknownError/i.test(message);
+function isWorthRetrying(error: unknown): boolean {
+  if (!(error instanceof DOMException)) return false;
+  if (error.message.includes('kErrorNonRetryableError')) return false;
+  return error.name === 'UnknownError' || error.name === 'InvalidStateError';
 }
 
 /**
@@ -547,7 +552,7 @@ export async function sendOnDeviceChat(
     // Only a turn that has not handed out a tool call yet can be replayed.
     // Tools that ran would run again.
     const handedOut = (state.turn?.executed.size ?? 0) > 0;
-    if (signal?.aborted || handedOut || !isServiceCrash(error)) throw error;
+    if (signal?.aborted || handedOut || !isWorthRetrying(error)) throw error;
 
     // The failed turn never made it into the history, so what is replayed is
     // the conversation up to it.

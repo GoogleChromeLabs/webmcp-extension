@@ -599,8 +599,11 @@ test('on-device tool results are fenced rather than base64 encoded', async () =>
   }
 });
 
-/** Makes the next promptStreaming() calls of every session throw a crash. */
-function crashTurns(shouldCrash: (turn: number) => boolean) {
+/** What Chrome rejects a prompt with when the model fails unexpectedly. */
+const unknownError = () => new DOMException('An unknown error occurred: kErrorUnknown', 'UnknownError');
+
+/** Makes the chosen promptStreaming() calls of every session throw `error()`. */
+function failTurns(shouldFail: (turn: number) => boolean, error: () => unknown = unknownError) {
   const globals = globalThis as unknown as Record<string, unknown>;
   const model = globals.LanguageModel as { create: (o: unknown) => Promise<unknown> };
   const create = model.create.bind(model);
@@ -609,44 +612,75 @@ function crashTurns(shouldCrash: (turn: number) => boolean) {
     const session = (await create(options)) as StubSession;
     const promptStreaming = session.promptStreaming.bind(session);
     session.promptStreaming = (input, streamOptions) => {
-      if (shouldCrash(++turns)) throw new Error('UnknownError: An unknown error occurred: kErrorUnknown');
+      if (shouldFail(++turns)) throw error();
       return promptStreaming(input, streamOptions);
     };
     return session;
   };
 }
 
-test('a crashed model service is retried once on a fresh session', async () => {
-  // The failing turn throws before it reaches the stub, so it consumes no turn.
-  const stub = installPromptApiStub([['Booked.'], ['Recovered.']]);
-  crashTurns((turn) => turn === 2);
+for (const [failure, error] of [
+  ['an unexpected model failure', unknownError],
+  ['a model process that went away', () => new DOMException('The model execution session has been destroyed.', 'InvalidStateError')],
+] as const) {
+  test(`${failure} is retried once on a fresh session`, async () => {
+    // The failing turn throws before it reaches the stub, so it consumes no turn.
+    const stub = installPromptApiStub([['Booked.'], ['Recovered.']]);
+    failTurns((turn) => turn === 2, error);
 
-  try {
-    const tools = buildToolDecls([BOOK_TOOL]);
-    const first = await sendOnDeviceChat({ message: 'Book a table', tools });
-    const second = await sendOnDeviceChat({ chatId: first.chatId, message: 'And again', tools });
+    try {
+      const tools = buildToolDecls([BOOK_TOOL]);
+      const first = await sendOnDeviceChat({ message: 'Book a table', tools });
+      const second = await sendOnDeviceChat({ chatId: first.chatId, message: 'And again', tools });
 
-    assert.equal(second.text, 'Recovered.');
-    // The conversation is replayed into the session that replaces the crashed
-    // one, and the turn keeps its chat id.
-    assert.equal(second.chatId, first.chatId);
-    const rebuilt = stub.creates.at(-1) as { initialPrompts?: Array<{ role: string; content: string }> };
-    assert.deepEqual(
-      rebuilt.initialPrompts?.map((prompt) => prompt.role),
-      ['system', 'user', 'assistant']
-    );
-    assert.equal(rebuilt.initialPrompts?.[1].content, 'Book a table');
-    assert.equal(rebuilt.initialPrompts?.[2].content, 'Booked.');
-  } finally {
-    uninstallPromptApiStub();
+      assert.equal(second.text, 'Recovered.');
+      // The conversation is replayed into the session that replaces the failed
+      // one, and the turn keeps its chat id.
+      assert.equal(second.chatId, first.chatId);
+      const rebuilt = stub.creates.at(-1) as { initialPrompts?: Array<{ role: string; content: string }> };
+      assert.deepEqual(
+        rebuilt.initialPrompts?.map((prompt) => prompt.role),
+        ['system', 'user', 'assistant']
+      );
+      assert.equal(rebuilt.initialPrompts?.[1].content, 'Book a table');
+      assert.equal(rebuilt.initialPrompts?.[2].content, 'Booked.');
+    } finally {
+      uninstallPromptApiStub();
+    }
+  });
+}
+
+test('a failure a fresh session cannot fix is reported without retrying', async () => {
+  const failures: Array<() => unknown> = [
+    // Only the error name counts, not text that happens to mention one.
+    () => new Error('UnknownError: the page crashed'),
+    () => new DOMException('The request is invalid - the input or options could not be processed.', 'NotSupportedError'),
+    // Chrome says this one is not worth retrying.
+    () => new DOMException('An unknown error occurred: kErrorNonRetryableError', 'UnknownError'),
+  ];
+
+  for (const error of failures) {
+    const stub = installPromptApiStub([['never streamed']]);
+    failTurns(() => true, error);
+    try {
+      const expected = error() as Error;
+      await assert.rejects(
+        () => sendOnDeviceChat({ message: 'Hello', tools: [] }),
+        (thrown: Error) => thrown.name === expected.name && thrown.message === expected.message
+      );
+      // No second session was made for a retry.
+      assert.equal(stub.creates.length, 1, expected.message);
+    } finally {
+      uninstallPromptApiStub();
+    }
   }
 });
 
-test('a crash while answering tool calls is reported rather than replayed', async () => {
+test('a failure while answering tool calls is reported rather than replayed', async () => {
   installPromptApiStub([
     [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
   ]);
-  crashTurns((turn) => turn > 1);
+  failTurns((turn) => turn > 1);
 
   try {
     const tools = buildToolDecls([BOOK_TOOL]);
