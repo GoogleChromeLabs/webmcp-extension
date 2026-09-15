@@ -65,15 +65,21 @@ test('backendBridge - callBackend correctly makes fetch requests and handles bac
       const urlStr = String(url);
       if (urlStr.endsWith('/api/model')) {
         return {
+          ok: true,
+          status: 200,
           json: async () => ({ success: true, model: 'gemini-3.6-flash' }),
         } as Response;
       }
       if (urlStr.endsWith('/api/error')) {
         return {
+          ok: false,
+          status: 500,
           json: async () => ({ error: 'Backend server error' }),
         } as Response;
       }
       return {
+        ok: true,
+        status: 200,
         json: async () => ({ success: true }),
       } as Response;
     };
@@ -181,10 +187,25 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
   globalThis.window = mockWindow;
 
   const executedArgs: unknown[] = [];
+  // Every form target the content script resolves from a tool name.
+  const resolvedTargets: string[] = [];
   let mode: 'object' | 'string-fallback' | 'error' = 'object';
+
+  // A page with two tool-bound forms, so a tool name that tries to match more
+  // than its own form has something to wrongly match.
+  const makeForm = (toolname: string, target: string) => ({
+    getAttribute: (attr: string) => (attr === 'toolname' ? toolname : null),
+    target,
+  });
+  const forms = [makeForm('book_room', 'book_frame'), makeForm('cancel_room', 'cancel_frame')];
 
   const mockTool = { name: 'book_room', window: mockWindow };
   globalThis.document = {
+    forms,
+    getElementsByName: (name: string) => {
+      resolvedTargets.push(name);
+      return [];
+    },
     querySelector: () => null,
     modelContext: {
       getTools: async () => [mockTool],
@@ -233,6 +254,30 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
     });
     assert.equal(res3, JSON.stringify('Unexpected execution error'));
     assert.deepEqual(executedArgs, [{ id: 42 }]);
+
+    // 4. Tool names come from the page. A name crafted to look like selector
+    // syntax must simply not match, rather than matching another tool's form.
+    mode = 'object';
+    resolvedTargets.length = 0;
+    await new Promise((resolve) => {
+      messageListener!(
+        { action: 'EXECUTE_TOOL', name: 'a"], form[toolname="cancel_room', inputArgs: {} },
+        {},
+        resolve
+      );
+    });
+    assert.deepEqual(
+      resolvedTargets,
+      [],
+      `hostile tool name matched a form: ${JSON.stringify(resolvedTargets)}`
+    );
+
+    // ...while the honest name still resolves its own form.
+    resolvedTargets.length = 0;
+    await new Promise((resolve) => {
+      messageListener!({ action: 'EXECUTE_TOOL', name: 'book_room', inputArgs: {} }, {}, resolve);
+    });
+    assert.deepEqual(resolvedTargets, ['book_frame']);
   } finally {
     globalThis.window = origWindow;
     globalThis.document = origDocument;

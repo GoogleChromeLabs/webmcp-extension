@@ -20,12 +20,16 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
         `[WebMCP] Execute tool "${name}" with ${JSON.stringify(inputArgs)} in ${window.location.href}`,
       );
       let targetFrame, loadPromise;
-      // Check if this tool is associated with a form target
-      const formTarget = document.querySelector(`form[toolname="${name}"]`)?.target;
+      // Check if this tool is associated with a form target.
+      // The tool name comes from the page, so it is compared as a value rather
+      // than interpolated into a selector; there is then nothing to escape.
+      const formTarget = [...document.forms].find(
+        (form) => form.getAttribute('toolname') === name,
+      )?.target;
       if (formTarget) {
         // May be null, e.g. for target="_blank"; the result then lives in a
         // new tab and the sidebar retrieves it from there.
-        targetFrame = document.querySelector(`[name=${formTarget}]`);
+        targetFrame = document.getElementsByName(formTarget)[0];
       }
       if (targetFrame) {
         loadPromise = new Promise((resolve) => {
@@ -62,17 +66,27 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
           }
           reply(result);
         })
-        .catch(({ message }) => reply(JSON.stringify(message)));
+        // Not `({ message })`: a rejection can be a string, null, or a
+        // DOMException from touching a cross-origin contentWindow, and
+        // destructuring those throws again inside the handler.
+        .catch((error) => reply(JSON.stringify(toMessage(error))));
       return true;
     }
     if (action == 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT') {
       console.debug(`[WebMCP] Get cross document script tool result in ${window.location.href}`);
       reply(document.querySelector('script[type="application/ld+json"]')?.textContent);
     }
-  } catch ({ message }) {
-    chrome.runtime.sendMessage({ message });
+  } catch (error) {
+    chrome.runtime.sendMessage({ message: toMessage(error) });
   }
 });
+
+/** Turns anything that can be thrown into a string safe to send over the wire. */
+function toMessage(error) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return String(error?.message ?? error);
+}
 
 let timeout;
 function debouncedListTools(fromOrigins) {
@@ -102,7 +116,9 @@ async function getFrameId(targetWindow) {
   const promise = new Promise((resolve) => {
     let timeoutId;
     const listener = ({ source, data }) => {
-      if (source == targetWindow && data.action === 'GET_FRAME_ID_RESPONSE') {
+      // `data` is attacker-controlled: any frame can post anything, including
+      // null or a bare string, so never dereference it unguarded.
+      if (source == targetWindow && data?.action === 'GET_FRAME_ID_RESPONSE') {
         window.removeEventListener('message', listener);
         clearTimeout(timeoutId);
         resolve(data.frameId);

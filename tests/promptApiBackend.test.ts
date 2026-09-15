@@ -19,6 +19,12 @@ import { getSpotlighting, resetChatSession, sendChatTurn } from '../src/services
 import { applySpotlighting } from '../src/hooks/useAgentSession.js';
 import { buildToolDecls } from '../src/services/toolEncoder.js';
 
+Object.defineProperty(globalThis, 'navigator', {
+  value: { language: 'en-US', languages: ['en-US'], userActivation: { isActive: true } },
+  configurable: true,
+  writable: true,
+});
+
 interface StubCall {
   callID: string;
   name: string;
@@ -714,6 +720,8 @@ test('chatBridge routes a turn to the on-device model, and to the server otherwi
   globalThis.fetch = (async (url: string) => {
     calls.push(String(url));
     return {
+      ok: true,
+      status: 200,
       json: async () => ({ chatId: 'server-chat', text: 'from the server', functionCalls: [] }),
     };
   }) as unknown as typeof fetch;

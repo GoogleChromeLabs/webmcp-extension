@@ -6,7 +6,6 @@
   "minimum_chrome_version": "150.0.7861.0",
   "permissions": ["sidePanel", "scripting", "webNavigation"],
   "host_permissions": ["<all_urls>"],
-  "update_url": "https://clients2.google.com/service/update2/crx",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -34,7 +33,7 @@
       "matches": ["<all_urls>"],
       "all_frames": true,
       "match_about_blank": true,
-      "runAt": "document_start",
+      "run_at": "document_start",
       "js": ["content.js"]
     }
   ]
