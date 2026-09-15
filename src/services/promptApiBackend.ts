@@ -111,6 +111,15 @@ export interface OnDeviceModelUi {
   downloadProgress?: HTMLProgressElement;
   onDownloadProgress?: (progress: DownloadProgress) => void;
   onCompacting?: (status: string | null) => void;
+  /** How much of the context the conversation takes up, or `null` without one. */
+  onContextUsage?: (usage: ContextUsage | null) => void;
+}
+
+export interface ContextUsage {
+  /** Tokens the conversation takes up. */
+  used: number;
+  /** Tokens the session can hold. */
+  window: number;
 }
 
 let ui: OnDeviceModelUi = {};
@@ -232,6 +241,13 @@ function retireSession(): void {
 export function resetOnDeviceChat(): void {
   retireSession();
   fence = '';
+  reportContextUsage();
+}
+
+/** Tells the side panel how much of the context the conversation takes up now. */
+function reportContextUsage(): void {
+  const session = current?.session;
+  ui.onContextUsage?.(session ? { used: session.contextUsage, window: session.contextWindow } : null);
 }
 
 type PromptApiTool = ReturnType<typeof toPromptApiTools>[number];
@@ -519,6 +535,7 @@ async function buildSession(
   } as unknown as OnDeviceSession;
   state.session = await createSession(state, tools, history, signal);
   current = state;
+  reportContextUsage();
   return state;
 }
 
@@ -586,6 +603,7 @@ function compactIfOverflowed(state: OnDeviceSession): void {
     .finally(() => {
       state.compacting = null;
       ui.onCompacting?.(null);
+      if (current === state) reportContextUsage();
       // Reset while compacting: the session compact() made is nobody's.
       if (current !== state) session.destroy();
     });
@@ -612,6 +630,7 @@ async function runTurn(state: OnDeviceSession, turn: Turn, input: string | Promp
 /** Waits for the next step of the turn, and puts it in the agent loop's shape. */
 async function nextStep(state: OnDeviceSession, turn: Turn): Promise<ChatTurnResponse> {
   const { text, calls } = await turn.next.promise;
+  reportContextUsage();
   return {
     chatId: state.id,
     text,

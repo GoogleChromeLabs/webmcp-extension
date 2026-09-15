@@ -12,11 +12,12 @@ import SettingsScreen from './screens/SettingsScreen.js';
 import MarkdownText from './components/MarkdownText.js';
 import ActionLog from './components/ActionLog.js';
 import OnDeviceModelStatus from './components/OnDeviceModelStatus.js';
+import ContextMeter from './components/ContextMeter.js';
 import { EditSquareIcon } from './components/Icons.js';
 
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
-import { isPromptApiSupported, prepareOnDeviceModel } from './services/promptApiBackend.js';
+import { ContextUsage, isPromptApiSupported, prepareOnDeviceModel } from './services/promptApiBackend.js';
 
 export function App() {
   // Navigation & View State
@@ -36,6 +37,8 @@ export function App() {
     if (!isPromptApiSupported()) return false;
     return localStorage.getItem('onDeviceModel') === 'true';
   });
+
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
 
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
@@ -126,7 +129,7 @@ export function App() {
       {statusMsg && <div id="status">{statusMsg}</div>}
 
       {/* On-device model status, outside <main> so settings cannot unmount it mid-download */}
-      {onDeviceModelSupported && <OnDeviceModelStatus />}
+      {onDeviceModelSupported && <OnDeviceModelStatus onContextUsage={setContextUsage} />}
 
       <main>
         {showConsent ? (
@@ -177,6 +180,7 @@ export function App() {
               {messages.length > 0 && (
                 <div className="chat-card">
                   <div className="chat-card__header">
+                    {onDeviceModel && contextUsage && <ContextMeter {...contextUsage} />}
                     <button
                       type="button"
                       className="chat-card__new-chat-btn"

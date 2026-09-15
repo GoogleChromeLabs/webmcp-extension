@@ -24,6 +24,7 @@ import { Switch } from '../src/components/Switch.js';
 import { SettingsScreen } from '../src/screens/SettingsScreen.js';
 import { AllowToolPermissionCard } from '../src/components/AllowToolPermissionCard.js';
 import { OnDeviceModelStatus, getCompactingFraction } from '../src/components/OnDeviceModelStatus.js';
+import { ContextMeter } from '../src/components/ContextMeter.js';
 
 test('ButtonUI renders Play Arrow and Square Stop buttons with distinct accessible labels and icons', () => {
   const playHtml = renderToString(
@@ -381,4 +382,16 @@ test('the compacting progress bar fills from the status, and is indeterminate wi
   assert.equal(getCompactingFraction('Compacting message 12 of 12…'), 1);
   assert.equal(getCompactingFraction('Compacting the conversation…'), null);
   assert.equal(getCompactingFraction('Compacting message 1 of 0…'), null);
+});
+
+test('ContextMeter shows the share of the context in use, with the token counts for assistive technology', () => {
+  const html = renderToString(React.createElement(ContextMeter, { used: 2107, window: 9216 }));
+  assert.match(html, /<meter class="context-meter__bar" min="0" max="9216" value="2107"/);
+  assert.match(html, /aria-valuetext="23%, 2,107 of 9,216 tokens"/);
+  assert.match(html, />23%<\/span>/);
+
+  // Past the window, it stays at full.
+  assert.match(renderToString(React.createElement(ContextMeter, { used: 9500, window: 9216 })), />100%<\/span>/);
+  // Without a window to measure against, nothing.
+  assert.equal(renderToString(React.createElement(ContextMeter, { used: 0, window: 0 })), '');
 });

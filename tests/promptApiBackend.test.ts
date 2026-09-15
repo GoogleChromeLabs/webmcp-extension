@@ -650,6 +650,32 @@ function installSummarizerStub(summarize: (text: string) => Promise<string>, { d
   };
 }
 
+test('the side panel hears how much of the context the conversation takes up', async () => {
+  const stub = installPromptApiStub([['Hello.'], ['Hello again.']]);
+  stub.usagePerTurn = 300;
+  const reported: Array<{ used: number; window: number } | null> = [];
+  setOnDeviceModelUi({ onContextUsage: (usage) => reported.push(usage) });
+
+  try {
+    const first = await sendOnDeviceChat({ message: 'Hi', tools: [] });
+    await sendOnDeviceChat({ chatId: first.chatId, message: 'Hi again', tools: [] });
+    // Nothing while a new conversation starts, then once its session exists,
+    // and after every step.
+    assert.deepEqual(reported, [
+      null,
+      { used: 0, window: 1000 },
+      { used: 300, window: 1000 },
+      { used: 600, window: 1000 },
+    ]);
+
+    // A new chat has no conversation to measure.
+    resetOnDeviceChat();
+    assert.equal(reported.at(-1), null);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
 test('turning the on-device model on starts a download it still needs, and nothing else', async () => {
   const stub = installPromptApiStub([]);
   const reported: DownloadProgress[] = [];
