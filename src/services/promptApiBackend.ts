@@ -198,6 +198,8 @@ interface Turn {
   transcript: PromptMessage[];
   /** Settles with the next round of calls, or with the answer. */
   next: Deferred<TurnStep>;
+  /** Called with the text so far of the step the agent loop is waiting on. */
+  onText?: (text: string) => void;
 }
 
 interface OnDeviceSession {
@@ -535,6 +537,7 @@ async function runTurn(state: OnDeviceSession, turn: Turn, input: string | Promp
       const { value, done } = await reader.read();
       if (done) break;
       turn.text += value;
+      turn.onText?.(turn.text);
     }
     if (state.turn === turn) state.turn = null;
     turn.next.resolve({ text: turn.text, calls: [] });
@@ -567,7 +570,8 @@ async function nextStep(state: OnDeviceSession, turn: Turn): Promise<ChatTurnRes
 function startTurn(
   state: OnDeviceSession,
   input: string | PromptMessage[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onText?: (text: string) => void
 ): Promise<ChatTurnResponse> {
   const controller = new AbortController();
   const turn: Turn = {
@@ -578,6 +582,7 @@ function startTurn(
     ranTools: false,
     transcript: typeof input === 'string' ? [{ role: 'user', content: input }] : [...input],
     next: createDeferred(),
+    onText,
   };
   state.turn = turn;
   const turnSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -665,7 +670,7 @@ async function continueTurn(
   const [responses] = turn.transcript.slice(-1);
   const rebuilt = await buildSession(state.id, tools, [...history, ...turn.transcript.slice(0, -1)], signal);
   const content = [...(Array.isArray(responses.content) ? responses.content : []), ...(note ? [note] : [])];
-  return startTurn(rebuilt, [{ role: 'user', content }], signal);
+  return startTurn(rebuilt, [{ role: 'user', content }], signal, turn.onText);
 }
 
 /**
@@ -720,9 +725,9 @@ function isWorthRetrying(error: unknown): boolean {
  */
 export async function sendOnDeviceChat(
   request: ChatTurnRequest,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; onText?: (text: string) => void } = {}
 ): Promise<ChatTurnResponse> {
-  const { signal } = options;
+  const { signal, onText } = options;
   signal?.throwIfAborted();
 
   if (request.toolResponses) {
@@ -732,6 +737,7 @@ export async function sendOnDeviceChat(
       throw new Error('The on-device model is not waiting for tool responses.');
     }
     recordResponses(turn, request.toolResponses);
+    turn.onText = onText;
 
     const tools = toPromptApiTools(request.tools);
     try {
@@ -759,7 +765,7 @@ export async function sendOnDeviceChat(
   const message = request.message ?? '';
   const state = await getSession(request, signal);
   try {
-    return await startTurn(state, message, signal);
+    return await startTurn(state, message, signal, onText);
   } catch (error) {
     // Only a turn that has not handed out a tool call yet can be replayed.
     // Tools that ran would run again.
@@ -773,6 +779,6 @@ export async function sendOnDeviceChat(
     const tools = toPromptApiTools(request.tools);
     const history = toReplayHistory(state.session.history, tools.length > 0 && !contextFull);
     const rebuilt = await buildSession(state.id, tools, history, signal);
-    return startTurn(rebuilt, message, signal);
+    return startTurn(rebuilt, message, signal, onText);
   }
 }

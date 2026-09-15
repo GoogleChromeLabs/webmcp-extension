@@ -248,6 +248,34 @@ test('tool responses are answered as tool successes and errors on the same call'
   }
 });
 
+test('the text of every step is reported as it is streamed', async () => {
+  installPromptApiStub([
+    ['Let me ', 'book. ', { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    ['Booked ', 'your table.'],
+  ]);
+
+  try {
+    const tools = buildToolDecls([BOOK_TOOL]);
+    const seen: string[] = [];
+    const first = await sendOnDeviceChat({ message: 'Book a table', tools }, { onText: (text) => seen.push(text) });
+    assert.deepEqual(seen, ['Let me ', 'Let me book. ']);
+
+    seen.length = 0;
+    await sendOnDeviceChat(
+      {
+        chatId: first.chatId,
+        tools,
+        toolResponses: [{ functionResponse: { name: '_0_book_table', response: { result: 'ok' } } }],
+      },
+      { onText: (text) => seen.push(text) }
+    );
+    // Each step starts from its own text.
+    assert.deepEqual(seen, ['Booked ', 'Booked your table.']);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
 test('a call the wrapper refuses never reaches the agent loop', async () => {
   const stub = installPromptApiStub([
     [{ type: 'tool-call', value: { callID: 'c1', name: '_0_invented_tool', arguments: {} } }],

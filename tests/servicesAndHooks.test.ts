@@ -297,3 +297,59 @@ test('waitForToolsToSettle gives up when no tools are reported, and stops when a
   elapsed = performance.now() - start;
   assert.ok(elapsed < 300, `stopped after ${elapsed}ms`);
 });
+
+/** A fetch response streaming `lines` of newline-delimited JSON, split mid-line. */
+function ndjsonResponse(lines: unknown[]): Response {
+  const body = lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      for (let i = 0; i < body.length; i += 7) controller.enqueue(encoder.encode(body.slice(i, i + 7)));
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson' } });
+}
+
+test('backendBridge - streamBackend reports text as it arrives and resolves with the final payload', async () => {
+  const { streamBackend } = await import('../src/services/backendBridge.js');
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; body: unknown }> = [];
+  try {
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      requests.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return ndjsonResponse([
+        { text: 'Hello, ' },
+        { text: 'wörld.' },
+        { done: true, chatId: 'c1', text: 'Hello, wörld.', functionCalls: [] },
+      ]);
+    }) as typeof fetch;
+
+    const seen: string[] = [];
+    const result = await streamBackend<{ chatId: string; text: string }>(
+      '/api/chat',
+      { message: 'Hi', stream: true },
+      { onText: (text) => seen.push(text) }
+    );
+    assert.deepEqual(seen, ['Hello, ', 'Hello, wörld.']);
+    assert.deepEqual(result, { chatId: 'c1', text: 'Hello, wörld.', functionCalls: [] });
+    assert.deepEqual(requests[0].body, { message: 'Hi', stream: true });
+
+    // An error written mid-stream rejects.
+    globalThis.fetch = (async () => ndjsonResponse([{ text: 'Hel' }, { error: 'Quota exceeded' }])) as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), { message: 'Quota exceeded' });
+
+    // So does a stream that ends without its final line.
+    globalThis.fetch = (async () => ndjsonResponse([{ text: 'Hel' }])) as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /ended the response early/);
+
+    // A refusal before streaming comes as plain JSON.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), { message: 'Unauthorized' });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

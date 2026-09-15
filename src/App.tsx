@@ -54,6 +54,7 @@ export function App() {
     userPrompt,
     setUserPrompt,
     messages,
+    streamingText,
     busy,
     activityLog,
     pendingPermission,
@@ -81,7 +82,7 @@ export function App() {
       chatStreamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 50);
     return () => clearTimeout(timer);
-  }, [messages, busy]);
+  }, [messages, busy, streamingText]);
 
   // Derive dynamic welcome subtitle topic based on active domain
   const domainTopic = domain && domain !== 'New Tab' ? domain : 'your tasks';
@@ -227,9 +228,18 @@ export function App() {
                           ? 'initiation'
                           : 'running'
                       }
-                      statusText={pendingPermission ? 'Waiting for permission' : undefined}
+                      statusText={
+                        pendingPermission ? 'Waiting for permission' : streamingText ? 'Writing...' : undefined
+                      }
                       activityLogs={activityLog}
                     />
+                  )}
+
+                  {/* The reply as it is written. Not a live region: announcing every chunk would be noise, and the finished message is what gets read. */}
+                  {busy && streamingText && (
+                    <div className="ai-response">
+                      <MarkdownText content={streamingText} />
+                    </div>
                   )}
 
                   <div ref={chatStreamEndRef} />
