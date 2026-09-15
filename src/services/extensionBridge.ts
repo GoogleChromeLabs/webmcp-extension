@@ -68,7 +68,7 @@ export async function requestTabTools(): Promise<void> {
 /**
  * Executes a tool on the target Chrome tab/iframe.
  */
-export async function executeTabTool(name: string, inputArgs: string, frameId?: number): Promise<unknown> {
+export async function executeTabTool(name: string, inputArgs: Record<string, unknown> | string, frameId?: number): Promise<unknown> {
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) throw new Error('No active tab available for tool execution.');
 

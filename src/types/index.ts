@@ -86,7 +86,7 @@ export interface ExtensionListToolsMessage {
 export interface ExtensionExecuteToolMessage {
   action: 'EXECUTE_TOOL';
   name: string;
-  inputArgs?: string;
+  inputArgs?: Record<string, unknown> | string;
   frameId?: number;
 }
 
