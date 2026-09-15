@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useId } from 'react';
 import { ContextUsage } from '../services/promptApiBackend.js';
 
 /**
@@ -13,13 +13,19 @@ import { ContextUsage } from '../services/promptApiBackend.js';
  * overflows the conversation is compacted, which the next message waits for.
  */
 export function ContextMeter({ used, window }: ContextUsage) {
+  const id = useId();
   if (!(window > 0)) return null;
   const percent = Math.min(100, Math.round((used / window) * 100));
   const tokens = `${used.toLocaleString()} of ${window.toLocaleString()} tokens`;
 
   return (
-    <div className="context-meter" title={`Context: ${tokens}`}>
+    <div className="context-meter" title={`Context window: ${tokens}`}>
+      {/* The visible label names the meter, so it needs no aria-label. */}
+      <label htmlFor={id} className="context-meter__name">
+        Context window
+      </label>
       <meter
+        id={id}
         className="context-meter__bar"
         min={0}
         max={window}
@@ -27,7 +33,6 @@ export function ContextMeter({ used, window }: ContextUsage) {
         low={Math.round(window * 0.6)}
         high={Math.round(window * 0.85)}
         optimum={0}
-        aria-label="Context used by the conversation"
         aria-valuetext={`${percent}%, ${tokens}`}
       />
       <span className="context-meter__label" aria-hidden="true">

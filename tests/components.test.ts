@@ -386,7 +386,11 @@ test('the compacting progress bar fills from the status, and is indeterminate wi
 
 test('ContextMeter shows the share of the context in use, with the token counts for assistive technology', () => {
   const html = renderToString(React.createElement(ContextMeter, { used: 2107, window: 9216 }));
-  assert.match(html, /<meter class="context-meter__bar" min="0" max="9216" value="2107"/);
+  // Named by its visible label.
+  const id = /<label for="([^"]+)" class="context-meter__name">Context window<\/label>/.exec(html)?.[1];
+  assert.ok(id, html);
+  assert.ok(html.includes(`<meter id="${id}" class="context-meter__bar" min="0" max="9216" value="2107"`), html);
+  assert.ok(!html.includes('aria-label'));
   assert.match(html, /aria-valuetext="23%, 2,107 of 9,216 tokens"/);
   assert.match(html, />23%<\/span>/);
 

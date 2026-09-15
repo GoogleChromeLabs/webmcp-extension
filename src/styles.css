@@ -452,6 +452,10 @@ main {
   color: var(--color-on-surface-variant);
 }
 
+.context-meter__name {
+  cursor: inherit;
+}
+
 .context-meter__bar {
   width: 64px;
   height: 6px;
