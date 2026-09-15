@@ -799,6 +799,78 @@ for (const [failure, error] of [
   });
 }
 
+/** What Chrome rejects a prompt with when no room is left for the answer. */
+const contextFull = () =>
+  new DOMException('The response size exceeded the remaining available context.', 'QuotaExceededError');
+
+/** Two turns that each read a large tool result, which the context holds on to. */
+const REPORT_TURNS: Array<StubTurn | null> = [
+  [{ type: 'tool-call', value: { callID: '', name: '_0_book_table', arguments: { partySize: 2 } } }],
+  ['Q1 sold 1111 units.'],
+];
+
+test('a message that no longer fits is retried without the earlier tool results', async () => {
+  const stub = installPromptApiStub([...REPORT_TURNS, ['Q2 sold 2222 units.']]);
+  failTurns((turn) => turn === 3, contextFull);
+
+  try {
+    const tools = buildToolDecls([BOOK_TOOL]);
+    const first = await sendOnDeviceChat({ message: 'Read the Q1 report.', tools });
+    await sendOnDeviceChat({
+      chatId: first.chatId,
+      tools,
+      toolResponses: [{ functionResponse: { name: '_0_book_table', response: { result: 'A very long report.' } } }],
+    });
+
+    const retried = await sendOnDeviceChat({ chatId: first.chatId, message: 'And Q2?', tools });
+    assert.equal(retried.text, 'Q2 sold 2222 units.');
+    const rebuilt = stub.creates.at(-1) as { tools?: Array<{ name: string }>; initialPrompts?: ReplayedPrompt[] };
+    // The tools stay, but the earlier turn comes over as its text only.
+    assert.deepEqual(rebuilt.tools?.map((tool) => tool.name), ['_0_book_table']);
+    assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
+      'user: Read the Q1 report.',
+      'assistant: Q1 sold 1111 units.',
+    ]);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('a turn whose tool results no longer fit goes on without the earlier ones', async () => {
+  const stub = installPromptApiStub([
+    ...REPORT_TURNS,
+    [{ type: 'tool-call', value: { callID: '', name: '_0_book_table', arguments: { partySize: 4 } } }],
+    ['Q2 sold 2222 units.'],
+  ]);
+  // The answer to the second report is what does not fit.
+  failTurns((turn) => turn === 4, contextFull);
+
+  try {
+    const tools = buildToolDecls([BOOK_TOOL]);
+    const first = await sendOnDeviceChat({ message: 'Read the Q1 report.', tools });
+    const answer = { name: '_0_book_table', response: { result: 'A very long report.' } };
+    await sendOnDeviceChat({ chatId: first.chatId, tools, toolResponses: [{ functionResponse: answer }] });
+    await sendOnDeviceChat({ chatId: first.chatId, message: 'Now read Q2.', tools });
+
+    const second = await sendOnDeviceChat({ chatId: first.chatId, tools, toolResponses: [{ functionResponse: answer }] });
+    assert.equal(second.text, 'Q2 sold 2222 units.');
+
+    const rebuilt = stub.creates.at(-1) as { initialPrompts?: ReplayedPrompt[] };
+    // The earlier turn as text, this one as it is, up to the call...
+    assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
+      'user: Read the Q1 report.',
+      'assistant: Q1 sold 1111 units.',
+      'user: Now read Q2.',
+      'assistant: tool-call:_0_book_table',
+    ]);
+    // ...and the new session starts from its result, without a note: the
+    // tools did not change.
+    assert.equal(describePrompt((stub.inputs.at(-1) as ReplayedPrompt[])[0]), 'user: tool-response:_0_book_table');
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
 test('a failure a fresh session cannot fix is reported without retrying', async () => {
   const failures: Array<() => unknown> = [
     // Only the error name counts, not text that happens to mention one.

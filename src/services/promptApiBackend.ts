@@ -254,7 +254,8 @@ function toPromptApiTools(tools: ToolDeclaration[] = []) {
  * Tool calls and their results are replayed as they are, so the model keeps
  * what it learned from them, even when they name tools the new session does
  * not declare: the Prompt API accepts that. A session without any tools cannot
- * take tool content at all, so it only gets the text.
+ * take tool content at all, and one made because the context was full has no
+ * room for it, so those only get the text.
  */
 function toReplayHistory(history: Array<{ role: string; content: unknown }>, withTools: boolean): PromptMessage[] {
   const messages: PromptMessage[] = [];
@@ -637,32 +638,64 @@ function settleCalls(turn: Turn): void {
 }
 
 /**
- * Goes on with a turn whose tool calls left the page with different tools, as
- * when a tool navigated to another page. A session only has the tools it was
- * created with, so the turn moves to a new one: its history is the old
- * session's, plus this turn up to the calls just answered, and it starts from
- * their responses, so the model picks up where it was, with the new tools.
+ * The model cannot tell its tools changed, and tends to stop at a call that
+ * only navigated. The note names no tools: their names come from the page.
  */
-async function continueWithNewTools(
+const TOOLS_CHANGED_NOTE = {
+  type: 'text',
+  value: 'The page has changed and now offers different tools. Use them to fulfill the request in full.',
+};
+
+/**
+ * Moves a turn that is waiting on the model's answer to its tool responses to
+ * a new session with `tools`. The new session gets `history` for the turns
+ * before this one, then this turn up to the calls just answered, and starts
+ * from their responses, so the model picks up where it was.
+ */
+async function continueTurn(
   state: OnDeviceSession,
   turn: Turn,
   tools: PromptApiTool[],
+  { history, note }: { history: PromptMessage[]; note?: { type: string; value: string } },
   signal?: AbortSignal
 ): Promise<ChatTurnResponse> {
   // Stops the old session's tool loop, which never writes this turn into its
   // history, so the turn is only carried over here.
   turn.controller.abort();
   const [responses] = turn.transcript.slice(-1);
-  const history = [...toReplayHistory(state.session.history, true), ...turn.transcript.slice(0, -1)];
-  const rebuilt = await buildSession(state.id, tools, history, signal);
-  // The model cannot tell its tools changed, and tends to stop at a call that
-  // only navigated. The note names no tools: their names come from the page.
-  const note = {
-    type: 'text',
-    value: 'The page has changed and now offers different tools. Use them to fulfill the request in full.',
-  };
-  const content = Array.isArray(responses.content) ? [...responses.content, note] : [note];
+  const rebuilt = await buildSession(state.id, tools, [...history, ...turn.transcript.slice(0, -1)], signal);
+  const content = [...(Array.isArray(responses.content) ? responses.content : []), ...(note ? [note] : [])];
   return startTurn(rebuilt, [{ role: 'user', content }], signal);
+}
+
+/**
+ * Goes on with a turn whose tool calls left the page with different tools, as
+ * when a tool navigated to another page. A session only has the tools it was
+ * created with, so the turn moves to a new one, with the whole conversation.
+ */
+function continueWithNewTools(
+  state: OnDeviceSession,
+  turn: Turn,
+  tools: PromptApiTool[],
+  signal?: AbortSignal
+): Promise<ChatTurnResponse> {
+  return continueTurn(
+    state,
+    turn,
+    tools,
+    { history: toReplayHistory(state.session.history, true), note: TOOLS_CHANGED_NOTE },
+    signal
+  );
+}
+
+/**
+ * Whether the conversation no longer fits the model's context: the input was
+ * too large, or no room was left for the answer. The model's context is small,
+ * and tool results are carried over as they are, so a few large ones fill it,
+ * and compacting cannot shrink them.
+ */
+function isContextFull(error: unknown): boolean {
+  return (error as Error)?.name === 'QuotaExceededError';
 }
 
 /**
@@ -701,15 +734,26 @@ export async function sendOnDeviceChat(
     recordResponses(turn, request.toolResponses);
 
     const tools = toPromptApiTools(request.tools);
-    if (state.declarations !== JSON.stringify(tools)) {
-      if (tools.length > 0) return continueWithNewTools(state, turn, tools, signal);
-      // A session without tools cannot take the tool calls so far, so the turn
-      // ends on this one, and the next message moves on.
-      state.stale = true;
+    try {
+      if (state.declarations !== JSON.stringify(tools)) {
+        if (tools.length > 0) return await continueWithNewTools(state, turn, tools, signal);
+        // A session without tools cannot take the tool calls so far, so the
+        // turn ends on this one, and the next message moves on.
+        state.stale = true;
+      }
+      turn.next = createDeferred();
+      settleCalls(turn);
+      return await nextStep(state, turn);
+    } catch (error) {
+      const failed = current;
+      if (signal?.aborted || !isContextFull(error) || !failed?.turn) throw error;
+      // Once more on a session with room: the turns before this one come over
+      // as their text, without the tool results that filled the context, and
+      // this turn as it is. The tools stay, since the turn holds tool calls.
+      const sessionTools = tools.length > 0 ? tools : (JSON.parse(failed.declarations) as PromptApiTool[]);
+      const history = toReplayHistory(failed.session.history, false);
+      return continueTurn(failed, failed.turn, sessionTools, { history }, signal);
     }
-    turn.next = createDeferred();
-    settleCalls(turn);
-    return nextStep(state, turn);
   }
 
   const message = request.message ?? '';
@@ -720,12 +764,14 @@ export async function sendOnDeviceChat(
     // Only a turn that has not handed out a tool call yet can be replayed.
     // Tools that ran would run again.
     const ranTools = state.turn?.ranTools ?? false;
-    if (signal?.aborted || ranTools || !isWorthRetrying(error)) throw error;
+    const contextFull = isContextFull(error);
+    if (signal?.aborted || ranTools || !(contextFull || isWorthRetrying(error))) throw error;
 
     // The failed turn never made it into the history, so what is replayed is
-    // the conversation up to it.
+    // the conversation up to it. When it did not fit, that is without the tool
+    // results that filled the context.
     const tools = toPromptApiTools(request.tools);
-    const history = toReplayHistory(state.session.history, tools.length > 0);
+    const history = toReplayHistory(state.session.history, tools.length > 0 && !contextFull);
     const rebuilt = await buildSession(state.id, tools, history, signal);
     return startTurn(rebuilt, message, signal);
   }
