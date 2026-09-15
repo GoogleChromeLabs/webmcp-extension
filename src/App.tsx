@@ -11,6 +11,7 @@ import ConsentScreen from './screens/ConsentScreen.js';
 import SettingsScreen from './screens/SettingsScreen.js';
 import MarkdownText from './components/MarkdownText.js';
 import ActionLog from './components/ActionLog.js';
+import OnDeviceModelStatus from './components/OnDeviceModelStatus.js';
 import { EditSquareIcon } from './components/Icons.js';
 
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
@@ -114,6 +115,9 @@ export function App() {
     <div className="agent-screen-shell">
       {/* Error / Status Notice */}
       {statusMsg && <div id="status">{statusMsg}</div>}
+
+      {/* On-device model status, outside <main> so settings cannot unmount it mid-download */}
+      {onDeviceModelSupported && <OnDeviceModelStatus />}
 
       <main>
         {showConsent ? (

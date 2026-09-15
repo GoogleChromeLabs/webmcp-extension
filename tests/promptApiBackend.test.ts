@@ -7,11 +7,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  DownloadProgress,
   getSpotlightFence,
   isPromptApiSupported,
   isToolUseSupported,
   resetOnDeviceChat,
   sendOnDeviceChat,
+  setOnDeviceModelUi,
 } from '../src/services/promptApiBackend.js';
 import { getSpotlighting, resetChatSession, sendChatTurn } from '../src/services/chatBridge.js';
 import { applySpotlighting } from '../src/hooks/useAgentSession.js';
@@ -25,18 +27,32 @@ interface StubCall {
 
 type StubTurn = Array<string | { type: 'tool-call'; value: StubCall }>;
 
+interface StubSession extends EventTarget {
+  contextUsage: number;
+  contextWindow: number;
+  promptStreaming: (input: unknown, options?: { signal?: AbortSignal }) => ReadableStream<unknown>;
+  destroy: () => void;
+}
+
 interface Stub {
   creates: Array<Record<string, unknown>>;
   inputs: unknown[];
+  sessions: StubSession[];
   destroyed: number;
+  availability: string;
+  /** How many tokens of context each prompt takes up. */
+  usagePerTurn: number;
+  /** The prompt, counted from 1, during which the context overflows. */
+  overflowOnTurn: number;
 }
 
 /**
  * Stands in for the browser's Prompt API: every turn of `script` is what one
- * promptStreaming() call streams back.
+ * promptStreaming() call streams back. A turn that is `null` never ends, until
+ * it is aborted.
  */
-function installPromptApiStub(script: StubTurn[]): Stub {
-  const stub: Stub = { creates: [], inputs: [], destroyed: 0 };
+function installPromptApiStub(script: Array<StubTurn | null>): Stub {
+  const stub: Stub = { creates: [], inputs: [], sessions: [], destroyed: 0, availability: 'available', usagePerTurn: 0, overflowOnTurn: 0 };
   let turn = 0;
 
   const globals = globalThis as unknown as Record<string, unknown>;
@@ -52,22 +68,47 @@ function installPromptApiStub(script: StubTurn[]): Stub {
     }
   };
   globals.LanguageModel = {
-    availability: async () => 'available',
+    availability: async () => stub.availability,
     create: async (options: Record<string, unknown>) => {
-      stub.creates.push(options);
-      return {
+      // A snapshot: the wrapper goes on to keep its history in the same array.
+      const initialPrompts = options.initialPrompts as unknown[] | undefined;
+      stub.creates.push({ ...options, ...(initialPrompts && { initialPrompts: [...initialPrompts] }) });
+      const monitor = new EventTarget();
+      (options.monitor as ((m: EventTarget) => void) | undefined)?.(monitor);
+      if (stub.availability !== 'available') {
+        for (const loaded of [0, 0.5, 1]) {
+          monitor.dispatchEvent(Object.assign(new Event('downloadprogress'), { loaded, total: 1 }));
+        }
+      }
+
+      const session = Object.assign(new EventTarget(), {
+        contextUsage: 0,
+        contextWindow: 1000,
         destroy() {
           stub.destroyed++;
         },
-        prompt: async () => '',
-        promptStreaming(input: unknown) {
+        promptStreaming(input: unknown, { signal }: { signal?: AbortSignal } = {}) {
           stub.inputs.push(input);
-          const chunks = script[turn++] ?? [''];
-          return (async function* () {
-            for (const chunk of chunks) yield chunk;
-          })();
+          session.contextUsage += stub.usagePerTurn;
+          if (++turn === stub.overflowOnTurn) session.dispatchEvent(new Event('contextoverflow'));
+          const chunks = script[turn - 1];
+          if (chunks === null) {
+            return new ReadableStream({
+              start(controller) {
+                signal?.addEventListener('abort', () => controller.error(signal.reason));
+              },
+            });
+          }
+          return new ReadableStream({
+            start(controller) {
+              for (const chunk of chunks ?? ['']) controller.enqueue(chunk);
+              controller.close();
+            },
+          });
         },
-      };
+      });
+      stub.sessions.push(session);
+      return session;
     },
   };
 
@@ -76,11 +117,13 @@ function installPromptApiStub(script: StubTurn[]): Stub {
 
 function uninstallPromptApiStub() {
   resetOnDeviceChat();
+  setOnDeviceModelUi();
   const globals = globalThis as unknown as Record<string, unknown>;
   delete globals.LanguageModel;
   delete globals.LanguageModelToolCall;
   delete globals.LanguageModelToolSuccess;
   delete globals.LanguageModelToolError;
+  delete globals.Summarizer;
 }
 
 const BOOK_TOOL = {
@@ -92,6 +135,11 @@ const BOOK_TOOL = {
   }),
   frameId: 0,
 };
+
+type ResponseTurn = Array<{
+  role: string;
+  content: Array<{ type: string; value: Record<string, unknown> }>;
+}>;
 
 test('feature detection reports what the browser exposes', () => {
   assert.equal(isPromptApiSupported(), false);
@@ -119,8 +167,12 @@ test('sendOnDeviceChat declares the page tools and surfaces tool calls', async (
 
     // The declarations reach the model with the frame-encoded names, so the
     // agent loop can decode the frame from a call the same way as with the
-    // server backend.
-    const created = stub.creates[0] as { tools?: Array<Record<string, unknown>> };
+    // server backend. Tool use needs the tool content types, which the wrapper
+    // adds.
+    const created = stub.creates[0] as {
+      tools?: Array<Record<string, unknown>>;
+      expectedOutputs?: Array<{ type: string }>;
+    };
     assert.deepEqual(
       created.tools?.map((tool) => tool.name),
       ['_0_book_table']
@@ -129,6 +181,9 @@ test('sendOnDeviceChat declares the page tools and surfaces tool calls', async (
       type: 'object',
       properties: { partySize: { type: 'number' } },
     });
+    // The model is shown declarations only: execute() stays on this side.
+    assert.equal(created.tools?.[0].execute, undefined);
+    assert.ok(created.expectedOutputs?.some((expected) => expected.type === 'tool-call'));
 
     assert.equal(result.text, '');
     assert.deepEqual(result.functionCalls, [
@@ -143,8 +198,9 @@ test('sendOnDeviceChat declares the page tools and surfaces tool calls', async (
 test('tool responses are answered as tool successes and errors on the same call', async () => {
   const stub = installPromptApiStub([
     [
-      { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } },
-      { type: 'tool-call', value: { callID: 'c2', name: '_0_book_table', arguments: {} } },
+      'Booking. ',
+      { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: { partySize: 2 } } },
+      { type: 'tool-call', value: { callID: 'c2', name: '_0_book_table', arguments: { partySize: 4 } } },
     ],
     ['Booked ', 'your table.'],
   ]);
@@ -152,20 +208,19 @@ test('tool responses are answered as tool successes and errors on the same call'
   try {
     const tools = buildToolDecls([BOOK_TOOL]);
     const first = await sendOnDeviceChat({ message: 'Book two tables', tools });
+    assert.equal(first.text, 'Booking. ');
+    assert.equal(first.functionCalls?.length, 2);
 
     const second = await sendOnDeviceChat({
       chatId: first.chatId,
       tools,
       toolResponses: [
-        { functionResponse: { name: '_0_book_table', response: { result: 'YmFzZTY0' } } },
+        { functionResponse: { name: '_0_book_table', response: { result: { total: 22, note: null } } } },
         { functionResponse: { name: '_0_book_table', response: { error: 'User denied permission' } } },
       ],
     });
 
-    const [, responseTurn] = stub.inputs as Array<
-      Array<{ role: string; content: Array<{ type: string; value: Record<string, unknown> }> }>
-    >;
-    const [message] = responseTurn;
+    const [message] = stub.inputs[1] as ResponseTurn;
     assert.equal(message.role, 'user');
     assert.deepEqual(
       message.content.map((part) => [part.type, part.value.callID, part.value.kind]),
@@ -174,7 +229,9 @@ test('tool responses are answered as tool successes and errors on the same call'
         ['tool-response', 'c2', 'error'],
       ]
     );
-    assert.deepEqual(message.content[0].value.result, [{ type: 'text', value: 'YmFzZTY0' }]);
+    // The wrapper picks the result type from the value, and strips the nulls
+    // the Prompt API rejects.
+    assert.deepEqual(message.content[0].value.result, [{ type: 'object', value: { total: 22 } }]);
     assert.equal(message.content[1].value.errorMessage, 'User denied permission');
 
     // Streamed text is joined, and the turn ends without further calls.
@@ -187,58 +244,23 @@ test('tool responses are answered as tool successes and errors on the same call'
   }
 });
 
-test('the type of a tool result is sniffed from its value', async () => {
-  const wav = new TextEncoder().encode('RIFF\0\0\0\0WAVEfmt ');
-  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  const mp3 = new Uint8Array([0xff, 0xfb, 0x90, 0x44]);
-  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
-  const blob = new Blob(['<svg/>'], { type: 'image/svg+xml' });
-  const cases: Array<[unknown, string]> = [
-    ['plain text', 'text'],
-    [undefined, 'text'],
-    [{ total: 22 }, 'object'],
-    [[1, 2], 'object'],
-    [42, 'object'],
-    [false, 'object'],
-    [null, 'object'],
-    [blob, 'image'],
-    [png, 'image'],
-    [jpeg.buffer, 'image'],
-    [wav, 'audio'],
-    [new DataView(mp3.buffer), 'audio'],
-  ];
-
+test('a call the wrapper refuses never reaches the agent loop', async () => {
   const stub = installPromptApiStub([
-    cases.map((_, i) => ({
-      type: 'tool-call' as const,
-      value: { callID: `c${i}`, name: '_0_book_table', arguments: {} },
-    })),
+    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_invented_tool', arguments: {} } }],
+    ['There is no such tool.'],
   ]);
+  const warn = console.warn;
+  console.warn = () => {};
 
   try {
-    const tools = buildToolDecls([BOOK_TOOL]);
-    const first = await sendOnDeviceChat({ message: 'Book tables', tools });
-    await sendOnDeviceChat({
-      chatId: first.chatId,
-      tools,
-      toolResponses: cases.map(([result]) => ({
-        functionResponse: { name: '_0_book_table', response: { result } },
-      })),
-    });
+    const result = await sendOnDeviceChat({ message: 'Do something', tools: buildToolDecls([BOOK_TOOL]) });
+    assert.equal(result.text, 'There is no such tool.');
+    assert.deepEqual(result.functionCalls, []);
 
-    const [, [message]] = stub.inputs as Array<
-      Array<{ content: Array<{ value: { result: Array<{ type: string; value: unknown }> } }> }>
-    >;
-    const items = message.content.map((part) => part.value.result[0]);
-    assert.deepEqual(
-      items.map((item) => item.type),
-      cases.map(([, type]) => type)
-    );
-    // Values pass through as they are, other than an empty result.
-    assert.equal(items[1].value, '');
-    assert.equal(items[7].value, blob);
-    assert.equal(items[8].value, png);
+    const [message] = stub.inputs[1] as ResponseTurn;
+    assert.equal(message.content[0].value.kind, 'error');
   } finally {
+    console.warn = warn;
     uninstallPromptApiStub();
   }
 });
@@ -281,6 +303,37 @@ test('the session is rebuilt with the new tools when the page registers differen
   }
 });
 
+test('a turn stopped while a tool call is in flight leaves no dangling call behind', async () => {
+  const stub = installPromptApiStub([
+    ['Booked.'],
+    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    ['Hello again.'],
+  ]);
+
+  try {
+    const tools = buildToolDecls([BOOK_TOOL]);
+    const first = await sendOnDeviceChat({ message: 'Book a table', tools });
+
+    const controller = new AbortController();
+    await sendOnDeviceChat({ chatId: first.chatId, message: 'Book another', tools }, { signal: controller.signal });
+    controller.abort();
+
+    const third = await sendOnDeviceChat({ chatId: first.chatId, message: 'Hello', tools });
+    assert.equal(third.text, 'Hello again.');
+
+    // The model of the stopped turn is still waiting on its call, so the next
+    // message goes to a new session, without the turn that never finished.
+    assert.equal(stub.creates.length, 2);
+    const rebuilt = stub.creates[1] as { initialPrompts?: Array<{ role: string; content: string }> };
+    assert.deepEqual(
+      rebuilt.initialPrompts?.slice(1).map((prompt) => prompt.content),
+      ['Book a table', 'Booked.']
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
 test('a page without tools needs neither tool declarations nor the tool use flag', async () => {
   const stub = installPromptApiStub([['Hello.']]);
   const globals = globalThis as unknown as Record<string, unknown>;
@@ -301,7 +354,7 @@ test('an unsupported browser explains itself instead of failing obscurely', asyn
     /Prompt API is not available/
   );
 
-  installPromptApiStub([['unused']]);
+  const stub = installPromptApiStub([['unused']]);
   const globals = globalThis as unknown as Record<string, unknown>;
   delete globals.LanguageModelToolCall;
   try {
@@ -309,7 +362,178 @@ test('an unsupported browser explains itself instead of failing obscurely', asyn
       () => sendOnDeviceChat({ message: 'Hello', tools: buildToolDecls([BOOK_TOOL]) }),
       /prompt-api-tool-use/
     );
+
+    stub.availability = 'unavailable';
+    await assert.rejects(
+      () => sendOnDeviceChat({ message: 'Hello', tools: [] }),
+      /unavailable on this device/
+    );
   } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('the model download is reported to the side panel', async () => {
+  const stub = installPromptApiStub([['Hello.']]);
+  stub.availability = 'downloadable';
+  const reported: DownloadProgress[] = [];
+  setOnDeviceModelUi({ onDownloadProgress: (progress) => reported.push(progress) });
+
+  try {
+    await sendOnDeviceChat({ message: 'Hello', tools: [] });
+    assert.deepEqual(
+      reported.map(({ resource, percent }) => [resource, percent]),
+      [
+        ['language-model', 0],
+        ['language-model', 50],
+        ['language-model', 100],
+      ]
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+/**
+ * Stands in for the Summarizer API, which compacting uses. When `downloadable`,
+ * creating one reports a download first.
+ */
+function installSummarizerStub(summarize: (text: string) => Promise<string>, { downloadable = false } = {}) {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  globals.Summarizer = {
+    availability: async () => (downloadable ? 'downloadable' : 'available'),
+    create: async (options: { monitor?: (m: EventTarget) => void }) => {
+      const monitor = new EventTarget();
+      options.monitor?.(monitor);
+      if (downloadable) {
+        for (const loaded of [0, 0.5, 1]) {
+          monitor.dispatchEvent(Object.assign(new Event('downloadprogress'), { loaded, total: 1 }));
+        }
+      }
+      return { summarize, destroy() {} };
+    },
+  };
+}
+
+test('a conversation that overflows the context is compacted before the next turn', async () => {
+  const stub = installPromptApiStub([['A long answer about booking.'], ['Another long answer.'], ['Done.']]);
+  // Nearly full after the first turn, which is no reason to compact yet.
+  stub.usagePerTurn = 900;
+  stub.overflowOnTurn = 2;
+  const summarized: string[] = [];
+  installSummarizerStub(async (text) => {
+    summarized.push(text);
+    return 'Short.';
+  });
+  const compacting: Array<string | null> = [];
+  setOnDeviceModelUi({ onCompacting: (status) => compacting.push(status) });
+  const info = console.info;
+  console.info = () => {};
+
+  try {
+    const first = await sendOnDeviceChat({ message: 'Tell me all about booking', tools: [] });
+    assert.deepEqual(compacting, []);
+
+    await sendOnDeviceChat({ chatId: first.chatId, message: 'Tell me even more', tools: [] });
+    // The turn that overflowed starts compacting once it has ended.
+    assert.equal(compacting[0], 'Compacting the conversation…');
+
+    const third = await sendOnDeviceChat({ chatId: first.chatId, message: 'Thanks', tools: [] });
+    assert.equal(third.text, 'Done.');
+    // The side panel follows along message by message, since the next turn
+    // waits, and hears when it is done. The system prompt is kept as it is.
+    assert.deepEqual(compacting, [
+      'Compacting the conversation…',
+      'Compacting message 2 of 5…',
+      'Compacting message 3 of 5…',
+      'Compacting message 4 of 5…',
+      'Compacting message 5 of 5…',
+      null,
+    ]);
+
+    // The conversation was summarized into a new session, which answered the
+    // next turn.
+    assert.deepEqual(summarized, [
+      'Tell me all about booking',
+      'A long answer about booking.',
+      'Tell me even more',
+      'Another long answer.',
+    ]);
+    assert.equal(stub.creates.length, 2);
+    const compacted = stub.creates[1] as { initialPrompts?: Array<{ role: string; content: string }> };
+    assert.deepEqual(
+      compacted.initialPrompts?.slice(1).map((prompt) => [prompt.role, prompt.content]),
+      [
+        ['user', 'Short.'],
+        ['assistant', 'Short.'],
+        ['user', 'Short.'],
+        ['assistant', 'Short.'],
+      ]
+    );
+    assert.equal(stub.inputs.length, 3);
+    assert.equal(stub.sessions[1].contextUsage, stub.usagePerTurn);
+  } finally {
+    console.info = info;
+    uninstallPromptApiStub();
+  }
+});
+
+test('the models compacting needs are reported as they download', async () => {
+  const stub = installPromptApiStub([['An answer long enough to be summarized.'], ['Done.']]);
+  stub.overflowOnTurn = 1;
+  installSummarizerStub(async () => 'Short.', { downloadable: true });
+  const reported: DownloadProgress[] = [];
+  setOnDeviceModelUi({ onDownloadProgress: (progress) => reported.push(progress) });
+  const info = console.info;
+  console.info = () => {};
+
+  try {
+    const first = await sendOnDeviceChat({ message: 'A question long enough to be summarized', tools: [] });
+    await sendOnDeviceChat({ chatId: first.chatId, message: 'Go on', tools: [] });
+    assert.deepEqual(
+      reported.map(({ resource, percent }) => [resource, percent]),
+      [
+        ['summarizer', 0],
+        ['summarizer', 50],
+        ['summarizer', 100],
+      ]
+    );
+  } finally {
+    console.info = info;
+    uninstallPromptApiStub();
+  }
+});
+
+test('starting a new chat while compacting is no failure', async () => {
+  const stub = installPromptApiStub([['An answer long enough to be summarized.'], ['Hello.']]);
+  stub.overflowOnTurn = 1;
+  let release = () => {};
+  installSummarizerStub(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve('Short.');
+      })
+  );
+  const warnings: unknown[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args);
+
+  try {
+    await sendOnDeviceChat({ message: 'A question long enough to be summarized', tools: [] });
+    // Let compacting reach the Summarizer.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    resetOnDeviceChat();
+    release();
+
+    const fresh = await sendOnDeviceChat({ message: 'Hello', tools: [] });
+    assert.equal(fresh.text, 'Hello.');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(warnings, []);
+    // The session compacting made belongs to no conversation, and is not left
+    // behind: every session but the fresh one is destroyed.
+    assert.equal(stub.destroyed, stub.creates.length - 1);
+  } finally {
+    console.warn = warn;
     uninstallPromptApiStub();
   }
 });
@@ -375,30 +599,31 @@ test('on-device tool results are fenced rather than base64 encoded', async () =>
   }
 });
 
-test('a crashed model service is retried once on a fresh session', async () => {
-  // The failing turn throws before it reaches the stub, so it consumes no turn.
-  const stub = installPromptApiStub([['Booked.'], ['Recovered.']]);
+/** Makes the next promptStreaming() calls of every session throw a crash. */
+function crashTurns(shouldCrash: (turn: number) => boolean) {
   const globals = globalThis as unknown as Record<string, unknown>;
   const model = globals.LanguageModel as { create: (o: unknown) => Promise<unknown> };
   const create = model.create.bind(model);
-  let failNextTurn = false;
-
+  let turns = 0;
   model.create = async (options: unknown) => {
-    const session = (await create(options)) as Record<string, unknown>;
-    const promptStreaming = session.promptStreaming as (input: unknown) => AsyncIterable<unknown>;
-    session.promptStreaming = (input: unknown) => {
-      if (!failNextTurn) return promptStreaming(input);
-      failNextTurn = false;
-      throw new Error('UnknownError: An unknown error occurred: kErrorUnknown');
+    const session = (await create(options)) as StubSession;
+    const promptStreaming = session.promptStreaming.bind(session);
+    session.promptStreaming = (input, streamOptions) => {
+      if (shouldCrash(++turns)) throw new Error('UnknownError: An unknown error occurred: kErrorUnknown');
+      return promptStreaming(input, streamOptions);
     };
     return session;
   };
+}
+
+test('a crashed model service is retried once on a fresh session', async () => {
+  // The failing turn throws before it reaches the stub, so it consumes no turn.
+  const stub = installPromptApiStub([['Booked.'], ['Recovered.']]);
+  crashTurns((turn) => turn === 2);
 
   try {
     const tools = buildToolDecls([BOOK_TOOL]);
     const first = await sendOnDeviceChat({ message: 'Book a table', tools });
-
-    failNextTurn = true;
     const second = await sendOnDeviceChat({ chatId: first.chatId, message: 'And again', tools });
 
     assert.equal(second.text, 'Recovered.');
@@ -421,19 +646,7 @@ test('a crash while answering tool calls is reported rather than replayed', asyn
   installPromptApiStub([
     [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
   ]);
-  const globals = globalThis as unknown as Record<string, unknown>;
-  const model = globals.LanguageModel as { create: (o: unknown) => Promise<unknown> };
-  const create = model.create.bind(model);
-  model.create = async (options: unknown) => {
-    const session = (await create(options)) as Record<string, unknown>;
-    const promptStreaming = session.promptStreaming as (input: unknown) => AsyncIterable<unknown>;
-    let turns = 0;
-    session.promptStreaming = (input: unknown) => {
-      if (++turns > 1) throw new Error('UnknownError: An unknown error occurred: kErrorUnknown');
-      return promptStreaming(input);
-    };
-    return session;
-  };
+  crashTurns((turn) => turn > 1);
 
   try {
     const tools = buildToolDecls([BOOK_TOOL]);
