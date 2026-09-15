@@ -48,14 +48,6 @@ export function App() {
     });
   };
 
-  const handleToggleOnDeviceModel = () => {
-    setOnDeviceModel((prev) => {
-      const next = !prev;
-      localStorage.setItem('onDeviceModel', String(next));
-      return next;
-    });
-  };
-
   // Custom Hooks
   const { tools, toolsRef, domain, favicon, statusMsg } = useActiveTabTools();
   const {
@@ -69,6 +61,17 @@ export function App() {
     handleStop,
     handleReset,
   } = useAgentSession(toolsRef, { sensitiveActionAlerts, onDeviceModel });
+
+  const handleToggleOnDeviceModel = () => {
+    // Switching backends mid-response would pull the conversation out from
+    // under the request in flight. The switch is disabled then, too.
+    if (busy) return;
+    setOnDeviceModel((prev) => {
+      const next = !prev;
+      localStorage.setItem('onDeviceModel', String(next));
+      return next;
+    });
+  };
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -132,6 +135,7 @@ export function App() {
             onDeviceModel={onDeviceModel}
             onToggleOnDeviceModel={handleToggleOnDeviceModel}
             onDeviceModelSupported={onDeviceModelSupported}
+            responseInProgress={busy}
             onClose={() => setShowSettings(false)}
           />
         ) : (

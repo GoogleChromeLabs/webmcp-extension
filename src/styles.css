@@ -1328,6 +1328,15 @@ main {
   outline-offset: 2px;
 }
 
+/* Still focusable, so only the track and thumb fade, not the focus ring. */
+.cdds-switch[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+.cdds-switch[aria-disabled='true'] > * {
+  opacity: 0.38;
+}
+
 .cdds-switch__track {
   position: absolute;
   inset: 0;

@@ -34,6 +34,33 @@ test('Switch toggles properly on click', () => {
   assert.equal(toggledValue, true);
 });
 
+test('a disabled Switch stays focusable and ignores clicks and keys', () => {
+  let changes = 0;
+  const switchComponent = Switch({
+    checked: false,
+    onChange: () => changes++,
+    disabled: true,
+    'aria-label': 'On-device model',
+  });
+
+  const html = renderToString(switchComponent);
+  assert.ok(html.includes('aria-disabled="true"'));
+  // No `disabled` attribute, which would take it out of the tab order.
+  assert.doesNotMatch(html, /\sdisabled(=|\s|>)/);
+
+  switchComponent.props.onClick();
+  let prevented = 0;
+  for (const key of [' ', 'Enter']) {
+    switchComponent.props.onKeyDown({ key, preventDefault: () => prevented++ });
+  }
+  assert.equal(changes, 0);
+  // The keys are still swallowed, so the button does not click itself either.
+  assert.equal(prevented, 2);
+
+  const enabled = renderToString(Switch({ checked: false, onChange: () => {}, 'aria-label': 'On-device model' }));
+  assert.ok(!enabled.includes('aria-disabled'));
+});
+
 test('SettingsScreen renders the permissions and model sections', () => {
   let toggled = false;
   let closed = false;
@@ -83,6 +110,39 @@ test('SettingsScreen renders the permissions and model sections', () => {
   assert.equal(toggled, true);
   screen.props.onClose();
   assert.equal(closed, true);
+});
+
+test('SettingsScreen locks the model switch while a response is in progress', () => {
+  const render = (responseInProgress: boolean) =>
+    renderToString(
+      React.createElement(SettingsScreen, {
+        sensitiveActionAlerts: true,
+        onToggleSensitiveActionAlerts: () => { },
+        onDeviceModel: true,
+        onToggleOnDeviceModel: () => { },
+        onDeviceModelSupported: true,
+        responseInProgress,
+        onClose: () => { },
+      })
+    );
+  const modelSwitch = (html: string) => /<button[^>]*aria-label="On-device model"[^>]*>/.exec(html)?.[0] ?? '';
+  const alertsSwitch = (html: string) => /<button[^>]*aria-label="Sensitive action alerts"[^>]*>/.exec(html)?.[0] ?? '';
+
+  const busy = render(true);
+  assert.match(modelSwitch(busy), /aria-disabled="true"/);
+  assert.ok(busy.includes('Can be changed once the current response has finished.'));
+  // The switch points at why it is locked, so a screen reader announces it.
+  const describedBy = /aria-describedby="([^"]*)"/.exec(modelSwitch(busy))?.[1].split(' ') ?? [];
+  assert.equal(describedBy.length, 2);
+  const lockedNote = new RegExp(`id="${describedBy[1]}"[^>]*>\\s*Can be changed once the current response has finished.`);
+  assert.match(busy, lockedNote);
+  // Only the backend is locked: permission alerts can still be changed.
+  assert.doesNotMatch(alertsSwitch(busy), /disabled/);
+
+  const idle = render(false);
+  assert.doesNotMatch(modelSwitch(idle), /disabled/);
+  assert.ok(!idle.includes('Can be changed once the current response has finished.'));
+  assert.equal(/aria-describedby="([^"]*)"/.exec(modelSwitch(idle))?.[1].split(' ').length, 1);
 });
 
 test('AllowToolPermissionCard triggers onAllow and onDeny callbacks', () => {
