@@ -40,15 +40,20 @@ changes to take effect.
 
 ## Before you send a pull request
 
-Run both checks and make sure they pass:
+Run all three checks and make sure they pass:
 
 ```bash
 npm run typecheck
+npm run check:syntax
 npm test
 ```
 
-CI runs `npm ci`, these two checks, and `npm run build`, so anything that fails
-locally will fail there too.
+`npm run typecheck` only covers `src/`, `tests/` and `extension/`, so
+`npm run check:syntax` is what catches a syntax error in the server or the
+build script.
+
+CI runs `npm ci`, these three checks, and `npm run build`, so anything that
+fails locally will fail there too.
 
 A few things that make review quicker:
 
