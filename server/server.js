@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 
+import { streamChatTurn } from './streaming.js';
 import {
   loadDotEnv,
   ensureAuthToken,
@@ -402,23 +403,10 @@ const server = http.createServer(async (req, res) => {
         // the non-streaming response has. An error after the headers are out
         // can only be a line of its own.
         res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-        let text = '';
-        const functionCalls = [];
-        let candidates = [];
+
+        let streamed;
         try {
-          for await (const chunk of await chatSession.sendMessageStream(sendMessageParams)) {
-            const parts = chunk.candidates?.[0]?.content?.parts || [];
-            const piece = parts
-              .filter((part) => typeof part.text === 'string' && !part.thought)
-              .map((part) => part.text)
-              .join('');
-            if (piece) {
-              text += piece;
-              res.write(`${JSON.stringify({ text: piece })}\n`);
-            }
-            functionCalls.push(...(chunk.functionCalls || []));
-            if (chunk.candidates) candidates = chunk.candidates;
-          }
+          streamed = await streamChatTurn({ chatSession, sendMessageParams, config, res });
         } catch (error) {
           console.error(`  [${chatId}] Streaming error:`, error.message || error);
           recordServerLog({
@@ -433,6 +421,21 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
+        if (streamed.stopped) {
+          console.log(`  [${chatId}] Stopped: the side panel closed the connection.`);
+          recordServerLog({
+            method: req.method,
+            path: url.pathname,
+            statusCode: 499,
+            startTime,
+            requestPayload: { message, tools, toolResponses, chatId },
+            error: 'Stopped: the side panel closed the connection.',
+          });
+          res.end();
+          return;
+        }
+
+        const { text, functionCalls, candidates } = streamed;
         const responsePayload = { chatId, text, functionCalls, candidates };
         if (functionCalls.length > 0) {
           console.log(`  [${chatId}] Gemini Function Calls:`, JSON.stringify(functionCalls, null, 2));
