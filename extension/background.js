@@ -39,6 +39,11 @@ async function updateBadge(tabId) {
 
 chrome.runtime.onMessage.addListener(({ action, tools }, { tab, frameId }, sendResponse) => {
   if (action == 'INJECT_GET_FRAME_ID') {
+    // `tab` is undefined for messages from the side panel, which has no tab.
+    if (!tab?.id) {
+      sendResponse();
+      return;
+    }
     chrome.scripting
       .executeScript({
         target: { tabId: tab.id, allFrames: true },
@@ -52,7 +57,7 @@ chrome.runtime.onMessage.addListener(({ action, tools }, { tab, frameId }, sendR
     sendResponse(frameId);
     return;
   }
-  if (tools !== undefined) {
+  if (tools !== undefined && tab?.id) {
     const text = tools.length ? `${tools.length}` : '';
     chrome.action.setBadgeText({ text, tabId: tab.id });
   }
@@ -65,7 +70,9 @@ function getFrameId() {
   if (window.webmcpFrameIdListenerInstalled) return;
   window.webmcpFrameIdListenerInstalled = true;
   window.addEventListener('message', async ({ data, source, origin }) => {
-    if (data.action !== 'GET_FRAME_ID') return;
+    // Any frame can post anything here, so `data` may not be an object, and
+    // `source` is null when the sending context has already gone away.
+    if (data?.action !== 'GET_FRAME_ID' || !source) return;
     for (let i = 0; i < 10; i++) {
       const frameId = await chrome.runtime.sendMessage({ action: 'GET_FRAME_ID' });
       if (frameId != null) {

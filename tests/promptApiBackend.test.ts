@@ -20,6 +20,12 @@ import { getSpotlighting, resetChatSession, sendChatTurn } from '../src/services
 import { applySpotlighting } from '../src/hooks/useAgentSession.js';
 import { buildToolDecls } from '../src/services/toolEncoder.js';
 
+Object.defineProperty(globalThis, 'navigator', {
+  value: { language: 'en-US', languages: ['en-US'], userActivation: { isActive: true } },
+  configurable: true,
+  writable: true,
+});
+
 interface StubCall {
   callID: string;
   name: string;
@@ -134,6 +140,8 @@ function uninstallPromptApiStub() {
   delete globals.LanguageModelToolSuccess;
   delete globals.LanguageModelToolError;
   delete globals.Summarizer;
+  uninstallNavigatorStub?.();
+  uninstallNavigatorStub = undefined;
 }
 
 const BOOK_TOOL = {
@@ -629,12 +637,31 @@ test('the model download is reported to the side panel', async () => {
   }
 });
 
+/** Takes the stand-in `navigator` away again, when one was installed. */
+let uninstallNavigatorStub: (() => void) | undefined;
+
+/**
+ * Stands in for the part of `navigator` that compacting reads. The browser the
+ * extension runs in always has one, while Node only exposes it from v21 on: no
+ * language detector is stubbed here, so compacting falls back to
+ * `navigator.language` for every message it summarizes.
+ */
+function installNavigatorStub() {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  if ('navigator' in globals) return;
+  globals.navigator = { language: 'en-US' };
+  uninstallNavigatorStub = () => {
+    delete globals.navigator;
+  };
+}
+
 /**
  * Stands in for the Summarizer API, which compacting uses. When `downloadable`,
  * creating one reports a download first.
  */
 function installSummarizerStub(summarize: (text: string) => Promise<string>, { downloadable = false } = {}) {
   const globals = globalThis as unknown as Record<string, unknown>;
+  installNavigatorStub();
   globals.Summarizer = {
     availability: async () => (downloadable ? 'downloadable' : 'available'),
     create: async (options: { monitor?: (m: EventTarget) => void }) => {
@@ -840,6 +867,8 @@ test('chatBridge routes a turn to the on-device model, and to the server otherwi
   globalThis.fetch = (async (url: string) => {
     calls.push(String(url));
     return {
+      ok: true,
+      status: 200,
       json: async () => ({ chatId: 'server-chat', text: 'from the server', functionCalls: [] }),
     };
   }) as unknown as typeof fetch;

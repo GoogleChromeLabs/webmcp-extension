@@ -57,6 +57,25 @@ export function applyTokenLimit(result: unknown): unknown {
   return result;
 }
 
+/**
+ * Base64-encodes a UTF-8 string in the browser.
+ *
+ * `btoa` only accepts Latin-1, and the old `unescape(encodeURIComponent(...))`
+ * trick throws a URIError on a lone surrogate — which `applyTokenLimit` can
+ * produce when it truncates mid-character. `TextEncoder` replaces unpaired
+ * surrogates with U+FFFD instead of throwing, so this cannot fail on any input.
+ */
+function encodeBase64(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let binary = '';
+  // Chunked to stay well under the argument-count limit of String.fromCharCode.
+  const CHUNK_SIZE = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE));
+  }
+  return btoa(binary);
+}
+
 export function applySpotlighting(result: unknown, tool?: WebMCPTool, fence?: string): unknown {
   if (!isToolUntrusted(tool)) return result;
 
@@ -70,11 +89,7 @@ export function applySpotlighting(result: unknown, tool?: WebMCPTool, fence?: st
     return `<${fence}>\n${fenced}\n</${fence}>`;
   }
 
-  try {
-    return btoa(unescape(encodeURIComponent(rawStr || '')));
-  } catch {
-    return Buffer.from(rawStr || '', 'utf-8').toString('base64');
-  }
+  return encodeBase64(rawStr || '');
 }
 
 /**

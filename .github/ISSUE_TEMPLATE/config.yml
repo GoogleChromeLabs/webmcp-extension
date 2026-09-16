@@ -1,0 +1,11 @@
+# Copyright 2026 Google LLC
+# SPDX-License-Identifier: Apache-2.0
+
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/GoogleChromeLabs/webmcp-extension/security/advisories/new
+    about: Report security issues privately through a GitHub security advisory, not as a public issue. See SECURITY.md.
+  - name: WebMCP API questions
+    url: https://github.com/webmachinelearning/webmcp
+    about: Questions about the WebMCP API itself belong in the spec repository.

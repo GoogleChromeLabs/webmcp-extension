@@ -1,11 +1,28 @@
 {
+  "name": "webmcp-extension",
+  "version": "0.0.3",
+  "description": "Chrome extension and companion server for inspecting, monitoring, and executing WebMCP tools exposed by web pages.",
+  "license": "Apache-2.0",
+  "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GoogleChromeLabs/webmcp-extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/GoogleChromeLabs/webmcp-extension/issues"
+  },
+  "homepage": "https://github.com/GoogleChromeLabs/webmcp-extension#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "check:syntax": "for f in server/*.js scripts/*.js extension/*.js; do node --check \"$f\" || exit 1; done",
     "build": "node scripts/build.js",
     "watch": "node scripts/build.js --watch",
     "dev": "npm run watch",
-    "test": "rm -rf dist/tests && npx esbuild tests/*.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/*.test.js",
+    "test": "rm -rf dist/tests && npx esbuild tests/*.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/*.test.js; status=$?; rm -rf dist/tests; exit $status",
     "clean": "rm -rf dist",
     "server": "node server/server.js"
   },
