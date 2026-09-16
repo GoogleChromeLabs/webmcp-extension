@@ -1,4 +1,8 @@
 <!DOCTYPE html>
+<!--
+  Copyright 2026 Google LLC
+  SPDX-License-Identifier: Apache-2.0
+-->
 <html lang="en">
 
 <head>
@@ -246,10 +250,10 @@
   </div>
   <div class="toolbar">
     <div>
-      <button class="filter-btn active" onclick="setFilter('ALL')">ALL</button>
-      <button class="filter-btn" onclick="setFilter('/api/chat')">chat</button>
-      <button class="filter-btn" onclick="setFilter('/api/model')">model</button>
-      <button class="filter-btn" onclick="setFilter('/api/reset')">reset</button>
+      <button class="filter-btn active" data-filter="ALL">ALL</button>
+      <button class="filter-btn" data-filter="/api/chat">chat</button>
+      <button class="filter-btn" data-filter="/api/model">model</button>
+      <button class="filter-btn" data-filter="/api/reset">reset</button>
     </div>
     <div style="display: flex; align-items: center; gap: 14px;">
       <label style="font-size: 12px; cursor: pointer; user-select: none;">
@@ -258,9 +262,16 @@
     </div>
   </div>
   <div id="logsContainer" class="logs-container">
+    <div id="authError" class="empty-state" style="display: none;">
+      <h3 style="margin: 0 0 6px;">🔒 Not authorized</h3>
+      <p style="margin: 0; font-size: 13px;">
+        This dashboard requires the server auth token. Open the
+        <code>/logs?token=...</code> URL printed in the server console on startup.
+      </p>
+    </div>
     <div id="emptyState" class="empty-state">
       <h3 style="margin: 0 0 6px;">No server call logs recorded yet</h3>
-      <p style="margin: 0; font-size: 13px;">Make API calls to the backend from the WebMCP extension to watch live request & response activity here.</p>
+      <p style="margin: 0; font-size: 13px;">Make API calls to the backend from the WebMCP extension to watch live request &amp; response activity here.</p>
     </div>
     <div id="logsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
   </div>
@@ -269,9 +280,10 @@
     <span id="logCounter">0 entries recorded</span>
   </div>
 
-  <script>
+  <script nonce="__CSP_NONCE__">
     let logs = [];
     let activeFilter = 'ALL';
+    const expandedIds = new Set();
 
     function formatTime(isoString) {
       if (!isoString) return '';
@@ -284,14 +296,104 @@
     function setFilter(filter) {
       activeFilter = filter;
       document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.textContent === (filter === 'ALL' ? 'ALL' : filter.replace('/api/', '')));
+        btn.classList.toggle('active', btn.dataset.filter === filter);
       });
       renderLogs();
     }
 
-    function toggleExpand(id) {
-      const card = document.getElementById('card-' + id);
-      if (card) card.classList.toggle('expanded');
+    /**
+     * Creates an element with optional class, inline style and text content.
+     * Text is always assigned via textContent, never parsed as HTML.
+     */
+    function el(tag, { className, style, text } = {}) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (style) node.setAttribute('style', style);
+      if (text !== undefined) node.textContent = String(text);
+      return node;
+    }
+
+    /**
+     * Renders one payload section. `value` originates from arbitrary web pages
+     * (tool names, descriptions and results), so it is stringified and then
+     * assigned as text — it must never reach an HTML parser.
+     */
+    function payloadSection(label, value) {
+      const wrapper = el('div');
+      wrapper.appendChild(el('div', {
+        style: 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;',
+        text: label,
+      }));
+
+      let serialized;
+      try {
+        // Always stringify, matching the previous renderer: a string payload
+        // renders with its surrounding quotes rather than as bare text.
+        serialized = JSON.stringify(value, null, 2);
+      } catch {
+        serialized = '[unserializable payload]';
+      }
+
+      wrapper.appendChild(el('pre', { text: serialized }));
+      return wrapper;
+    }
+
+    function buildLogCard(log) {
+      const method = (log.method || 'GET').toUpperCase();
+      const path = log.path || '';
+      const statusCode = log.statusCode || 200;
+      const durationMs = log.durationMs !== undefined ? log.durationMs : 0;
+      const isSuccess = statusCode >= 200 && statusCode < 300;
+
+      const card = el('div', { className: 'log-card' });
+      if (expandedIds.has(log.id)) card.classList.add('expanded');
+
+      const summary = el('div', { className: 'log-summary ' + (isSuccess ? 'ok' : 'err') });
+      summary.addEventListener('click', () => {
+        if (expandedIds.has(log.id)) {
+          expandedIds.delete(log.id);
+        } else {
+          expandedIds.add(log.id);
+        }
+        card.classList.toggle('expanded');
+      });
+
+      const left = el('div', { style: 'display: flex; align-items: center; gap: 10px;' });
+      left.appendChild(el('span', {
+        style: 'color: var(--text-muted); font-size: 11px;',
+        text: formatTime(log.timestamp || ''),
+      }));
+      left.appendChild(el('span', { className: 'method-badge ' + method.toLowerCase(), text: method }));
+      left.appendChild(el('span', { style: 'font-weight: 600;', text: path }));
+
+      const right = el('div', { style: 'display: flex; align-items: center; gap: 10px;' });
+      right.appendChild(el('span', {
+        className: 'status-badge ' + (isSuccess ? 'ok' : 'err'),
+        text: statusCode,
+      }));
+      right.appendChild(el('span', { style: 'color: var(--text-muted);', text: durationMs + 'ms' }));
+      right.appendChild(el('span', { style: 'color: #80868b;', text: '▼' }));
+
+      summary.appendChild(left);
+      summary.appendChild(right);
+      card.appendChild(summary);
+
+      const details = el('div', { className: 'log-details' });
+      if (log.error) {
+        details.appendChild(el('div', {
+          style: 'padding: 8px; background: #fce8e6; color: #c5221f; border-radius: 6px; font-weight: 600;',
+          text: 'Error: ' + log.error,
+        }));
+      }
+      if (log.requestPayload !== undefined && log.requestPayload !== null) {
+        details.appendChild(payloadSection('Request Payload', log.requestPayload));
+      }
+      if (log.responsePayload !== undefined && log.responsePayload !== null) {
+        details.appendChild(payloadSection('Response Payload', log.responsePayload));
+      }
+      card.appendChild(details);
+
+      return card;
     }
 
     function renderLogs() {
@@ -303,67 +405,51 @@
       const filtered = activeFilter === 'ALL' ? logs : logs.filter(l => l && l.path === activeFilter);
       counter.textContent = logs.length + ' entries recorded';
 
+      logsList.replaceChildren();
+
       if (filtered.length === 0) {
         emptyState.style.display = 'block';
-        logsList.innerHTML = '';
         return;
       }
 
       emptyState.style.display = 'none';
-      logsList.innerHTML = filtered.map(log => {
-        if (!log) return '';
-        const method = (log.method || 'GET').toUpperCase();
-        const path = log.path || '';
-        const statusCode = log.statusCode || 200;
-        const durationMs = log.durationMs !== undefined ? log.durationMs : 0;
-        const timestamp = log.timestamp || '';
-        const isSuccess = statusCode >= 200 && statusCode < 300;
 
-        return `
-          <div id="card-${log.id}" class="log-card">
-            <div class="log-summary ${isSuccess ? 'ok' : 'err'}" onclick="toggleExpand('${log.id}')">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="color: var(--text-muted); font-size: 11px;">${formatTime(timestamp)}</span>
-                <span class="method-badge ${method.toLowerCase()}">${method}</span>
-                <span style="font-weight: 600;">${path}</span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="status-badge ${isSuccess ? 'ok' : 'err'}">${statusCode}</span>
-                <span style="color: var(--text-muted);">${durationMs}ms</span>
-                <span style="color: #80868b;">▼</span>
-              </div>
-            </div>
-            <div class="log-details">
-              ${log.error ? `<div style="padding: 8px; background: #fce8e6; color: #c5221f; border-radius: 6px; font-weight: 600;">Error: ${log.error}</div>` : ''}
-              ${log.requestPayload !== undefined && log.requestPayload !== null ? `
-                <div>
-                  <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Request Payload</div>
-                  <pre>${JSON.stringify(log.requestPayload, null, 2)}</pre>
-                </div>
-              ` : ''}
-              ${log.responsePayload !== undefined && log.responsePayload !== null ? `
-                <div>
-                  <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Response Payload</div>
-                  <pre>${JSON.stringify(log.responsePayload, null, 2)}</pre>
-                </div>
-              ` : ''}
-            </div>
-          </div>
-        `;
-      }).join('');
+      const fragment = document.createDocumentFragment();
+      for (const log of filtered) {
+        if (!log) continue;
+        fragment.appendChild(buildLogCard(log));
+      }
+      logsList.appendChild(fragment);
 
       if (document.getElementById('autoScroll')?.checked) {
         container.scrollTop = container.scrollHeight;
       }
     }
 
+    function showAuthError() {
+      document.getElementById('authError').style.display = 'block';
+      document.getElementById('emptyState').style.display = 'none';
+      const pill = document.getElementById('statusPill');
+      pill.textContent = 'UNAUTHORIZED';
+      pill.className = 'status-pill offline';
+    }
+
     async function loadInitialLogs() {
       try {
         const res = await fetch('/logs?json=true');
-        const { logs } = await res.json();
+        if (res.status === 401) {
+          showAuthError();
+          return false;
+        }
+        const data = await res.json();
+        // Assign to the module-level `logs`; this used to be destructured into a
+        // local of the same name, so the fetched entries were silently dropped.
+        logs = Array.isArray(data.logs) ? data.logs : [];
         renderLogs();
+        return true;
       } catch (e) {
         console.error('Failed to fetch initial logs:', e);
+        return true;
       }
     }
 
@@ -378,7 +464,7 @@
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'init') {
-            logs = data.logs;
+            logs = Array.isArray(data.logs) ? data.logs : [];
           } else if (data.type === 'log' && data.log) {
             logs.push(data.log);
           }
@@ -391,9 +477,13 @@
       };
     }
 
-    loadInitialLogs();
-    connectSSE();
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => setFilter(btn.dataset.filter));
+    });
+
+    loadInitialLogs().then(authorized => {
+      if (authorized) connectSSE();
+    });
   </script>
 </body>
-
 </html>
