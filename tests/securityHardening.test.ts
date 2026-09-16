@@ -91,14 +91,14 @@ test('security - validateAuthToken verifies X-WebMCP-Auth and Bearer authorizati
 test('security - backendBridge includes X-WebMCP-Auth header when auth token is configured', async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.WEBMCP_AUTH_TOKEN;
-  let capturedHeaders: Record<string, string> = {};
+  let capturedHeaders = new Headers();
 
   try {
     process.env.WEBMCP_AUTH_TOKEN = 'unit-test-secret-token';
     assert.equal(getAuthToken(), 'unit-test-secret-token');
 
     globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = (init?.headers as Record<string, string>) || {};
+      capturedHeaders = new Headers(init?.headers);
       return {
         json: async () => ({ success: true }),
       } as Response;
@@ -106,8 +106,19 @@ test('security - backendBridge includes X-WebMCP-Auth header when auth token is 
 
     await callBackend('/api/test', { test: true });
 
-    assert.equal(capturedHeaders['X-WebMCP-Auth'], 'unit-test-secret-token');
-    assert.equal(capturedHeaders['Content-Type'], 'application/json');
+    assert.equal(capturedHeaders.get('X-WebMCP-Auth'), 'unit-test-secret-token');
+    assert.equal(capturedHeaders.get('Content-Type'), 'application/json');
+
+    // A caller cannot drop the token or the content type, whatever case it
+    // uses, and its own headers are kept.
+    await callBackend(
+      '/api/test',
+      { test: true },
+      { headers: { 'content-type': 'text/plain', 'x-webmcp-auth': 'wrong', 'X-Trace': 'kept' } }
+    );
+    assert.equal(capturedHeaders.get('X-WebMCP-Auth'), 'unit-test-secret-token');
+    assert.equal(capturedHeaders.get('Content-Type'), 'application/json');
+    assert.equal(capturedHeaders.get('X-Trace'), 'kept');
   } finally {
     if (originalToken !== undefined) {
       process.env.WEBMCP_AUTH_TOKEN = originalToken;

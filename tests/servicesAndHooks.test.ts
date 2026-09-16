@@ -314,10 +314,10 @@ function ndjsonResponse(lines: unknown[]): Response {
 test('backendBridge - streamBackend reports text as it arrives and resolves with the final payload', async () => {
   const { streamBackend } = await import('../src/services/backendBridge.js');
   const originalFetch = globalThis.fetch;
-  const requests: Array<{ url: string; body: unknown }> = [];
+  const requests: Array<{ url: string; body: unknown; headers: Headers }> = [];
   try {
     globalThis.fetch = (async (url: string, init: RequestInit) => {
-      requests.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      requests.push({ url: String(url), body: JSON.parse(String(init.body)), headers: new Headers(init.headers) });
       return ndjsonResponse([
         { text: 'Hello, ' },
         { text: 'wörld.' },
@@ -329,11 +329,13 @@ test('backendBridge - streamBackend reports text as it arrives and resolves with
     const result = await streamBackend<{ chatId: string; text: string }>(
       '/api/chat',
       { message: 'Hi', stream: true },
-      { onText: (text) => seen.push(text) }
+      { onText: (text) => seen.push(text), headers: { 'content-type': 'text/plain' } }
     );
     assert.deepEqual(seen, ['Hello, ', 'Hello, wörld.']);
     assert.deepEqual(result, { chatId: 'c1', text: 'Hello, wörld.', functionCalls: [] });
     assert.deepEqual(requests[0].body, { message: 'Hi', stream: true });
+    // What the bridge sets is not the caller's to replace.
+    assert.equal(requests[0].headers.get('Content-Type'), 'application/json');
 
     // An error written mid-stream rejects.
     globalThis.fetch = (async () => ndjsonResponse([{ text: 'Hel' }, { error: 'Quota exceeded' }])) as typeof fetch;

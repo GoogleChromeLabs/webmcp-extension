@@ -15,27 +15,18 @@ export function getAuthToken(): string {
 }
 
 
-/** The headers every request to the backend server carries. */
-function buildHeaders(data: unknown, extra: RequestInit['headers']): Record<string, string> {
+/**
+ * The headers every request to the backend server carries, on top of the
+ * caller's. The content type and the auth token are set last, so a caller
+ * cannot drop the token or send a body the server will not parse. `Headers`
+ * takes care of the caller's own, in whatever shape, and of header names
+ * differing only in case.
+ */
+function buildHeaders(data: unknown, extra: RequestInit['headers']): Headers {
+  const headers = new Headers(extra);
+  if (data) headers.set('Content-Type', 'application/json');
   const token = getAuthToken();
-  const headers: Record<string, string> = {
-    ...(data ? { 'Content-Type': 'application/json' } : {}),
-    ...(token ? { 'X-WebMCP-Auth': token } : {}),
-  };
-
-  if (extra) {
-    if (typeof Headers !== 'undefined' && extra instanceof Headers) {
-      extra.forEach((val, key) => {
-        headers[key] = val;
-      });
-    } else if (Array.isArray(extra)) {
-      for (const [key, val] of extra) {
-        headers[key] = val;
-      }
-    } else {
-      Object.assign(headers, extra);
-    }
-  }
+  if (token) headers.set('X-WebMCP-Auth', token);
   return headers;
 }
 
@@ -47,13 +38,12 @@ export async function callBackend<T = unknown>(
   data?: unknown,
   options: RequestInit = {}
 ): Promise<T> {
-  const headers = buildHeaders(data, options.headers);
-
+  // The caller's options first: what this sets is not theirs to replace.
   const res = await fetch(`${SERVER_URL}${endpoint}`, {
-    method: data ? 'POST' : 'GET',
-    headers,
-    ...(data ? { body: JSON.stringify(data) } : {}),
     ...options,
+    method: options.method ?? (data ? 'POST' : 'GET'),
+    headers: buildHeaders(data, options.headers),
+    ...(data ? { body: JSON.stringify(data) } : {}),
   });
 
   const json = await res.json();
@@ -76,10 +66,10 @@ export async function streamBackend<T = unknown>(
   { onText, ...options }: RequestInit & { onText?: (text: string) => void } = {}
 ): Promise<T> {
   const res = await fetch(`${SERVER_URL}${endpoint}`, {
+    ...options,
     method: 'POST',
     headers: buildHeaders(data, options.headers),
     body: JSON.stringify(data),
-    ...options,
   });
 
   if (!res.body || !res.headers.get('Content-Type')?.includes('ndjson')) {
