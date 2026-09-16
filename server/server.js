@@ -7,7 +7,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 
 import {
@@ -15,6 +15,9 @@ import {
   ensureAuthToken,
   isAllowedOrigin,
   validateAuthToken,
+  authorizeLogsRequest,
+  createLogsSession,
+  buildLogsSessionCookie,
 } from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +40,15 @@ const chats = new Map();
 const logs = [];
 const logClients = new Set();
 
+// Log entries contain full prompts and scraped page content. The dashboard is
+// authenticated, but set WEBMCP_LOG_REDACT_BODIES=1 to keep bodies out of the
+// in-memory buffer altogether (useful when screen-sharing or recording demos).
+const redactLogBodies = /^(1|true|yes)$/i.test(
+  String(env.WEBMCP_LOG_REDACT_BODIES ?? process.env.WEBMCP_LOG_REDACT_BODIES ?? '')
+);
+
+const REDACTED_NOTICE = '[redacted: WEBMCP_LOG_REDACT_BODIES is enabled]';
+
 function recordServerLog(logEntry) {
   const { startTime, ...rest } = logEntry;
   const durationMs = startTime ? Math.round(performance.now() - startTime) : 0;
@@ -46,6 +58,16 @@ function recordServerLog(logEntry) {
     durationMs,
     ...rest,
   };
+
+  if (redactLogBodies) {
+    if (entry.requestPayload !== undefined && entry.requestPayload !== null) {
+      entry.requestPayload = REDACTED_NOTICE;
+    }
+    if (entry.responsePayload !== undefined && entry.responsePayload !== null) {
+      entry.responsePayload = REDACTED_NOTICE;
+    }
+  }
+
   logs.push(entry);
   if (logs.length > 500) {
     logs.shift();
@@ -127,6 +149,10 @@ const server = http.createServer(async (req, res) => {
 
   console.log(`\n📥 [${req.method}] ${url.pathname} (origin: ${origin || 'none'})`);
 
+  // Declared before the try so the catch block can always read it; when this
+  // lived inside the try, an early throw made the error handler itself throw.
+  const startTime = performance.now();
+
   try {
     if (url.pathname.startsWith('/api/')) {
       // 1. Origin verification
@@ -174,8 +200,58 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'Forbidden: Origin is not authorized to access logs.' }));
         return;
       }
+
+      // An absent Origin header is trivially forged by any local process, so the
+      // origin check above is not sufficient on its own. Require a token or an
+      // established dashboard session.
+      const queryToken = url.searchParams.get('token');
+      const { authorized, viaSession } = authorizeLogsRequest(
+        { headers: req.headers, queryToken },
+        authToken
+      );
+
+      if (!authorized) {
+        console.warn('  🔒 Blocked unauthenticated /logs request.');
+        res.writeHead(401, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        });
+        res.end(
+          JSON.stringify({
+            error:
+              'Unauthorized: the log dashboard requires an auth token. Open the URL printed by the server on startup, or append ?token=<WEBMCP_AUTH_TOKEN>.',
+          })
+        );
+        return;
+      }
+
+      // Exchange a valid token for an HttpOnly session cookie so the token stops
+      // travelling in URLs (and out of browser history / referrers).
+      if (!viaSession) {
+        res.setHeader('Set-Cookie', buildLogsSessionCookie(createLogsSession()));
+      }
+
+      if (queryToken) {
+        const cleanUrl = new URL(url);
+        cleanUrl.searchParams.delete('token');
+        res.writeHead(302, {
+          Location: `${cleanUrl.pathname}${cleanUrl.search}`,
+          'Cache-Control': 'no-store',
+          'Referrer-Policy': 'no-referrer',
+        });
+        res.end();
+        return;
+      }
+
+      const noStoreHeaders = {
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+        'X-Content-Type-Options': 'nosniff',
+      };
+
       if (url.searchParams.get('stream') === 'true') {
         res.writeHead(200, {
+          ...noStoreHeaders,
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive',
@@ -190,17 +266,37 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (url.searchParams.get('json') === 'true') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, { 'Content-Type': 'application/json', ...noStoreHeaders });
         res.end(JSON.stringify({ logs }));
         return;
       }
 
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(fs.readFileSync(path.join(__dirname, 'logs.html'), 'utf-8'));
+      // Log payloads are attacker-controlled (tool names and results come from
+      // arbitrary pages). A nonce-based CSP means that even if an escaping bug
+      // slipped through, injected markup could not execute or phone home.
+      const nonce = randomBytes(16).toString('base64');
+      const html = fs
+        .readFileSync(path.join(__dirname, 'logs.html'), 'utf-8')
+        .replaceAll('__CSP_NONCE__', nonce);
+
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': [
+          "default-src 'none'",
+          `script-src 'nonce-${nonce}'`,
+          "style-src 'unsafe-inline'",
+          "connect-src 'self'",
+          "img-src 'none'",
+          "form-action 'none'",
+          "frame-ancestors 'none'",
+          "base-uri 'none'",
+        ].join('; '),
+        ...noStoreHeaders,
+      });
+      res.end(html);
       return;
     }
 
-    const startTime = performance.now();
 
     if (url.pathname === '/api/model') {
       let requestPayload = null;
@@ -431,4 +527,11 @@ const HOST = process.env.HOST || env.host || '127.0.0.1';
 const PORT = process.env.PORT || env.port || 3000;
 server.listen(PORT, HOST, () => {
   console.log(`🚀 Backend Gemini server listening on http://${HOST}:${PORT}`);
+  console.log(
+    `📊 Log dashboard: http://${HOST}:${PORT}/logs?token=${encodeURIComponent(authToken)}`
+  );
+  console.log('   (the token is exchanged for a session cookie and stripped from the URL)');
+  if (redactLogBodies) {
+    console.log('   WEBMCP_LOG_REDACT_BODIES is on — request/response bodies will not be logged.');
+  }
 });
