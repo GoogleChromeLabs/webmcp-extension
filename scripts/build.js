@@ -15,6 +15,8 @@ const envPath = path.join(rootDir, '.env');
 
 const env = loadDotEnv(envPath);
 const authToken = ensureAuthToken(env, envPath);
+const port = process.env.PORT || env.PORT || '3000';
+const serverUrl = `http://localhost:${port}`;
 
 const isWatch = process.argv.includes('--watch');
 
@@ -25,8 +27,10 @@ if (!isWatch) {
 fs.mkdirSync(distDir, { recursive: true });
 
 function copyStaticAssets() {
+  // Only the extension shell is copied verbatim. Everything under src/ is
+  // bundled by esbuild below, including the fonts referenced from styles.css,
+  // so copying it here would ship the sources and a second copy of the fonts.
   fs.cpSync(path.join(rootDir, 'extension'), distDir, { recursive: true });
-  fs.cpSync(path.join(rootDir, 'src'), path.join(distDir, 'src'), { recursive: true });
 }
 
 copyStaticAssets();
@@ -43,6 +47,7 @@ const buildOptions = {
   outfile: path.join(distDir, 'sidebar.js'),
   define: {
     'process.env.WEBMCP_AUTH_TOKEN': JSON.stringify(authToken),
+    'process.env.WEBMCP_SERVER_URL': JSON.stringify(serverUrl),
   },
 };
 

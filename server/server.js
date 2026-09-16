@@ -36,7 +36,13 @@ if (!apiKey) {
 }
 
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+/**
+ * Active chat sessions, keyed by chat id. Bounded so a long-running dev server
+ * does not grow without limit; Map preserves insertion order, so the first key
+ * is always the least recently created session.
+ */
 const chats = new Map();
+const MAX_CHAT_SESSIONS = 100;
 const logs = [];
 const logClients = new Set();
 
@@ -110,15 +116,51 @@ function getSystemInstruction() {
   ];
 }
 
+/** Largest accepted JSON request body, in bytes. */
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/** Builds an Error the request handler can turn into a specific status code. */
+function httpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (chunk) => (body += chunk));
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      // Stop reading, but leave the socket open so the handler can still
+      // write a response instead of the client seeing a connection reset.
+      req.pause();
+      reject(err);
+    };
+
+    req.on('data', (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        fail(httpError(413, `Request body exceeds the ${MAX_BODY_BYTES} byte limit.`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on('error', (err) => fail(httpError(400, 'Could not read the request body.')));
+
     req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      const body = Buffer.concat(chunks).toString('utf-8');
       try {
         resolve(body ? JSON.parse(body) : {});
-      } catch (err) {
-        reject(err);
+      } catch {
+        reject(httpError(400, 'Request body is not valid JSON.'));
       }
     });
   });
@@ -171,16 +213,9 @@ const server = http.createServer(async (req, res) => {
 
       // 2. Auth token verification
       if (!validateAuthToken(req.headers, authToken)) {
-        const receivedToken =
-          req.headers['x-webmcp-auth'] ||
-          (req.headers.authorization?.startsWith('Bearer ')
-            ? req.headers.authorization.slice(7).trim()
-            : null);
-        console.warn(
-          `  🔒 Unauthorized API request: missing or invalid WebMCP auth token (received: ${
-            receivedToken ? `"${receivedToken}"` : 'none'
-          }).`
-        );
+        // Deliberately does not echo the rejected value: it is attacker
+        // supplied, and these logs get screen-shared and pasted into issues.
+        console.warn('  🔒 Unauthorized API request: missing or invalid WebMCP auth token.');
         recordServerLog({
           method: req.method,
           path: url.pathname,
@@ -355,9 +390,19 @@ const server = http.createServer(async (req, res) => {
         chatId = randomUUID();
         console.log(`  Initializing new chat session [${chatId}] with model: "${activeModel}"`);
         chatSession = ai.chats.create({ model: activeModel });
+        if (chats.size >= MAX_CHAT_SESSIONS) {
+          const oldestId = chats.keys().next().value;
+          chats.delete(oldestId);
+          console.log(`  Evicted least recently used chat session [${oldestId}] to stay within the session cap.`);
+        }
         chats.set(chatId, chatSession);
       } else {
         console.log(`  Resuming chat session [${chatId}] with model: "${activeModel}"`);
+        // Re-insert so Map insertion order tracks recent use, not creation
+        // time. Without this an active long conversation is the first thing
+        // evicted, and the client silently gets a fresh session instead.
+        chats.delete(chatId);
+        chats.set(chatId, chatSession);
       }
 
       const functionDeclarations = (tools || []).map((tool) => {
@@ -454,21 +499,44 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
   } catch (error) {
-    console.error('  Server error:', error.message || error);
+    const detail = error?.message || String(error);
+    // Only errors this file created with httpError() carry a status code, and
+    // it is validated here because an out-of-range value would make writeHead
+    // throw inside the catch, which would take the process down.
+    const tagged = error?.statusCode;
+    const statusCode =
+      Number.isInteger(tagged) && tagged >= 400 && tagged <= 499 ? tagged : 500;
+
+    // A 4xx is the caller's own malformed request, so echoing the reason is
+    // useful and safe. A 5xx stays generic: it can carry upstream API text or
+    // filesystem paths.
+    const clientMessage =
+      statusCode >= 500 ? 'Internal server error. Check the server console for details.' : detail;
+
+    if (statusCode >= 500) {
+      console.error('  Server error:', detail);
+    } else {
+      console.warn(`  ${statusCode} Bad request: ${detail}`);
+    }
+
     recordServerLog({
       method: req.method,
       path: url.pathname,
-      statusCode: 500,
+      statusCode,
       startTime,
-      error: error.message || String(error),
+      error: detail,
     });
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: error.message }));
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: clientMessage }));
   }
 });
 
-const HOST = process.env.HOST || env.host || '127.0.0.1';
-const PORT = process.env.PORT || env.port || 3000;
+// loadDotEnv preserves keys verbatim, so these match the uppercase names the
+// README documents. Do not add lowercase fallbacks: scripts/build.js reads the
+// uppercase keys, so accepting both here would let the server and the bundled
+// side panel disagree about the port with nothing to signal it.
+const HOST = process.env.HOST || env.HOST || '127.0.0.1';
+const PORT = process.env.PORT || env.PORT || 3000;
 server.listen(PORT, HOST, () => {
   console.log(`🚀 Backend Gemini server listening on http://${HOST}:${PORT}`);
   console.log(

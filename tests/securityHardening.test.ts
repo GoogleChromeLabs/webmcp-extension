@@ -238,6 +238,8 @@ test('security - backendBridge includes X-WebMCP-Auth header when auth token is 
     globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
       capturedHeaders = (init?.headers as Record<string, string>) || {};
       return {
+        ok: true,
+        status: 200,
         json: async () => ({ success: true }),
       } as Response;
     };
