@@ -56,7 +56,7 @@ export function App() {
   // The panel is shared by every tab in the window, so it follows whichever
   // tab is in front and shows that tab's page and conversation.
   const activeTabId = useActiveTabId({ onDeviceModel });
-  const { tools, domain, favicon, statusMsg } = useActiveTabTools(activeTabId);
+  const { tools, domain, origin, favicon, statusMsg } = useActiveTabTools(activeTabId);
   const {
     userPrompt,
     setUserPrompt,
@@ -69,7 +69,7 @@ export function App() {
     handleSendPrompt,
     handleStop,
     handleReset,
-  } = useAgentSession(activeTabId, { sensitiveActionAlerts, onDeviceModel });
+  } = useAgentSession(activeTabId, { sensitiveActionAlerts, onDeviceModel, origin });
 
   const handleToggleOnDeviceModel = () => {
     // Switching backends mid-response would pull the conversation out from
@@ -317,7 +317,10 @@ export function App() {
                     ? {
                         toolName: pendingPermission.toolName,
                         toolDescription: pendingPermission.toolDescription,
+                        origin: pendingPermission.origin,
+                        consequential: pendingPermission.consequential,
                         onAllow: pendingPermission.allow,
+                        onAlwaysAllow: pendingPermission.allowAlways,
                         onDeny: pendingPermission.deny,
                       }
                     : null

@@ -103,6 +103,7 @@ async function listTools(fromOrigins) {
       inputSchema: tool.inputSchema,
       readOnlyHint: tool.annotations?.readOnlyHint,
       untrustedContentHint: tool.annotations?.untrustedContentHint,
+      consequentialHint: tool.annotations?.consequentialHint,
       name: tool.name,
       frameId,
     });

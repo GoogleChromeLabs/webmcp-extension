@@ -6,11 +6,18 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { getTabInfo, requestTabTools } from '../services/extensionBridge.js';
 import { tabSessions } from '../services/tabSessionStore.js';
+import { originOfUrl } from '../services/toolPermissions.js';
 import { WebMCPTool } from '../types/index.js';
 
 export interface UseActiveTabToolsReturn {
   tools: WebMCPTool[];
   domain: string;
+  /**
+   * The full origin of the active tab, such as `https://example.com`, or an
+   * empty string for a page that has none. Permission grants are scoped to it
+   * rather than to `domain`, which drops the scheme and the port.
+   */
+  origin: string;
   favicon: string;
   statusMsg: string;
   refreshActiveTab: () => Promise<void>;
@@ -44,8 +51,8 @@ function domainFor(url: string): string {
 }
 
 /**
- * Keeps each tab's WebMCP tools, domain and favicon up to date, and returns
- * those of the tab in front.
+ * Keeps each tab's WebMCP tools, domain, origin and favicon up to date, and
+ * returns those of the tab in front.
  *
  * Reports are filed under the tab that sent them rather than only kept for the
  * active one: a turn that is still running in a background tab needs that
@@ -63,11 +70,21 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
 
+  const tabSeqRef = useRef<Map<number, number>>(new Map());
+  const bumpTabSeq = (tabId: number): number => {
+    const next = (tabSeqRef.current.get(tabId) ?? 0) + 1;
+    tabSeqRef.current.set(tabId, next);
+    return next;
+  };
+
   const refreshTab = useCallback(async (tabId: number) => {
+    const seq = bumpTabSeq(tabId);
     const info = await getTabInfo(tabId);
-    if (info) {
+    const stillTracked = tabId === activeTabIdRef.current || tabSessions.has(tabId);
+    if (info && stillTracked && tabSeqRef.current.get(tabId) === seq) {
       tabSessions.update(tabId, {
         domain: info.domain,
+        origin: originOfUrl(info.url || ''),
         favicon: info.favicon || faviconFor(info.url || ''),
       });
     }
@@ -79,7 +96,7 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
       const unreachable =
         error?.message?.includes('Could not establish connection') ||
         error?.message?.includes('Receiving end does not exist');
-      if (!unreachable) {
+      if (!unreachable && (tabId === activeTabIdRef.current || tabSessions.has(tabId))) {
         tabSessions.update(tabId, { statusMsg: String(err) });
       }
     }
@@ -109,10 +126,12 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
       if (tabId == null) return;
 
       const pageUrl = url || sender?.tab?.url || '';
+      if (pageUrl) bumpTabSeq(tabId);
       tabSessions.update(tabId, (previous) => ({
-        statusMsg: message || '',
+        statusMsg: message !== undefined ? message : tools !== undefined ? '' : previous.statusMsg,
         tools: tools !== undefined ? tools : previous.tools,
         domain: pageUrl ? domainFor(pageUrl) : previous.domain,
+        origin: pageUrl ? originOfUrl(pageUrl) : previous.origin,
         favicon: pageUrl ? faviconFor(pageUrl, sender?.tab?.favIconUrl) : previous.favicon,
       }));
     };
@@ -134,7 +153,16 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
       if (!isTracked) return;
       // The tools of the page being left no longer exist. Clearing them keeps
       // a turn from declaring tools that have gone.
-      if (changeInfo.url) tabSessions.update(tabId, { tools: [], statusMsg: '' });
+      if (changeInfo.url) {
+        bumpTabSeq(tabId);
+        tabSessions.update(tabId, {
+          tools: [],
+          statusMsg: '',
+          domain: domainFor(changeInfo.url),
+          origin: originOfUrl(changeInfo.url),
+          favicon: faviconFor(changeInfo.url),
+        });
+      }
       if (changeInfo.status === 'complete' || changeInfo.url) void refreshTab(tabId);
     };
 
@@ -154,6 +182,7 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
   return {
     tools: session.tools,
     domain: session.domain,
+    origin: session.origin,
     favicon: session.favicon,
     statusMsg: session.statusMsg,
     refreshActiveTab,

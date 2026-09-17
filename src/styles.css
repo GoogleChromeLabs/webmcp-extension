@@ -1552,5 +1552,59 @@ main {
   outline-offset: 1px;
 }
 
+/* The lesser-used choice, so it sits below the pair and is drawn more quietly. */
+.tool-permission-card__btn--always {
+  width: 100%;
+  flex: none;
+  min-height: 32px;
+  height: auto;
+  padding: 6px 12px;
+  text-align: center;
+  background-color: transparent;
+  border: 1px solid var(--color-outline);
+  color: var(--color-blue-title);
+  margin-top: -6px;
+}
 
+.tool-permission-card__btn--always:hover {
+  background-color: var(--color-surface-container);
+}
 
+.tool-permission-card__btn--always:active {
+  background-color: var(--color-outline);
+}
+
+/* --------------------------------------------------------------------------
+   Consequential variant: the page says this may not be reversible.
+   Deliberately not styled as a routine confirmation.
+   -------------------------------------------------------------------------- */
+.tool-permission-card--consequential .tool-permission-card__title {
+  color: var(--color-on-error-container);
+}
+
+.tool-permission-card__warning {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background-color: var(--color-error-container);
+  color: var(--color-on-error-container);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+/* The confirm action must not look like the routine blue "Allow". */
+.tool-permission-card--consequential .tool-permission-card__btn--allow {
+  background-color: var(--color-error);
+}
+
+.tool-permission-card--consequential .tool-permission-card__btn--allow:hover {
+  background-color: var(--color-on-error-container);
+}
+
+.tool-permission-card--consequential .tool-permission-card__btn--allow:active {
+  background-color: #6d1611;
+}

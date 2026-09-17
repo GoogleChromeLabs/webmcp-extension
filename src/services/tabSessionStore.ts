@@ -4,6 +4,7 @@
  */
 
 import { resetChatSession } from './chatBridge.js';
+import { clearSessionToolPermissions } from './toolPermissions.js';
 import {
   ActivityEntry,
   ChatMessage,
@@ -31,6 +32,7 @@ export interface TabSessionState {
   /** The tools the page in this tab exposes, as last reported. */
   tools: WebMCPTool[];
   domain: string;
+  origin: string;
   favicon: string;
   statusMsg: string;
 }
@@ -49,6 +51,7 @@ export const EMPTY_TAB_SESSION: TabSessionState = Object.freeze({
   pendingPermission: null,
   tools: Object.freeze([]) as unknown as WebMCPTool[],
   domain: '',
+  origin: '',
   favicon: '',
   statusMsg: '',
 });
@@ -151,6 +154,7 @@ class TabSessionStore {
         resetChatSession({ chatId: internals.chatId, onDevice: options.onDevice });
       }
     }
+    clearSessionToolPermissions(tabId);
     const existed = this.states.delete(tabId);
     this.internals.delete(tabId);
     if (existed) this.emit();
@@ -161,6 +165,7 @@ class TabSessionStore {
     for (const internals of this.internals.values()) {
       internals.abortController?.abort();
     }
+    clearSessionToolPermissions();
     this.states.clear();
     this.internals.clear();
     this.emit();

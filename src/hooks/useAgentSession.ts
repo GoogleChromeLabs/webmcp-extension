@@ -13,9 +13,17 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { getSpotlighting, resetChatSession, sendChatTurn } from '../services/chatBridge.js';
-import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
+import { executeTabTool, getTabInfo, requestTabTools } from '../services/extensionBridge.js';
 import { tabSessions } from '../services/tabSessionStore.js';
 import { buildToolDecls, decodeToolName, isToolUntrusted } from '../services/toolEncoder.js';
+import {
+  applyToolPermissionDecision,
+  clearSessionToolPermissions,
+  isGrantEligible,
+  needsToolPermission,
+  originOfUrl,
+  ToolPermissionDecision,
+} from '../services/toolPermissions.js';
 import {
   ActivityEntry,
   ChatMessage,
@@ -24,13 +32,20 @@ import {
   WebMCPTool,
 } from '../types/index.js';
 
-export type { PendingToolPermission } from '../types/index.js';
-
 export interface UseAgentSessionOptions {
   sensitiveActionAlerts?: boolean;
   /** Run the model on the device through the Prompt API instead of the server. */
   onDeviceModel?: boolean;
+  /**
+   * The origin of the page the tools belong to, such as `https://example.com`.
+   * Permission granted for the rest of the session is remembered against it,
+   * so the same tool name on another site still has to be allowed there.
+   */
+  origin?: string;
 }
+
+/** Re-exported for callers of this hook; defined with the permission rules. */
+export type { PendingToolPermission, ToolPermissionDecision };
 
 export interface UseAgentSessionReturn {
   userPrompt: string;
@@ -174,9 +189,12 @@ function toolsViewFor(getTabId: () => number): MutableRefObject<WebMCPTool[]> {
  * in the background and writes to its own tab.
  */
 export function useAgentSession(
-  activeTabId: number | null,
+  tabIdOrTools: number | null | WebMCPTool[] | MutableRefObject<WebMCPTool[]>,
   options?: UseAgentSessionOptions
 ): UseAgentSessionReturn {
+  const activeTabId =
+    typeof tabIdOrTools === 'number' ? tabIdOrTools : tabIdOrTools === null ? null : 1;
+
   // The third argument is the snapshot for a render outside a browser, which
   // is the same one: the store is plain state, not anything the DOM holds.
   const readSession = () => tabSessions.getState(activeTabId);
@@ -201,9 +219,17 @@ export function useAgentSession(
         resetChatSession({ chatId: internals.chatId, onDevice: onDeviceModelRef.current });
         internals.chatId = undefined;
       }
+      clearSessionToolPermissions();
     }
     onDeviceModelRef.current = next;
   }, [options?.onDeviceModel]);
+
+  // Read when a tool is about to run rather than when the turn started, so a
+  // call that follows a navigation is judged against the page it lands on.
+  const originRef = useRef<string>(options?.origin ?? '');
+  useEffect(() => {
+    originRef.current = options?.origin ?? '';
+  }, [options?.origin]);
 
   // Cleanup in-flight requests on unmount: the panel is closing, and nothing
   // is left to show a reply to.
@@ -213,6 +239,7 @@ export function useAgentSession(
         tabSessions.getInternals(tabId).abortController?.abort();
         tabSessions.update(tabId, { pendingPermission: null, busy: false });
       }
+      clearSessionToolPermissions();
     };
   }, []);
 
@@ -252,6 +279,9 @@ export function useAgentSession(
 
   // Reset chat session state
   const handleReset = useCallback(() => {
+    // A new chat asks again: permission was given for the conversation the
+    // user was having, not for every one that follows it.
+    clearSessionToolPermissions(activeTabId ?? undefined);
     if (activeTabId == null) return;
     const internals = tabSessions.getInternals(activeTabId);
     if (internals.abortController) {
@@ -308,7 +338,13 @@ export function useAgentSession(
     // page being worked on can move: a tool may open a tab of its own and the
     // flow carries on there.
     let turnTabId = tabId;
+    const startOrigin = originRef.current;
     const toolsView = toolsViewFor(() => turnTabId);
+    const currentOrigin = () => {
+      const tabState = tabSessions.getState(turnTabId);
+      if (tabState.origin || tabState.domain) return tabState.origin;
+      return turnTabId === tabId ? startOrigin : '';
+    };
 
     // Initialize turn abort controller
     internals.abortController?.abort();
@@ -358,6 +394,9 @@ export function useAgentSession(
       tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
 
     internals.turnLogs = [];
+    if (onDeviceModelRef.current && !internals.chatId) {
+      internals.chatId = crypto.randomUUID();
+    }
     tabSessions.update(tabId, (previous) => ({
       busy: true,
       userPrompt: '',
@@ -412,56 +451,90 @@ export function useAgentSession(
         for (const call of currentResult.functionCalls) {
           if (signal.aborted) break;
           const { name, frameId } = decodeToolName(call.name);
-          // Find the tool declaration among this tab's tools
+          // Find the tool declaration among this tab's tools without crossing frame boundaries
           const targetTool =
-            toolsView.current.find(
-              (t) => t.name === name && (frameId === undefined || t.frameId === frameId)
-            ) || toolsView.current.find((t) => t.name === name);
+            frameId !== undefined
+              ? toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === frameId)
+              : toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === 0) ||
+                toolsView.current.find((t) => t.name === name);
 
-          const isReadOnly = targetTool?.readOnlyHint === true;
           const entry = logActivity('assistant', name, call.args);
 
+          const toolName = targetTool?.name || name;
+          const origin = currentOrigin();
+          // Explicit frameId from the tool call takes precedence over fallback tool metadata.
+          const toolFrameId = frameId ?? targetTool?.frameId ?? 0;
+          const permissionQuery = {
+            sensitiveActionAlerts: sensitiveActionAlertsRef.current,
+            origin,
+            toolName,
+            tabId,
+            readOnlyHint: targetTool?.readOnlyHint,
+            consequentialHint: targetTool?.consequentialHint,
+            toolFrameId,
+            toolResolved: Boolean(targetTool),
+          };
+          const grantEligible = isGrantEligible(permissionQuery);
+          const needsPermission = needsToolPermission(permissionQuery);
+
           // If sensitive action alerts is enabled and tool is not readonly, prompt the user before execution
-          if (sensitiveActionAlertsRef.current && !isReadOnly) {
-            const allowed = await new Promise<boolean>((resolve) => {
+          if (needsPermission) {
+            const decision = await new Promise<ToolPermissionDecision>((resolve) => {
               const clearPrompt = () => tabSessions.update(tabId, { pendingPermission: null });
               const onAbort = () => {
                 signal.removeEventListener('abort', onAbort);
                 clearPrompt();
-                resolve(false);
+                resolve('deny');
               };
 
               if (signal.aborted) {
-                resolve(false);
+                resolve('deny');
                 return;
               }
 
               signal.addEventListener('abort', onAbort, { once: true });
 
+              const settle = (outcome: ToolPermissionDecision) => () => {
+                signal.removeEventListener('abort', onAbort);
+                clearPrompt();
+                resolve(outcome);
+              };
+
               // Filed under this turn's tab, so it is only on screen while
               // that tab is in front.
               tabSessions.update(tabId, {
                 pendingPermission: {
-                  toolName: targetTool?.name || name,
+                  toolName,
                   toolDescription: targetTool?.description,
                   args: call.args,
-                  allow: () => {
-                    signal.removeEventListener('abort', onAbort);
-                    clearPrompt();
-                    resolve(true);
-                  },
-                  deny: () => {
-                    signal.removeEventListener('abort', onAbort);
-                    clearPrompt();
-                    resolve(false);
-                  },
+                  origin: origin || undefined,
+                  consequential: targetTool?.consequentialHint === true,
+                  allow: settle('allow'),
+                  // Only offered where the grant would mean what the button says:
+                  // a known tool, in the top frame, of a page with an origin, and
+                  // never for something that cannot be undone.
+                  allowAlways: grantEligible ? settle('allowAlways') : undefined,
+                  deny: settle('deny'),
                 },
               });
             });
 
             if (signal.aborted) break;
 
-            if (!allowed) {
+            // Verify that the tab has not navigated to a different origin while awaiting permission.
+            const latestOrigin = currentOrigin();
+            if (latestOrigin !== origin) {
+              completeActivity(entry, { error: 'Origin changed while waiting for permission' });
+              toolResponses.push({
+                functionResponse: {
+                  name: call.name,
+                  response: { error: 'Page origin changed before tool execution was approved.' },
+                },
+              });
+              continue;
+            }
+
+            if (!applyToolPermissionDecision(decision, permissionQuery)) {
               completeActivity(entry, { error: 'User denied permission' });
               toolResponses.push({
                 functionResponse: {
@@ -476,12 +549,24 @@ export function useAgentSession(
           try {
             // Security Note: This is where you might utilize a critic to check that the
             // tool call and parameters align with the user's intent before execution.
-            const rawRes = await executeTabTool(name, call.args, frameId, turnTabId, {
+            let movedToNewTab = false;
+            const rawRes = await executeTabTool(name, call.args, toolFrameId, turnTabId, {
               onTabChanged: (movedTabId) => {
                 turnTabId = movedTabId;
+                movedToNewTab = true;
               },
             });
             if (signal.aborted) break;
+            if (movedToNewTab) {
+              const movedInfo = await getTabInfo(turnTabId);
+              if (movedInfo) {
+                tabSessions.update(turnTabId, (prev) => ({
+                  domain: movedInfo.domain || prev.domain,
+                  origin: originOfUrl(movedInfo.url || '') || prev.origin,
+                  favicon: movedInfo.favicon || prev.favicon,
+                }));
+              }
+            }
 
             const limitedRes = applyTokenLimit(rawRes);
             const res = applySpotlighting(
