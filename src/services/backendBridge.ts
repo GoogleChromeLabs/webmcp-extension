@@ -132,13 +132,32 @@ export async function streamBackend<T = unknown>(
   let buffer = '';
   let text = '';
   for (;;) {
-    const { value, done } = await reader.read();
+    let chunk: ReadableStreamReadResult<string>;
+    try {
+      chunk = await reader.read();
+    } catch (error) {
+      // A caller-initiated cancellation must stay recognisable to the caller
+      // (name === 'AbortError'); do not rewrite it as a connection failure.
+      if (options.signal?.aborted) throw error;
+      throw new Error(`Lost the connection to the WebMCP server at ${SERVER_URL}.`);
+    }
+    const { value, done } = chunk;
     if (value) buffer += value;
+
+    // A piece is only a line once the newline that ends it has arrived. What
+    // is left when the response ends is a line the server never finished
+    // writing, and reading it as one would fail as a parse error.
     const lines = buffer.split('\n');
-    buffer = done ? '' : (lines.pop() ?? '');
+    buffer = lines.pop() ?? '';
+
     for (const line of lines) {
       if (!line.trim()) continue;
-      const message = JSON.parse(line);
+      let message: { error?: string; done?: boolean; text?: string };
+      try {
+        message = JSON.parse(line);
+      } catch {
+        throw new Error(`The backend server sent a line that is not JSON: ${line.slice(0, 100)}`);
+      }
       if (message.error) throw new Error(message.error);
       if (message.done) {
         const { done: _done, ...payload } = message;

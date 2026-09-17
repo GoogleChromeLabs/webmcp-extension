@@ -390,6 +390,52 @@ test('backendBridge - streamBackend reports text as it arrives and resolves with
     globalThis.fetch = (async () => ndjsonResponse([{ text: 'Hel' }])) as typeof fetch;
     await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /ended the response early/);
 
+    // A response cut off in the middle of a line says the same: the piece the
+    // server never finished writing is no line, and reading it as one would
+    // fail as a parse error.
+    const truncated = () =>
+      new Response(`${JSON.stringify({ text: 'Hello' })}\n{"text":"half of a li`, {
+        headers: { 'Content-Type': 'application/x-ndjson' },
+      });
+    globalThis.fetch = truncated as unknown as typeof fetch;
+    const half: string[] = [];
+    await assert.rejects(
+      () => streamBackend('/api/chat', { message: 'Hi' }, { onText: (piece) => half.push(piece) }),
+      /ended the response early/
+    );
+    // What did arrive in full was still reported.
+    assert.deepEqual(half, ['Hello']);
+
+    // A line that is not JSON at all says so, rather than throwing a
+    // SyntaxError from the parser.
+    globalThis.fetch = (async () =>
+      new Response('not json at all\n', { headers: { 'Content-Type': 'application/x-ndjson' } })) as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /not JSON: not json at all/);
+
+    // A connection that dies mid-response reads as a lost connection...
+    const dying = (error: Error) => () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ text: 'Hello' })}\n`));
+            controller.error(error);
+          },
+        }),
+        { headers: { 'Content-Type': 'application/x-ndjson' } }
+      );
+    globalThis.fetch = dying(new TypeError('fetch failed')) as unknown as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /Lost the connection/);
+
+    // ...unless the caller stopped it, whose AbortError has to stay one.
+    const controller = new AbortController();
+    globalThis.fetch = (() => {
+      controller.abort();
+      return dying(new DOMException('The operation was aborted.', 'AbortError'))();
+    }) as unknown as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }, { signal: controller.signal }), {
+      name: 'AbortError',
+    });
+
     // A refusal before streaming comes as plain JSON.
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ error: 'Unauthorized' }), {
