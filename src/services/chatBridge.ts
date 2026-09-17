@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { callBackend } from './backendBridge.js';
+import { callBackend, streamBackend } from './backendBridge.js';
 import { getSpotlightFence, resetOnDeviceChat, sendOnDeviceChat } from './promptApiBackend.js';
 import { ChatTurnRequest, ChatTurnResponse } from '../types/index.js';
 
@@ -11,17 +11,18 @@ import { ChatTurnRequest, ChatTurnResponse } from '../types/index.js';
  * Routes a chat turn to the backend the user picked: the local server, which
  * calls Gemini, or the browser's built-in model through the Prompt API. Both
  * take the same request and answer with the same shape, so the agent loop does
- * not care which one runs.
+ * not care which one runs. Both stream: `onText` gets the text of the turn so
+ * far as it is written.
  */
 export async function sendChatTurn(
   request: ChatTurnRequest,
-  options: { signal?: AbortSignal; onDevice?: boolean } = {}
+  options: { signal?: AbortSignal; onDevice?: boolean; onText?: (text: string) => void } = {}
 ): Promise<ChatTurnResponse> {
-  const { signal, onDevice } = options;
+  const { signal, onDevice, onText } = options;
   if (onDevice) {
-    return sendOnDeviceChat(request, { signal });
+    return sendOnDeviceChat(request, { signal, onText });
   }
-  return callBackend<ChatTurnResponse>('/api/chat', request, { signal });
+  return streamBackend<ChatTurnResponse>('/api/chat', { ...request, stream: true }, { signal, onText });
 }
 
 /**

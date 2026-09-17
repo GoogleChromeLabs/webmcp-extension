@@ -22,26 +22,30 @@ export function getAuthToken(): string {
   return process.env.WEBMCP_AUTH_TOKEN || '';
 }
 
+/** The headers every request to the backend server carries. */
+function buildHeaders(data: unknown): Headers {
+  const headers = new Headers();
+  if (data) headers.set('Content-Type', 'application/json');
+  const token = getAuthToken();
+  if (token) headers.set('X-WebMCP-Auth', token);
+  return headers;
+}
+
 /**
  * Utility for making API requests to the backend Gemini model routing server.
  *
- * `headers` is deliberately excluded from `options`: this function owns the
- * auth token and Content-Type headers, and merging caller-supplied ones is
- * case-sensitive, so a caller passing `x-webmcp-auth` would produce a second
- * header rather than replacing ours. fetch joins duplicates with a comma and
- * the server then rejects the request. Excluding it makes that a type error.
+ * `headers` is deliberately excluded from `options`, here and on
+ * streamBackend(): this function owns the auth token and Content-Type
+ * headers, and merging caller-supplied ones is case-sensitive, so a caller
+ * passing `x-webmcp-auth` would produce a second header rather than replacing
+ * ours. fetch joins duplicates with a comma and the server then rejects the
+ * request. Excluding it makes that a type error.
  */
 export async function callBackend<T = unknown>(
   endpoint: string,
   data?: unknown,
   options: Omit<RequestInit, 'headers'> = {}
 ): Promise<T> {
-  const token = getAuthToken();
-  const headers: Record<string, string> = {
-    ...(data ? { 'Content-Type': 'application/json' } : {}),
-    ...(token ? { 'X-WebMCP-Auth': token } : {}),
-  };
-
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const signal = options.signal
     ? AbortSignal.any([options.signal, timeout])
@@ -53,7 +57,7 @@ export async function callBackend<T = unknown>(
       method: data ? 'POST' : 'GET',
       ...(data ? { body: JSON.stringify(data) } : {}),
       ...options,
-      headers,
+      headers: buildHeaders(data),
       signal,
     });
   } catch (error) {
@@ -90,3 +94,80 @@ export async function callBackend<T = unknown>(
   return json as T;
 }
 
+/**
+ * Like callBackend(), for an endpoint that streams newline-delimited JSON:
+ * `{ text }` lines as the response is written, then a `{ done: true }` line
+ * with the whole payload, which is what this resolves with. `onText` is
+ * called with the text so far on every `{ text }` line. An `{ error }` line,
+ * or a plain JSON error when the server refused before streaming, rejects.
+ */
+export async function streamBackend<T = unknown>(
+  endpoint: string,
+  data: unknown,
+  { onText, ...options }: Omit<RequestInit, 'headers'> & { onText?: (text: string) => void } = {}
+): Promise<T> {
+  // No timeout on the request itself, unlike callBackend(): a streamed turn
+  // can take as long as the model keeps writing, and a caller that stops it
+  // aborts the signal.
+  let res: Response;
+  try {
+    res = await fetch(`${SERVER_URL}${endpoint}`, {
+      ...options,
+      method: 'POST',
+      headers: buildHeaders(data),
+      body: JSON.stringify(data),
+    });
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    throw new Error(`Could not reach the WebMCP server at ${SERVER_URL}. Is it running?`);
+  }
+
+  if (!res.body || !res.headers.get('Content-Type')?.includes('ndjson')) {
+    const json = await res.json();
+    if (json.error) throw new Error(json.error);
+    return json as T;
+  }
+
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  let text = '';
+  for (;;) {
+    let chunk: ReadableStreamReadResult<string>;
+    try {
+      chunk = await reader.read();
+    } catch (error) {
+      // A caller-initiated cancellation must stay recognisable to the caller
+      // (name === 'AbortError'); do not rewrite it as a connection failure.
+      if (options.signal?.aborted) throw error;
+      throw new Error(`Lost the connection to the WebMCP server at ${SERVER_URL}.`);
+    }
+    const { value, done } = chunk;
+    if (value) buffer += value;
+
+    // A piece is only a line once the newline that ends it has arrived. What
+    // is left when the response ends is a line the server never finished
+    // writing, and reading it as one would fail as a parse error.
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let message: { error?: string; done?: boolean; text?: string };
+      try {
+        message = JSON.parse(line);
+      } catch {
+        throw new Error(`The backend server sent a line that is not JSON: ${line.slice(0, 100)}`);
+      }
+      if (message.error) throw new Error(message.error);
+      if (message.done) {
+        const { done: _done, ...payload } = message;
+        return payload as T;
+      }
+      if (typeof message.text === 'string') {
+        text += message.text;
+        onText?.(text);
+      }
+    }
+    if (done) throw new Error('The backend server ended the response early.');
+  }
+}

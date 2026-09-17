@@ -342,3 +342,107 @@ test('waitForToolsToSettle gives up when no tools are reported, and stops when a
   elapsed = performance.now() - start;
   assert.ok(elapsed < 300, `stopped after ${elapsed}ms`);
 });
+
+/** A fetch response streaming `lines` of newline-delimited JSON, split mid-line. */
+function ndjsonResponse(lines: unknown[]): Response {
+  const body = lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      for (let i = 0; i < body.length; i += 7) controller.enqueue(encoder.encode(body.slice(i, i + 7)));
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson' } });
+}
+
+test('backendBridge - streamBackend reports text as it arrives and resolves with the final payload', async () => {
+  const { streamBackend } = await import('../src/services/backendBridge.js');
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; body: unknown; headers: Headers }> = [];
+  try {
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      requests.push({ url: String(url), body: JSON.parse(String(init.body)), headers: new Headers(init.headers) });
+      return ndjsonResponse([
+        { text: 'Hello, ' },
+        { text: 'wörld.' },
+        { done: true, chatId: 'c1', text: 'Hello, wörld.', functionCalls: [] },
+      ]);
+    }) as typeof fetch;
+
+    const seen: string[] = [];
+    const result = await streamBackend<{ chatId: string; text: string }>(
+      '/api/chat',
+      { message: 'Hi', stream: true },
+      { onText: (text) => seen.push(text) }
+    );
+    assert.deepEqual(seen, ['Hello, ', 'Hello, wörld.']);
+    assert.deepEqual(result, { chatId: 'c1', text: 'Hello, wörld.', functionCalls: [] });
+    assert.deepEqual(requests[0].body, { message: 'Hi', stream: true });
+    // The headers are the bridge's own, as on callBackend().
+    assert.equal(requests[0].headers.get('Content-Type'), 'application/json');
+
+    // An error written mid-stream rejects.
+    globalThis.fetch = (async () => ndjsonResponse([{ text: 'Hel' }, { error: 'Quota exceeded' }])) as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), { message: 'Quota exceeded' });
+
+    // So does a stream that ends without its final line.
+    globalThis.fetch = (async () => ndjsonResponse([{ text: 'Hel' }])) as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /ended the response early/);
+
+    // A response cut off in the middle of a line says the same: the piece the
+    // server never finished writing is no line, and reading it as one would
+    // fail as a parse error.
+    const truncated = () =>
+      new Response(`${JSON.stringify({ text: 'Hello' })}\n{"text":"half of a li`, {
+        headers: { 'Content-Type': 'application/x-ndjson' },
+      });
+    globalThis.fetch = truncated as unknown as typeof fetch;
+    const half: string[] = [];
+    await assert.rejects(
+      () => streamBackend('/api/chat', { message: 'Hi' }, { onText: (piece) => half.push(piece) }),
+      /ended the response early/
+    );
+    // What did arrive in full was still reported.
+    assert.deepEqual(half, ['Hello']);
+
+    // A line that is not JSON at all says so, rather than throwing a
+    // SyntaxError from the parser.
+    globalThis.fetch = (async () =>
+      new Response('not json at all\n', { headers: { 'Content-Type': 'application/x-ndjson' } })) as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /not JSON: not json at all/);
+
+    // A connection that dies mid-response reads as a lost connection...
+    const dying = (error: Error) => () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ text: 'Hello' })}\n`));
+            controller.error(error);
+          },
+        }),
+        { headers: { 'Content-Type': 'application/x-ndjson' } }
+      );
+    globalThis.fetch = dying(new TypeError('fetch failed')) as unknown as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /Lost the connection/);
+
+    // ...unless the caller stopped it, whose AbortError has to stay one.
+    const controller = new AbortController();
+    globalThis.fetch = (() => {
+      controller.abort();
+      return dying(new DOMException('The operation was aborted.', 'AbortError'))();
+    }) as unknown as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }, { signal: controller.signal }), {
+      name: 'AbortError',
+    });
+
+    // A refusal before streaming comes as plain JSON.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch;
+    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), { message: 'Unauthorized' });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

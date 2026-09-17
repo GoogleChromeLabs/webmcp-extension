@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { DownloadProgress, setOnDeviceModelUi } from '../services/promptApiBackend.js';
+import { ContextUsage, DownloadProgress, setOnDeviceModelUi } from '../services/promptApiBackend.js';
 
 /**
  * How far compacting has got, when its status says so ("Compacting message 3
@@ -18,6 +18,11 @@ export function getCompactingFraction(status: string): number | null {
   return total > 0 ? Math.min(done / total, 1) : null;
 }
 
+export interface OnDeviceModelStatusProps {
+  /** Called with how much of the context the conversation takes up. */
+  onContextUsage?: (usage: ContextUsage | null) => void;
+}
+
 /**
  * OnDeviceModelStatus Component
  * Shows what the on-device model is busy with before it can answer: its
@@ -28,12 +33,14 @@ export function getCompactingFraction(status: string): number | null {
  * they start out hidden and React leaves their `hidden` attribute alone after
  * that.
  */
-export function OnDeviceModelStatus() {
+export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps = {}) {
   const hintRef = useRef<HTMLParagraphElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const progressRef = useRef<HTMLProgressElement | null>(null);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [compacting, setCompacting] = useState<string | null>(null);
+  const onContextUsageRef = useRef(onContextUsage);
+  onContextUsageRef.current = onContextUsage;
 
   useEffect(() => {
     setOnDeviceModelUi({
@@ -42,6 +49,7 @@ export function OnDeviceModelStatus() {
       downloadProgress: progressRef.current ?? undefined,
       onDownloadProgress: setProgress,
       onCompacting: setCompacting,
+      onContextUsage: (usage) => onContextUsageRef.current?.(usage),
     });
     return () => setOnDeviceModelUi();
   }, []);

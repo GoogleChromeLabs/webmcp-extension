@@ -12,11 +12,12 @@ import SettingsScreen from './screens/SettingsScreen.js';
 import MarkdownText from './components/MarkdownText.js';
 import ActionLog from './components/ActionLog.js';
 import OnDeviceModelStatus from './components/OnDeviceModelStatus.js';
+import ContextMeter from './components/ContextMeter.js';
 import { EditSquareIcon } from './components/Icons.js';
 
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
-import { isPromptApiSupported } from './services/promptApiBackend.js';
+import { ContextUsage, isPromptApiSupported, prepareOnDeviceModel } from './services/promptApiBackend.js';
 
 export function App() {
   // Navigation & View State
@@ -37,6 +38,8 @@ export function App() {
     return localStorage.getItem('onDeviceModel') === 'true';
   });
 
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
 
@@ -54,6 +57,7 @@ export function App() {
     userPrompt,
     setUserPrompt,
     messages,
+    streamingText,
     busy,
     activityLog,
     pendingPermission,
@@ -66,11 +70,16 @@ export function App() {
     // Switching backends mid-response would pull the conversation out from
     // under the request in flight. The switch is disabled then, too.
     if (busy) return;
-    setOnDeviceModel((prev) => {
-      const next = !prev;
-      localStorage.setItem('onDeviceModel', String(next));
-      return next;
-    });
+    const next = !onDeviceModel;
+    localStorage.setItem('onDeviceModel', String(next));
+    setOnDeviceModel(next);
+    // Turning it on is a click, which a model download needs, so the download
+    // can start now rather than with the first message.
+    if (next) {
+      prepareOnDeviceModel().catch((error) => {
+        console.warn('[WebMCP] Could not start downloading the on-device model:', error);
+      });
+    }
   };
 
   const chatStreamEndRef = useRef<HTMLDivElement | null>(null);
@@ -81,7 +90,7 @@ export function App() {
       chatStreamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 50);
     return () => clearTimeout(timer);
-  }, [messages, busy]);
+  }, [messages, busy, streamingText]);
 
   // Derive dynamic welcome subtitle topic based on active domain
   const domainTopic = domain && domain !== 'New Tab' ? domain : 'your tasks';
@@ -120,7 +129,7 @@ export function App() {
       {statusMsg && <div id="status">{statusMsg}</div>}
 
       {/* On-device model status, outside <main> so settings cannot unmount it mid-download */}
-      {onDeviceModelSupported && <OnDeviceModelStatus />}
+      {onDeviceModelSupported && <OnDeviceModelStatus onContextUsage={setContextUsage} />}
 
       <main>
         {showConsent ? (
@@ -171,6 +180,7 @@ export function App() {
               {messages.length > 0 && (
                 <div className="chat-card">
                   <div className="chat-card__header">
+                    {onDeviceModel && contextUsage && <ContextMeter {...contextUsage} />}
                     <button
                       type="button"
                       className="chat-card__new-chat-btn"
@@ -195,9 +205,11 @@ export function App() {
                     if (msg.role === 'ai') {
                       return (
                         <React.Fragment key={msg.id}>
+                          {/* Hidden, not removed, for on-device replies: the Prompt API has no thinking to show yet. */}
                           <ActionLog
                             status="completed"
                             activityLogs={msg.activityLogs}
+                            hidden={msg.onDevice}
                           />
                           <div className="ai-response">
                             <MarkdownText content={msg.text} />
@@ -227,9 +239,18 @@ export function App() {
                           ? 'initiation'
                           : 'running'
                       }
-                      statusText={pendingPermission ? 'Waiting for permission' : undefined}
+                      statusText={
+                        pendingPermission ? 'Waiting for permission' : streamingText ? 'Writing...' : undefined
+                      }
                       activityLogs={activityLog}
                     />
+                  )}
+
+                  {/* The reply as it is written. Not a live region: announcing every chunk would be noise, and the finished message is what gets read. */}
+                  {busy && streamingText && (
+                    <div className="ai-response">
+                      <MarkdownText content={streamingText} />
+                    </div>
                   )}
 
                   <div ref={chatStreamEndRef} />

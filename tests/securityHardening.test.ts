@@ -229,14 +229,14 @@ test('security - log dashboard renders payloads without innerHTML or inline hand
 test('security - backendBridge includes X-WebMCP-Auth header when auth token is configured', async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.WEBMCP_AUTH_TOKEN;
-  let capturedHeaders: Record<string, string> = {};
+  let capturedHeaders = new Headers();
 
   try {
     process.env.WEBMCP_AUTH_TOKEN = 'unit-test-secret-token';
     assert.equal(getAuthToken(), 'unit-test-secret-token');
 
     globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = (init?.headers as Record<string, string>) || {};
+      capturedHeaders = new Headers(init?.headers);
       return {
         ok: true,
         status: 200,
@@ -246,8 +246,20 @@ test('security - backendBridge includes X-WebMCP-Auth header when auth token is 
 
     await callBackend('/api/test', { test: true });
 
-    assert.equal(capturedHeaders['X-WebMCP-Auth'], 'unit-test-secret-token');
-    assert.equal(capturedHeaders['Content-Type'], 'application/json');
+    assert.equal(capturedHeaders.get('X-WebMCP-Auth'), 'unit-test-secret-token');
+    assert.equal(capturedHeaders.get('Content-Type'), 'application/json');
+
+    // The headers are the bridge's own: callers cannot pass any, which the
+    // types refuse, and the ones a request carries do not depend on what a
+    // caller puts in its options.
+    await callBackend('/api/test', { test: true }, { cache: 'no-store', signal: AbortSignal.timeout(5_000) });
+    assert.equal(capturedHeaders.get('X-WebMCP-Auth'), 'unit-test-secret-token');
+    assert.equal(capturedHeaders.get('Content-Type'), 'application/json');
+
+    // A request without a body carries no content type, and still the token.
+    await callBackend('/api/test');
+    assert.equal(capturedHeaders.get('X-WebMCP-Auth'), 'unit-test-secret-token');
+    assert.equal(capturedHeaders.get('Content-Type'), null);
   } finally {
     if (originalToken !== undefined) {
       process.env.WEBMCP_AUTH_TOKEN = originalToken;

@@ -10,6 +10,7 @@ import {
   DownloadProgress,
   getSpotlightFence,
   isPromptApiSupported,
+  prepareOnDeviceModel,
   isToolUseSupported,
   resetOnDeviceChat,
   sendOnDeviceChat,
@@ -50,6 +51,8 @@ interface Stub {
   usagePerTurn: number;
   /** The prompt, counted from 1, during which the context overflows. */
   overflowOnTurn: number;
+  /** Languages the model reports as unavailable. */
+  unsupportedLanguages: string[];
 }
 
 /**
@@ -58,7 +61,7 @@ interface Stub {
  * it is aborted.
  */
 function installPromptApiStub(script: Array<StubTurn | null>): Stub {
-  const stub: Stub = { creates: [], inputs: [], sessions: [], destroyed: 0, availability: 'available', usagePerTurn: 0, overflowOnTurn: 0 };
+  const stub: Stub = { creates: [], inputs: [], sessions: [], destroyed: 0, availability: 'available', usagePerTurn: 0, overflowOnTurn: 0, unsupportedLanguages: [] };
   let turn = 0;
 
   const globals = globalThis as unknown as Record<string, unknown>;
@@ -78,7 +81,10 @@ function installPromptApiStub(script: Array<StubTurn | null>): Stub {
     }
   };
   globals.LanguageModel = {
-    availability: async () => stub.availability,
+    availability: async (options?: { expectedInputs?: Array<{ languages?: string[] }> }) => {
+      const languages = options?.expectedInputs?.flatMap((expected) => expected.languages ?? []) ?? [];
+      return languages.some((language) => stub.unsupportedLanguages.includes(language)) ? 'unavailable' : stub.availability;
+    },
     create: async (options: Record<string, unknown>) => {
       // A snapshot: the wrapper goes on to keep its history in the same array.
       const initialPrompts = options.initialPrompts as unknown[] | undefined;
@@ -251,6 +257,34 @@ test('tool responses are answered as tool successes and errors on the same call'
     assert.deepEqual(second.functionCalls, []);
     // One session for both turns: the tools did not change.
     assert.equal(stub.creates.length, 1);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('the text of every step is reported as it is streamed', async () => {
+  installPromptApiStub([
+    ['Let me ', 'book. ', { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    ['Booked ', 'your table.'],
+  ]);
+
+  try {
+    const tools = buildToolDecls([BOOK_TOOL]);
+    const seen: string[] = [];
+    const first = await sendOnDeviceChat({ message: 'Book a table', tools }, { onText: (text) => seen.push(text) });
+    assert.deepEqual(seen, ['Let me ', 'Let me book. ']);
+
+    seen.length = 0;
+    await sendOnDeviceChat(
+      {
+        chatId: first.chatId,
+        tools,
+        toolResponses: [{ functionResponse: { name: '_0_book_table', response: { result: 'ok' } } }],
+      },
+      { onText: (text) => seen.push(text) }
+    );
+    // Each step starts from its own text.
+    assert.deepEqual(seen, ['Booked ', 'Booked your table.']);
   } finally {
     uninstallPromptApiStub();
   }
@@ -491,6 +525,58 @@ test('a turn stopped while a tool call is in flight leaves no dangling call behi
   }
 });
 
+/** Pretends the browser prefers `languages`, for the duration of `run`. */
+async function withPreferredLanguages(languages: string[], run: () => Promise<void>) {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis.navigator, 'languages');
+  Object.defineProperty(globalThis.navigator, 'languages', { value: languages, configurable: true });
+  try {
+    await run();
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis.navigator, 'languages', descriptor);
+    else delete (globalThis.navigator as unknown as Record<string, unknown>).languages;
+  }
+}
+
+test('sessions are made for the first preferred language the model supports, and English', async () => {
+  const stub = installPromptApiStub([['Hallo.'], ['Hello.'], ['Bonjour.']]);
+  stub.unsupportedLanguages = ['it'];
+  const languagesOf = (index: number) => {
+    const created = stub.creates[index] as { expectedInputs?: Array<{ type: string; languages?: string[] }>; expectedOutputs?: Array<{ type: string; languages?: string[] }> };
+    return [created.expectedInputs?.[0].languages, created.expectedOutputs?.[0].languages];
+  };
+
+  try {
+    // Italian is skipped, and regions do not matter.
+    await withPreferredLanguages(['it-IT', 'de-AT', 'en'], async () => {
+      await sendOnDeviceChat({ message: 'Hallo', tools: [] });
+    });
+    assert.deepEqual(languagesOf(0), [['de', 'en'], ['de', 'en']]);
+
+    resetOnDeviceChat();
+    await withPreferredLanguages(['en-US', 'fr'], async () => {
+      await sendOnDeviceChat({ message: 'Hello', tools: [] });
+    });
+    assert.deepEqual(languagesOf(1), [['en'], ['en']]);
+
+    // With tools, the wrapper adds their content types to the same languages.
+    resetOnDeviceChat();
+    await withPreferredLanguages(['fr-CA'], async () => {
+      await sendOnDeviceChat({ message: 'Bonjour', tools: buildToolDecls([BOOK_TOOL]) });
+    });
+    const created = stub.creates[2] as { expectedInputs?: Array<{ type: string; languages?: string[] }> };
+    assert.deepEqual(
+      created.expectedInputs?.map(({ type, languages }) => [type, languages]),
+      [
+        ['text', ['fr', 'en']],
+        ['tool-response', undefined],
+        ['tool-call', undefined],
+      ]
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
 test('a page without tools needs neither tool declarations nor the tool use flag', async () => {
   const stub = installPromptApiStub([['Hello.']]);
   const globals = globalThis as unknown as Record<string, unknown>;
@@ -590,6 +676,67 @@ function installSummarizerStub(summarize: (text: string) => Promise<string>, { d
     },
   };
 }
+
+test('the side panel hears how much of the context the conversation takes up', async () => {
+  const stub = installPromptApiStub([['Hello.'], ['Hello again.']]);
+  stub.usagePerTurn = 300;
+  const reported: Array<{ used: number; window: number } | null> = [];
+  setOnDeviceModelUi({ onContextUsage: (usage) => reported.push(usage) });
+
+  try {
+    const first = await sendOnDeviceChat({ message: 'Hi', tools: [] });
+    await sendOnDeviceChat({ chatId: first.chatId, message: 'Hi again', tools: [] });
+    // Nothing while a new conversation starts, then once its session exists,
+    // and after every step.
+    assert.deepEqual(reported, [
+      null,
+      { used: 0, window: 1000 },
+      { used: 300, window: 1000 },
+      { used: 600, window: 1000 },
+    ]);
+
+    // A new chat has no conversation to measure.
+    resetOnDeviceChat();
+    assert.equal(reported.at(-1), null);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('turning the on-device model on starts a download it still needs, and nothing else', async () => {
+  const stub = installPromptApiStub([]);
+  const reported: DownloadProgress[] = [];
+  setOnDeviceModelUi({ onDownloadProgress: (progress) => reported.push(progress) });
+
+  try {
+    // Already there: no session is made.
+    await prepareOnDeviceModel();
+    assert.equal(stub.creates.length, 0);
+
+    stub.availability = 'downloadable';
+    await prepareOnDeviceModel();
+    assert.equal(stub.creates.length, 1);
+    // Made only to start the download, with the same languages chats use.
+    assert.equal(stub.destroyed, 1);
+    const created = stub.creates[0] as { expectedInputs?: Array<{ languages?: string[] }>; tools?: unknown };
+    assert.ok(created.expectedInputs?.[0].languages?.includes('en'));
+    assert.equal(created.tools, undefined);
+    assert.deepEqual(
+      reported.map(({ resource, percent }) => [resource, percent]),
+      [
+        ['language-model', 0],
+        ['language-model', 50],
+        ['language-model', 100],
+      ]
+    );
+
+    stub.availability = 'unavailable';
+    await prepareOnDeviceModel();
+    assert.equal(stub.creates.length, 1);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
 
 test('a conversation that overflows the context is compacted before the next turn', async () => {
   const stub = installPromptApiStub([['A long answer about booking.'], ['Another long answer.'], ['Done.']]);

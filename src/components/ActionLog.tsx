@@ -12,6 +12,8 @@ export interface ActionLogProps {
   statusText?: string;
   activityLogs?: ActivityEntry[];
   defaultOpen?: boolean;
+  /** Keeps the log in the page, but out of sight and out of the accessibility tree. */
+  hidden?: boolean;
 }
 
 /**
@@ -28,6 +30,7 @@ export function ActionLog({
   statusText,
   activityLogs = [],
   defaultOpen,
+  hidden,
 }: ActionLogProps) {
   const [isOpen, setIsOpen] = useState<boolean>(defaultOpen ?? (status !== 'completed'));
   const contentId = useId();
@@ -66,7 +69,7 @@ export function ActionLog({
   const displayLogs = useMemo(() => [...activityLogs].reverse(), [activityLogs]);
 
   return (
-    <div className="action-log">
+    <div className="action-log" hidden={hidden}>
       {/* Header Row */}
       <button
         type="button"

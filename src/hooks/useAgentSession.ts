@@ -32,6 +32,8 @@ export interface UseAgentSessionReturn {
   userPrompt: string;
   setUserPrompt: Dispatch<SetStateAction<string>>;
   messages: ChatMessage[];
+  /** The reply being written right now, until it becomes one of `messages`. */
+  streamingText: string;
   busy: boolean;
   activityLog: ActivityEntry[];
   pendingPermission: PendingToolPermission | null;
@@ -147,6 +149,12 @@ export function useAgentSession(
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState<boolean>(false);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
+  const [streamingText, setStreamingText] = useState<string>('');
+  const streamingTextRef = useRef<string>('');
+  const showStreamingText = (text: string) => {
+    streamingTextRef.current = text;
+    setStreamingText(text);
+  };
   const [pendingPermission, setPendingPermission] = useState<PendingToolPermission | null>(null);
 
   // Settings sync refs
@@ -225,6 +233,13 @@ export function useAgentSession(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    // What was written before the stop stays, rather than vanishing.
+    const partial = streamingTextRef.current.trim();
+    if (partial) {
+      const logs = [...turnLogsRef.current];
+      setMessages((prev) => [...prev, { id: generateId(), role: 'ai', text: partial, activityLogs: logs, onDevice: onDeviceModelRef.current }]);
+    }
+    showStreamingText('');
     setPendingPermission(null);
     setBusy(false);
   }, []);
@@ -241,6 +256,7 @@ export function useAgentSession(
     setUserPrompt('');
     setMessages([]);
     setActivityLog([]);
+    showStreamingText('');
     setPendingPermission(null);
     setBusy(false);
   }, []);
@@ -257,6 +273,10 @@ export function useAgentSession(
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
     const { signal } = abortController;
+    // Replies are shown as they are written, and become messages once done.
+    const onText = (text: string) => {
+      if (!signal.aborted) showStreamingText(text);
+    };
 
     setBusy(true);
     setUserPrompt('');
@@ -276,10 +296,12 @@ export function useAgentSession(
           tools: toolDecls,
           chatId: chatIdRef.current,
         },
-        { signal, onDevice: onDeviceModelRef.current }
+        { signal, onDevice: onDeviceModelRef.current, onText }
       );
 
       if (signal.aborted) return;
+      // Batched with the message the text becomes, so nothing flickers.
+      showStreamingText('');
 
       if (currentResult.chatId) {
         chatIdRef.current = currentResult.chatId;
@@ -300,7 +322,7 @@ export function useAgentSession(
           const logs = [...turnLogsRef.current];
           setMessages((prev) => [
             ...prev,
-            { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs },
+            { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs, onDevice: onDeviceModelRef.current },
           ]);
           messageRendered = true;
         }
@@ -408,10 +430,11 @@ export function useAgentSession(
             tools: updatedTools,
             chatId: chatIdRef.current,
           },
-          { signal, onDevice: onDeviceModelRef.current }
+          { signal, onDevice: onDeviceModelRef.current, onText }
         );
 
         if (signal.aborted) break;
+        showStreamingText('');
 
         if (currentResult.chatId) {
           chatIdRef.current = currentResult.chatId;
@@ -424,7 +447,7 @@ export function useAgentSession(
         const logs = [...turnLogsRef.current];
         setMessages((prev) => [
           ...prev,
-          { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs },
+          { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs, onDevice: onDeviceModelRef.current },
         ]);
       } else if (!messageRendered && (!currentResult.functionCalls || currentResult.functionCalls.length === 0)) {
         setMessages((prev) => [
@@ -434,6 +457,7 @@ export function useAgentSession(
       }
     } catch (err: unknown) {
       if (signal.aborted) return;
+      showStreamingText('');
       const errorMsg = (err as Error)?.message || String(err);
       setMessages((prev) => [...prev, { id: generateId(), role: 'error', text: errorMsg }]);
       chatIdRef.current = undefined;
@@ -449,6 +473,7 @@ export function useAgentSession(
     userPrompt,
     setUserPrompt,
     messages,
+    streamingText,
     busy,
     activityLog,
     pendingPermission,

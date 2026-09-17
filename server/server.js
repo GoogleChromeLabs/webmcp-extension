@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 
+import { streamChatTurn } from './streaming.js';
 import {
   loadDotEnv,
   ensureAuthToken,
@@ -367,7 +368,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const { message, tools, toolResponses, chatId: inputChatId } = await parseJsonBody(req);
+      const { message, tools, toolResponses, chatId: inputChatId, stream } = await parseJsonBody(req);
 
       if (!ai) {
         console.error('  Error: Gemini API Key missing on backend server.');
@@ -439,6 +440,64 @@ const server = http.createServer(async (req, res) => {
           console.log(`  [${chatId}] Tools provided (${tools.length}):`, tools.map((t) => t.name).join(', '));
         }
         sendMessageParams = { message, config };
+      }
+
+      if (stream) {
+        // Newline-delimited JSON: a `{ text }` line for every piece of text as
+        // it arrives, then one `{ done: true, ... }` line with the same payload
+        // the non-streaming response has. An error after the headers are out
+        // can only be a line of its own.
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+
+        let streamed;
+        try {
+          streamed = await streamChatTurn({ chatSession, sendMessageParams, config, res });
+        } catch (error) {
+          console.error(`  [${chatId}] Streaming error:`, error.message || error);
+          recordServerLog({
+            method: req.method,
+            path: url.pathname,
+            statusCode: 500,
+            startTime,
+            requestPayload: { message, tools, toolResponses, chatId },
+            error: error.message || String(error),
+          });
+          res.end(`${JSON.stringify({ error: error.message || String(error) })}\n`);
+          return;
+        }
+
+        if (streamed.stopped) {
+          console.log(`  [${chatId}] Stopped: the side panel closed the connection.`);
+          recordServerLog({
+            method: req.method,
+            path: url.pathname,
+            statusCode: 499,
+            startTime,
+            requestPayload: { message, tools, toolResponses, chatId },
+            error: 'Stopped: the side panel closed the connection.',
+          });
+          res.end();
+          return;
+        }
+
+        const { text, functionCalls, candidates } = streamed;
+        const responsePayload = { chatId, text, functionCalls, candidates };
+        if (functionCalls.length > 0) {
+          console.log(`  [${chatId}] Gemini Function Calls:`, JSON.stringify(functionCalls, null, 2));
+        }
+        if (text) {
+          console.log(`  [${chatId}] Gemini Response Text: "${text}"`);
+        }
+        recordServerLog({
+          method: req.method,
+          path: url.pathname,
+          statusCode: 200,
+          startTime,
+          requestPayload: { message, tools, toolResponses, chatId },
+          responsePayload,
+        });
+        res.end(`${JSON.stringify({ done: true, ...responsePayload })}\n`);
+        return;
       }
 
       const result = await chatSession.sendMessage(sendMessageParams);
