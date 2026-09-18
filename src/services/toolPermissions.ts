@@ -108,14 +108,12 @@ export interface ToolPermissionQuery {
   consequentialHint?: boolean;
   /** The frame that owns the tool. 0 is the top frame. */
   toolFrameId?: number;
-  /** Whether the page currently exposes a tool matching the call. */
-  toolResolved?: boolean;
 }
 
 /**
  * Whether a session grant is allowed to apply to this call at all.
  *
- * Four things have to hold, and each one is a way the grant could otherwise
+ * Three things have to hold, and each one is a way the grant could otherwise
  * mean something other than what the user was shown:
  *
  * - **There is an origin.** Nothing to scope the grant to otherwise.
@@ -123,9 +121,6 @@ export interface ToolPermissionQuery {
  *   so it says nothing about a tool inside a cross-origin iframe. Keying those
  *   on it would let a grant for the page's own tool authorise a same-named tool
  *   belonging to an embedded third party.
- * - **The tool exists.** A call naming a tool the page does not expose cannot
- *   have been the one the user approved, and remembering the model's own string
- *   would pre-approve whatever the page later registers under that name.
  * - **It is not consequential.** An action that cannot be undone is worth a
  *   decision every single time; there is no "and don't ask again" for those.
  *
@@ -136,11 +131,10 @@ export function isGrantEligible({
   origin,
   toolName,
   toolFrameId = 0,
-  toolResolved = true,
   consequentialHint,
 }: ToolPermissionQuery): boolean {
   if (consequentialHint === true) return false;
-  return Boolean(origin) && Boolean(toolName) && toolFrameId === 0 && toolResolved;
+  return Boolean(origin) && Boolean(toolName) && toolFrameId === 0;
 }
 
 /**

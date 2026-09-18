@@ -398,28 +398,6 @@ test('a grant for the page never covers a tool inside a cross-origin iframe', ()
   assert.equal(isGrantEligible(query(7)), false);
 });
 
-test('a call naming a tool the page does not expose is never covered by a grant', () => {
-  clearSessionToolPermissions();
-
-  // The model can invent a name; `toolName` then falls back to its string. A
-  // grant for that would pre-approve whatever the page later registers for it.
-  const invented = {
-    sensitiveActionAlerts: true,
-    origin: 'https://shop.example',
-    toolName: 'checkout_cart',
-    toolResolved: false,
-  };
-
-  assert.equal(isGrantEligible(invented), false);
-  assert.equal(needsToolPermission(invented), true);
-
-  // Even with a grant already on the books for that exact name.
-  allowToolForSession('https://shop.example', 'checkout_cart');
-  assert.equal(needsToolPermission(invented), true);
-  // The resolved tool of the same name is still covered.
-  assert.equal(needsToolPermission({ ...invented, toolResolved: true }), false);
-});
-
 test('grants are only eligible where they would mean what the button says', () => {
   const base = { origin: 'https://shop.example', toolName: 'checkout_cart' };
 
@@ -430,8 +408,6 @@ test('grants are only eligible where they would mean what the button says', () =
   assert.equal(isGrantEligible({ ...base, toolName: '' }), false);
   // Not the top frame.
   assert.equal(isGrantEligible({ ...base, toolFrameId: 1 }), false);
-  // Not a tool the page exposes.
-  assert.equal(isGrantEligible({ ...base, toolResolved: false }), false);
 });
 
 test('the gate stays shut for read-only tools and open when alerts are off', () => {
@@ -474,7 +450,6 @@ test('an always choice records nothing where a grant would not be eligible', () 
   for (const ineligible of [
     { origin: '', toolName: 'checkout_cart' },
     { origin: 'https://shop.example', toolName: 'checkout_cart', toolFrameId: 7 },
-    { origin: 'https://shop.example', toolName: 'checkout_cart', toolResolved: false },
     { origin: 'https://shop.example', toolName: 'checkout_cart', consequentialHint: true },
   ]) {
     clearSessionToolPermissions();

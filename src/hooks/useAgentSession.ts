@@ -461,19 +461,30 @@ export function useAgentSession(
 
           const entry = logActivity('assistant', name, call.args);
 
-          const toolName = targetTool?.name || name;
+          if (!targetTool) {
+            const errorMsg = `Tool "${name}" is not available on this page.`;
+            completeActivity(entry, { error: errorMsg });
+            toolResponses.push({
+              functionResponse: {
+                name: call.name,
+                response: { error: errorMsg },
+              },
+            });
+            continue;
+          }
+
+          const toolName = targetTool.name;
           const origin = currentOrigin();
           // Explicit frameId from the tool call takes precedence over fallback tool metadata.
-          const toolFrameId = frameId ?? targetTool?.frameId ?? 0;
+          const toolFrameId = frameId ?? targetTool.frameId ?? 0;
           const permissionQuery = {
             sensitiveActionAlerts: sensitiveActionAlertsRef.current,
             origin,
             toolName,
             tabId,
-            readOnlyHint: targetTool?.readOnlyHint,
-            consequentialHint: targetTool?.consequentialHint,
+            readOnlyHint: targetTool.readOnlyHint,
+            consequentialHint: targetTool.consequentialHint,
             toolFrameId,
-            toolResolved: Boolean(targetTool),
           };
           const grantEligible = isGrantEligible(permissionQuery);
           const needsPermission = needsToolPermission(permissionQuery);

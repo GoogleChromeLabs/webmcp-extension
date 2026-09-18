@@ -774,3 +774,42 @@ test('useAgentSession logs raw errors to console and displays a generic error me
   }
 });
 
+test('a call to a tool the page does not expose is rejected immediately without prompting or executing', async () => {
+  tabSessions.clear();
+  const browser = installTestChrome();
+  const backend = installBackend([
+    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_nonexistent_tool', args: {} }] },
+    { chatId: 'chat-tab-1', text: 'That tool is unavailable.', functionCalls: [] },
+  ]);
+
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    const tab1 = readSession(1, { sensitiveActionAlerts: true });
+    tab1.setUserPrompt('Run unknown tool');
+    await tab1.handleSendPrompt();
+
+    // No permission prompt was shown and EXECUTE_TOOL was never sent to the page.
+    assert.equal(tabSessions.getState(1).pendingPermission, null);
+    const executions = browser.sent.filter(({ message }) => message.action === 'EXECUTE_TOOL');
+    assert.equal(executions.length, 0);
+
+    // The model was told the tool is not available on this page.
+    const secondTurnRequest = backend.requests[1];
+    assert.ok(secondTurnRequest);
+    const toolResponses = secondTurnRequest.toolResponses as Array<{
+      functionResponse: { name: string; response: { error?: string } };
+    }>;
+    assert.equal(toolResponses.length, 1);
+    assert.equal(toolResponses[0].functionResponse.name, '_0_nonexistent_tool');
+    assert.equal(
+      toolResponses[0].functionResponse.response.error,
+      'Tool "nonexistent_tool" is not available on this page.'
+    );
+  } finally {
+    backend.restore();
+    browser.restore();
+    tabSessions.clear();
+  }
+});
+
+
