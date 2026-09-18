@@ -77,6 +77,19 @@ export interface ChatMessage {
   onDevice?: boolean;
 }
 
+/**
+ * A tool call waiting for the user to allow or deny it. It belongs to the tab
+ * whose turn asked for it, so switching tabs puts it away rather than carrying
+ * it over to a page that never asked for anything.
+ */
+export interface PendingToolPermission {
+  toolName: string;
+  toolDescription?: string;
+  args?: unknown;
+  allow: () => void;
+  deny: () => void;
+}
+
 export interface ExtensionListToolsMessage {
   action: 'LIST_TOOLS';
   fromOrigins?: string[];

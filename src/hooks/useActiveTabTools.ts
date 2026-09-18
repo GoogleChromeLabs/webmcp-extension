@@ -3,129 +3,159 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback, useRef, MutableRefObject } from 'react';
-import { requestTabTools } from '../services/extensionBridge.js';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { getTabInfo, requestTabTools } from '../services/extensionBridge.js';
+import { tabSessions } from '../services/tabSessionStore.js';
 import { WebMCPTool } from '../types/index.js';
 
 export interface UseActiveTabToolsReturn {
   tools: WebMCPTool[];
-  toolsRef: MutableRefObject<WebMCPTool[]>;
   domain: string;
   favicon: string;
   statusMsg: string;
   refreshActiveTab: () => Promise<void>;
 }
 
-/**
- * Hook for managing active tab WebMCP tools, domain, and favicon synchronization.
- */
-export function useActiveTabTools(): UseActiveTabToolsReturn {
-  const [tools, setTools] = useState<WebMCPTool[]>([]);
-  const [domain, setDomain] = useState<string>('');
-  const [favicon, setFavicon] = useState<string>('');
-  const [statusMsg, setStatusMsg] = useState<string>('');
-  const toolsRef = useRef<WebMCPTool[]>(tools);
-  toolsRef.current = tools;
+interface ToolsReport {
+  message?: string;
+  tools?: WebMCPTool[];
+  url?: string;
+  type?: string;
+}
 
-  const refreshActiveTab = useCallback(async () => {
-    if (!window.chrome?.tabs) return;
+/** The favicon a tab reports, or one derived from its host. */
+function faviconFor(url: string, reported?: string): string {
+  if (reported) return reported;
+  try {
+    return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`;
+  } catch {
+    return '';
+  }
+}
+
+/** The host a URL belongs to, falling back to the URL when it has no host. */
+function domainFor(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url || 'New Tab';
+  }
+}
+
+/**
+ * Keeps each tab's WebMCP tools, domain and favicon up to date, and returns
+ * those of the tab in front.
+ *
+ * Reports are filed under the tab that sent them rather than only kept for the
+ * active one: a turn that is still running in a background tab needs that
+ * tab's current tools to declare on its next request, not the tools of
+ * whatever page the user has moved on to.
+ */
+export function useActiveTabTools(activeTabId: number | null): UseActiveTabToolsReturn {
+  const readSession = () => tabSessions.getState(activeTabId);
+  const session = useSyncExternalStore(tabSessions.subscribe, readSession, readSession);
+
+  // Reports that name no tab belong to the tab in front, and the listener
+  // below is installed once, so it reads the id from here.
+  const activeTabIdRef = useRef<number | null>(activeTabId);
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
+
+  const refreshTab = useCallback(async (tabId: number) => {
+    const info = await getTabInfo(tabId);
+    if (info) {
+      tabSessions.update(tabId, {
+        domain: info.domain,
+        favicon: info.favicon || faviconFor(info.url || ''),
+      });
+    }
 
     try {
-      const [tab] = await window.chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab) return;
-
-      if (tab.favIconUrl) {
-        setFavicon(tab.favIconUrl);
-      } else if (tab.url) {
-        try {
-          const u = new URL(tab.url);
-          setFavicon(`https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`);
-        } catch {}
-      }
-
-      if (tab.url) {
-        try {
-          const u = new URL(tab.url);
-          setDomain(u.hostname);
-        } catch {
-          setDomain(tab.url);
-        }
-      }
-
-      await requestTabTools();
+      await requestTabTools(tabId);
     } catch (err: unknown) {
       const error = err as { message?: string };
-      if (!error?.message?.includes('Could not establish connection') && !error?.message?.includes('Receiving end does not exist')) {
-        setStatusMsg(String(err));
+      const unreachable =
+        error?.message?.includes('Could not establish connection') ||
+        error?.message?.includes('Receiving end does not exist');
+      if (!unreachable) {
+        tabSessions.update(tabId, { statusMsg: String(err) });
       }
     }
   }, []);
 
-  useEffect(() => {
-    if (!window.chrome?.runtime) return;
+  const refreshActiveTab = useCallback(async () => {
+    const tabId = activeTabIdRef.current;
+    if (tabId == null) return;
+    await refreshTab(tabId);
+  }, [refreshTab]);
 
-    const listener = async (
-      { message, tools: newTools, url, type }: { message?: string; tools?: WebMCPTool[]; url?: string; type?: string },
-      sender?: chrome.runtime.MessageSender
-    ) => {
+  // One listener for the whole panel, filing every page's reports under its
+  // own tab.
+  useEffect(() => {
+    const chromeApi = window.chrome;
+    if (!chromeApi?.runtime) return;
+
+    const listener = ({ message, tools, url, type }: ToolsReport, sender?: chrome.runtime.MessageSender) => {
       // Internal signals (e.g. contentScriptReady) are handled elsewhere.
       if (type) return;
       if (sender?.frameId && sender.frameId !== 0) return;
-      const [tab] = await window.chrome.tabs.query({ active: true, currentWindow: true });
-      if (sender?.tab && tab?.id && sender.tab.id !== tab.id) return;
 
-      setStatusMsg(message || '');
+      // A report with no tab comes from the service worker, which only speaks
+      // for the tab in front.
+      const tabId = sender?.tab?.id ?? activeTabIdRef.current;
+      if (tabId == null) return;
 
-      const parsedTools = newTools || [];
-      setTools(parsedTools);
-      toolsRef.current = parsedTools;
-
-      const pageUrl = url || sender?.tab?.url || tab?.url || '';
-      try {
-        const parsedUrl = new URL(pageUrl);
-        setDomain(parsedUrl.hostname);
-        const iconUrl =
-          sender?.tab?.favIconUrl || tab?.favIconUrl || `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=32`;
-        setFavicon(iconUrl);
-      } catch {
-        setDomain(pageUrl || 'New Tab');
-        if (sender?.tab?.favIconUrl || tab?.favIconUrl) {
-          setFavicon(sender?.tab?.favIconUrl || tab?.favIconUrl || '');
-        }
-      }
+      const pageUrl = url || sender?.tab?.url || '';
+      tabSessions.update(tabId, (previous) => ({
+        statusMsg: message || '',
+        tools: tools || [],
+        domain: pageUrl ? domainFor(pageUrl) : previous.domain,
+        favicon: pageUrl ? faviconFor(pageUrl, sender?.tab?.favIconUrl) : previous.favicon,
+      }));
     };
 
-    window.chrome.runtime.onMessage.addListener(listener);
-
-    const onTabActivated = () => refreshActiveTab();
-    const onTabUpdated = (_tabId: number, changeInfo: { status?: string; url?: string }) => {
-      if (changeInfo.status === 'complete' || changeInfo.url) {
-        refreshActiveTab();
-      }
-    };
-
-    if (window.chrome.tabs) {
-      window.chrome.tabs.onActivated?.addListener(onTabActivated);
-      window.chrome.tabs.onUpdated?.addListener(onTabUpdated);
-    }
-
-    refreshActiveTab();
-
+    chromeApi.runtime.onMessage.addListener(listener);
     return () => {
-      window.chrome.runtime.onMessage.removeListener(listener);
-      if (window.chrome.tabs) {
-        window.chrome.tabs.onActivated?.removeListener(onTabActivated);
-        window.chrome.tabs.onUpdated?.removeListener(onTabUpdated);
-      }
+      chromeApi.runtime.onMessage.removeListener(listener);
     };
-  }, [refreshActiveTab]);
+  }, []);
+
+  // Pages change under tabs the panel is holding a conversation for, not only
+  // under the one in front, so those are followed too.
+  useEffect(() => {
+    const chromeApi = window.chrome;
+    if (!chromeApi?.tabs) return;
+
+    const onUpdated = (tabId: number, changeInfo: { status?: string; url?: string }) => {
+      const isTracked = tabId === activeTabIdRef.current || tabSessions.has(tabId);
+      if (!isTracked) return;
+      // The tools of the page being left no longer exist. Clearing them keeps
+      // a turn from declaring tools that have gone.
+      if (changeInfo.url) tabSessions.update(tabId, { tools: [], statusMsg: '' });
+      if (changeInfo.status === 'complete' || changeInfo.url) void refreshTab(tabId);
+    };
+
+    chromeApi.tabs.onUpdated?.addListener(onUpdated);
+    return () => {
+      chromeApi.tabs.onUpdated?.removeListener(onUpdated);
+    };
+  }, [refreshTab]);
+
+  // Whichever tab comes to the front is read afresh, since its page may have
+  // changed while the panel was showing another tab.
+  useEffect(() => {
+    if (activeTabId == null) return;
+    void refreshTab(activeTabId);
+  }, [activeTabId, refreshTab]);
 
   return {
-    tools,
-    toolsRef,
-    domain,
-    favicon,
-    statusMsg,
+    tools: session.tools,
+    domain: session.domain,
+    favicon: session.favicon,
+    statusMsg: session.statusMsg,
     refreshActiveTab,
   };
 }
+
+export default useActiveTabTools;
