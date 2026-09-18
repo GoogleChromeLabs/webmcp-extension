@@ -101,6 +101,7 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
       // Internal signals (e.g. contentScriptReady) are handled elsewhere.
       if (type || action) return;
       if (sender?.frameId && sender.frameId !== 0) return;
+      if (tools === undefined && message === undefined && !url) return;
 
       // A report with no tab comes from the service worker, which only speaks
       // for the tab in front.
@@ -109,7 +110,7 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
 
       const pageUrl = url || sender?.tab?.url || '';
       tabSessions.update(tabId, (previous) => ({
-        statusMsg: message !== undefined ? message : previous.statusMsg,
+        statusMsg: message || '',
         tools: tools !== undefined ? tools : previous.tools,
         domain: pageUrl ? domainFor(pageUrl) : previous.domain,
         favicon: pageUrl ? faviconFor(pageUrl, sender?.tab?.favIconUrl) : previous.favicon,

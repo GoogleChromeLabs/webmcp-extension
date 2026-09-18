@@ -259,10 +259,12 @@ export function resetOnDeviceChat(chatId?: string): void {
   if (chatId !== undefined) {
     if (current !== null && current.id === chatId) {
       retireSession({ saveHistory: false });
-      fence = '';
       reportContextUsage();
     }
     conversationHistories.delete(chatId);
+    if (current === null && conversationHistories.size === 0) {
+      fence = '';
+    }
     return;
   }
   retireSession({ saveHistory: false });

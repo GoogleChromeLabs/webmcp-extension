@@ -665,6 +665,11 @@ test('useActiveTabTools preserves tools on status messages and ignores action me
     assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
     assert.equal(tabSessions.getState(1).statusMsg, 'Could not connect');
 
+    // 4. When a fresh tools report subsequently arrives, it clears the statusMsg error
+    listener({ tools: [BOOK_TOOL], url: 'https://example.com' }, { tab: { id: 1 } });
+    assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
+    assert.equal(tabSessions.getState(1).statusMsg, '');
+
     cleanup();
     assert.equal(listeners.length, 0);
   } finally {

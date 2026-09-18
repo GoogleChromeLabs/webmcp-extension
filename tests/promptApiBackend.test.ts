@@ -1002,6 +1002,29 @@ test('global resetOnDeviceChat clears all conversation histories and does not re
   }
 });
 
+test('resetting the active tab preserves the spotlighting fence while another tab still holds history', async () => {
+  installPromptApiStub([['answer to a1'], ['answer to b1'], ['answer to a2']]);
+  try {
+    const a = await sendChatTurn({ message: 'Hi from A', tools: [] }, { onDevice: true });
+    const initialFence = getSpotlightFence();
+    assert.ok(initialFence);
+
+    // Tab B takes over the active session; Tab A is saved in conversationHistories.
+    const b = await sendChatTurn({ message: 'Hi from B', tools: [] }, { onDevice: true });
+    assert.equal(getSpotlightFence(), initialFence);
+
+    // Resetting Tab B (currently active) must NOT wipe the fence needed by Tab A's saved history.
+    resetChatSession({ chatId: b.chatId, onDevice: true });
+    assert.equal(getSpotlightFence(), initialFence);
+
+    // Once Tab A is also reset and no conversations remain, the next conversation gets a fresh fence.
+    resetChatSession({ chatId: a.chatId, onDevice: true });
+    const freshFence = getSpotlightFence();
+    assert.notEqual(freshFence, initialFence);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
 
 test('on-device tool results are fenced rather than base64 encoded', async () => {
   installPromptApiStub([['ok']]);
