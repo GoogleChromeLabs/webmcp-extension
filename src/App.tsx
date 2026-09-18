@@ -31,12 +31,17 @@ export function App() {
     return saved !== null ? saved === 'true' : true;
   });
 
-  // Off unless the browser has the Prompt API, so a browser without it keeps
-  // using the backend server.
+  // Which provider and model the server uses is the server's own configuration.
+  // All the panel decides is whether a turn goes there at all, or runs here in
+  // the browser. A browser without the Prompt API has no choice to make.
   const onDeviceModelSupported = isPromptApiSupported();
   const [onDeviceModel, setOnDeviceModel] = useState<boolean>(() => {
-    if (!isPromptApiSupported()) return false;
-    return localStorage.getItem('onDeviceModel') === 'true';
+    if (!onDeviceModelSupported) return false;
+    try {
+      return localStorage.getItem('onDeviceModel') === 'true';
+    } catch {
+      return false;
+    }
   });
 
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
@@ -77,10 +82,12 @@ export function App() {
     // is disabled then, too.
     if (anyBusy) return;
     const next = !onDeviceModel;
-    localStorage.setItem('onDeviceModel', String(next));
+    try {
+      localStorage.setItem('onDeviceModel', String(next));
+    } catch {}
     setOnDeviceModel(next);
-    // Turning it on is a click, which a model download needs, so the download
-    // can start now rather than with the first message.
+    // Choosing on-device is a click, which a model download needs, so the
+    // download can start now rather than with the first message.
     if (next) {
       prepareOnDeviceModel().catch((error) => {
         console.warn('[WebMCP] Could not start downloading the on-device model:', error);
@@ -212,11 +219,11 @@ export function App() {
                       if (msg.role === 'ai') {
                         return (
                           <React.Fragment key={msg.id}>
-                            {/* Hidden, not removed, for on-device replies: the Prompt API has no thinking to show yet. */}
+                            {/* Hidden, not removed, for on-device replies without tools: the Prompt API has no thinking to show yet. */}
                             <ActionLog
                               status="completed"
                               activityLogs={msg.activityLogs}
-                              hidden={msg.onDevice}
+                              hidden={msg.onDevice && !msg.activityLogs?.length}
                             />
                             <div className="ai-response">
                               <MarkdownText content={msg.text} />
@@ -246,9 +253,7 @@ export function App() {
                             ? 'initiation'
                             : 'running'
                         }
-                        statusText={
-                          pendingPermission ? 'Waiting for permission' : streamingText ? 'Writing...' : undefined
-                        }
+                        statusText={!pendingPermission && streamingText ? 'Writing...' : undefined}
                         activityLogs={activityLog}
                       />
                     )}

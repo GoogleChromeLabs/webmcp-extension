@@ -20,7 +20,7 @@ import {
  * on screen after switching to a page that never asked for anything. Each tab
  * keeps its own, and the panel renders whichever tab is in front.
  */
-export interface TabSessionState {
+interface TabSessionState {
   /** What is typed in the composer but not sent yet. */
   userPrompt: string;
   messages: ChatMessage[];
@@ -42,7 +42,7 @@ export interface TabSessionState {
  * per read: `useSyncExternalStore` compares snapshots by identity and would
  * loop forever on a fresh object every time.
  */
-export const EMPTY_TAB_SESSION: TabSessionState = Object.freeze({
+const EMPTY_TAB_SESSION: TabSessionState = Object.freeze({
   userPrompt: '',
   messages: Object.freeze([]) as unknown as ChatMessage[],
   busy: false,
@@ -61,7 +61,7 @@ export const EMPTY_TAB_SESSION: TabSessionState = Object.freeze({
  * are mutated in place, the way the refs they replace were: a turn reads them
  * long after the render that started it.
  */
-export interface TabSessionInternals {
+interface TabSessionInternals {
   /** Identifies the conversation to whichever backend is holding it. */
   chatId?: string;
   abortController: AbortController | null;
@@ -69,7 +69,7 @@ export interface TabSessionInternals {
   turnLogs: ActivityEntry[];
 }
 
-export type TabSessionPatch =
+type TabSessionPatch =
   | Partial<TabSessionState>
   | ((previous: TabSessionState) => Partial<TabSessionState>);
 
@@ -102,6 +102,13 @@ class TabSessionStore {
 
   has(tabId: number): boolean {
     return this.states.has(tabId) || this.internals.has(tabId);
+  }
+
+  /** Whether `tabId` holds an active turn or existing conversation worth following in the background. */
+  hasConversation(tabId: number): boolean {
+    const state = this.states.get(tabId);
+    const internals = this.internals.get(tabId);
+    return Boolean(state?.busy || state?.messages.length || internals?.chatId);
   }
 
   /**
@@ -139,7 +146,38 @@ class TabSessionStore {
   }
 
   /** Bound for `useSyncExternalStore`, which needs one stable function. */
-  isAnyBusy = (): boolean => this.busyTabIds().length > 0;
+  isAnyBusy = (): boolean => {
+    for (const state of this.states.values()) {
+      if (state.busy) return true;
+    }
+    return false;
+  };
+
+  /**
+   * Resets a tab's conversation state and releases its backend session while
+   * keeping the tab's discovered tools and page metadata intact.
+   */
+  resetChat(tabId: number, options: { onDevice?: boolean } = {}): void {
+    const internals = this.internals.get(tabId);
+    if (internals) {
+      internals.abortController?.abort();
+      internals.abortController = null;
+      if (internals.chatId) {
+        resetChatSession({ chatId: internals.chatId, onDevice: options.onDevice });
+        internals.chatId = undefined;
+      }
+      internals.turnLogs = [];
+    }
+    clearSessionToolPermissions(tabId);
+    this.update(tabId, {
+      userPrompt: '',
+      messages: [],
+      activityLog: [],
+      streamingText: '',
+      pendingPermission: null,
+      busy: false,
+    });
+  }
 
   /**
    * Stops and forgets a tab's session, for a tab that has been closed. The
@@ -160,11 +198,12 @@ class TabSessionStore {
     if (existed) this.emit();
   }
 
-  /** Drops everything, for tests and for a panel that is closing. */
+  /** Drops everything in memory, for tests and for a panel that is closing. */
   clear(): void {
     for (const internals of this.internals.values()) {
       internals.abortController?.abort();
     }
+    resetChatSession({ onDevice: true });
     clearSessionToolPermissions();
     this.states.clear();
     this.internals.clear();
@@ -177,5 +216,3 @@ class TabSessionStore {
 }
 
 export const tabSessions = new TabSessionStore();
-
-export default tabSessions;

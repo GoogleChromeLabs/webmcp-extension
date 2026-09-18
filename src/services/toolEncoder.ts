@@ -15,19 +15,18 @@ import { WebMCPTool, ToolDeclaration } from '../types/index.js';
  */
 export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] {
   return toolsList.map((tool) => {
-    let parsedParameters: Record<string, unknown> = { type: 'object', properties: {} };
-
-    if (tool.inputSchema) {
-      if (typeof tool.inputSchema === 'string') {
-        try {
-          parsedParameters = JSON.parse(tool.inputSchema);
-        } catch {
-          parsedParameters = { type: 'object', properties: {} };
-        }
-      } else if (typeof tool.inputSchema === 'object') {
-        parsedParameters = tool.inputSchema as Record<string, unknown>;
+    let rawSchema: unknown = tool.inputSchema;
+    if (typeof rawSchema === 'string') {
+      try {
+        rawSchema = JSON.parse(rawSchema);
+      } catch {
+        rawSchema = null;
       }
     }
+    const parsedParameters: Record<string, unknown> =
+      rawSchema && typeof rawSchema === 'object' && !Array.isArray(rawSchema)
+        ? { type: 'object', properties: {}, ...(rawSchema as Record<string, unknown>) }
+        : { type: 'object', properties: {} };
 
     const frameId = tool.frameId ?? 0;
     return {

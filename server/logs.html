@@ -8,7 +8,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>[DEBUG ONLY] Backend Gemini Server Logs</title>
+  <title>[DEBUG ONLY] WebMCP Backend Server Logs</title>
   <style>
     :root {
       --bg: #f8fafe;
@@ -81,44 +81,6 @@
       color: #b06000;
     }
 
-    .toolbar {
-      background: #ffffff;
-      border-bottom: 1px solid var(--border);
-      padding: 10px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .filter-btn {
-      padding: 4px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--text-muted);
-      font-size: 12px;
-      font-family: ui-monospace, monospace;
-      cursor: pointer;
-      margin-right: 6px;
-    }
-
-    .filter-btn.active {
-      background: var(--accent);
-      color: #fff;
-      font-weight: 600;
-      border-color: var(--accent);
-    }
-
-    .action-btn {
-      padding: 5px 12px;
-      border-radius: 6px;
-      border: 1px solid #dadce0;
-      background: #f8f9fa;
-      color: #3c4043;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-    }
 
     .logs-container {
       flex: 1;
@@ -153,14 +115,6 @@
       justify-content: space-between;
       cursor: pointer;
       background: #ffffff;
-    }
-
-    .log-summary.ok {
-      border-left: 4px solid #137333;
-    }
-
-    .log-summary.err {
-      border-left: 4px solid #c5221f;
     }
 
     .method-badge {
@@ -244,22 +198,12 @@
   </div>
   <div class="header">
     <div class="header-title">
-      <span>🖥️ GEMINI BACKEND SERVER CALL LOGS</span>
+      <span>🖥️ WEBMCP BACKEND SERVER CALL LOGS</span>
       <span id="statusPill" class="status-pill offline">OFFLINE</span>
     </div>
-  </div>
-  <div class="toolbar">
-    <div>
-      <button class="filter-btn active" data-filter="ALL">ALL</button>
-      <button class="filter-btn" data-filter="/api/chat">chat</button>
-      <button class="filter-btn" data-filter="/api/model">model</button>
-      <button class="filter-btn" data-filter="/api/reset">reset</button>
-    </div>
-    <div style="display: flex; align-items: center; gap: 14px;">
-      <label style="font-size: 12px; cursor: pointer; user-select: none;">
-        <input type="checkbox" id="autoScroll" checked /> Auto-scroll
-      </label>
-    </div>
+    <label style="font-size: 12px; cursor: pointer; user-select: none;">
+      <input type="checkbox" id="autoScroll" checked /> Auto-scroll
+    </label>
   </div>
   <div id="logsContainer" class="logs-container">
     <div id="authError" class="empty-state" style="display: none;">
@@ -282,7 +226,6 @@
 
   <script nonce="__CSP_NONCE__">
     let logs = [];
-    let activeFilter = 'ALL';
     const expandedIds = new Set();
 
     function formatTime(isoString) {
@@ -291,14 +234,6 @@
         const d = new Date(isoString);
         return d.toLocaleTimeString('en-GB', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
       } catch { return String(isoString); }
-    }
-
-    function setFilter(filter) {
-      activeFilter = filter;
-      document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === filter);
-      });
-      renderLogs();
     }
 
     /**
@@ -348,7 +283,7 @@
       const card = el('div', { className: 'log-card' });
       if (expandedIds.has(log.id)) card.classList.add('expanded');
 
-      const summary = el('div', { className: 'log-summary ' + (isSuccess ? 'ok' : 'err') });
+      const summary = el('div', { className: 'log-summary' });
       summary.addEventListener('click', () => {
         if (expandedIds.has(log.id)) {
           expandedIds.delete(log.id);
@@ -402,12 +337,11 @@
       const emptyState = document.getElementById('emptyState');
       const counter = document.getElementById('logCounter');
 
-      const filtered = activeFilter === 'ALL' ? logs : logs.filter(l => l && l.path === activeFilter);
       counter.textContent = logs.length + ' entries recorded';
 
       logsList.replaceChildren();
 
-      if (filtered.length === 0) {
+      if (logs.length === 0) {
         emptyState.style.display = 'block';
         return;
       }
@@ -415,7 +349,7 @@
       emptyState.style.display = 'none';
 
       const fragment = document.createDocumentFragment();
-      for (const log of filtered) {
+      for (const log of logs) {
         if (!log) continue;
         fragment.appendChild(buildLogCard(log));
       }
@@ -467,6 +401,7 @@
             logs = Array.isArray(data.logs) ? data.logs : [];
           } else if (data.type === 'log' && data.log) {
             logs.push(data.log);
+            if (logs.length > 500) logs.shift();
           }
           renderLogs();
         } catch (e) { console.error('SSE parse error:', e); }
@@ -476,10 +411,6 @@
         pill.className = 'status-pill offline';
       };
     }
-
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-      btn.addEventListener('click', () => setFilter(btn.dataset.filter));
-    });
 
     loadInitialLogs().then(authorized => {
       if (authorized) connectSSE();

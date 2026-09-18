@@ -4,7 +4,13 @@
  */
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { getTabInfo, requestTabTools } from '../services/extensionBridge.js';
+import {
+  domainFor,
+  faviconFor,
+  getChrome,
+  getTabInfo,
+  requestTabTools,
+} from '../services/extensionBridge.js';
 import { tabSessions } from '../services/tabSessionStore.js';
 import { originOfUrl } from '../services/toolPermissions.js';
 import { WebMCPTool } from '../types/index.js';
@@ -20,7 +26,6 @@ export interface UseActiveTabToolsReturn {
   origin: string;
   favicon: string;
   statusMsg: string;
-  refreshActiveTab: () => Promise<void>;
 }
 
 interface ToolsReport {
@@ -29,25 +34,6 @@ interface ToolsReport {
   url?: string;
   type?: string;
   action?: string;
-}
-
-/** The favicon a tab reports, or one derived from its host. */
-function faviconFor(url: string, reported?: string): string {
-  if (reported) return reported;
-  try {
-    return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`;
-  } catch {
-    return '';
-  }
-}
-
-/** The host a URL belongs to, falling back to the URL when it has no host. */
-function domainFor(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url || 'New Tab';
-  }
 }
 
 /**
@@ -80,38 +66,28 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
   const refreshTab = useCallback(async (tabId: number) => {
     const seq = bumpTabSeq(tabId);
     const info = await getTabInfo(tabId);
-    const stillTracked = tabId === activeTabIdRef.current || tabSessions.has(tabId);
+    const stillTracked = tabId === activeTabIdRef.current || tabSessions.hasConversation(tabId);
     if (info && stillTracked && tabSeqRef.current.get(tabId) === seq) {
       tabSessions.update(tabId, {
         domain: info.domain,
         origin: originOfUrl(info.url || ''),
-        favicon: info.favicon || faviconFor(info.url || ''),
+        favicon: info.favicon,
       });
     }
 
     try {
       await requestTabTools(tabId);
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      const unreachable =
-        error?.message?.includes('Could not establish connection') ||
-        error?.message?.includes('Receiving end does not exist');
-      if (!unreachable && (tabId === activeTabIdRef.current || tabSessions.has(tabId))) {
+      if (tabId === activeTabIdRef.current || tabSessions.hasConversation(tabId)) {
         tabSessions.update(tabId, { statusMsg: String(err) });
       }
     }
   }, []);
 
-  const refreshActiveTab = useCallback(async () => {
-    const tabId = activeTabIdRef.current;
-    if (tabId == null) return;
-    await refreshTab(tabId);
-  }, [refreshTab]);
-
   // One listener for the whole panel, filing every page's reports under its
   // own tab.
   useEffect(() => {
-    const chromeApi = window.chrome;
+    const chromeApi = getChrome();
     if (!chromeApi?.runtime) return;
 
     const listener = ({ message, tools, url, type, action }: ToolsReport, sender?: chrome.runtime.MessageSender) => {
@@ -145,16 +121,18 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
   // Pages change under tabs the panel is holding a conversation for, not only
   // under the one in front, so those are followed too.
   useEffect(() => {
-    const chromeApi = window.chrome;
+    const chromeApi = getChrome();
     if (!chromeApi?.tabs) return;
 
     const onUpdated = (tabId: number, changeInfo: { status?: string; url?: string }) => {
-      const isTracked = tabId === activeTabIdRef.current || tabSessions.has(tabId);
-      if (!isTracked) return;
+      const isTracked = tabId === activeTabIdRef.current || tabSessions.hasConversation(tabId);
+      if (!isTracked) {
+        tabSeqRef.current.delete(tabId);
+        return;
+      }
       // The tools of the page being left no longer exist. Clearing them keeps
       // a turn from declaring tools that have gone.
       if (changeInfo.url) {
-        bumpTabSeq(tabId);
         tabSessions.update(tabId, {
           tools: [],
           statusMsg: '',
@@ -185,8 +163,5 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
     origin: session.origin,
     favicon: session.favicon,
     statusMsg: session.statusMsg,
-    refreshActiveTab,
   };
 }
-
-export default useActiveTabTools;

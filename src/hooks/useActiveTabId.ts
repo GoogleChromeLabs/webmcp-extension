@@ -4,18 +4,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { getChrome } from '../services/extensionBridge.js';
 import { tabSessions } from '../services/tabSessionStore.js';
-
-interface GlobalWindowWithChrome {
-  chrome?: typeof chrome;
-}
-
-function getChrome(): typeof chrome | undefined {
-  const win = (typeof window !== 'undefined' ? window : undefined) as
-    | (Window & GlobalWindowWithChrome)
-    | undefined;
-  return win?.chrome;
-}
 
 export interface UseActiveTabIdOptions {
   /** The backend in use, so a closed tab's conversation ends on the right one. */
@@ -73,8 +63,7 @@ export function useActiveTabId(options: UseActiveTabIdOptions = {}): number | nu
       void sync();
     };
     const onReplaced = (_addedTabId: number, removedTabId: number) => {
-      tabSessions.remove(removedTabId, { onDevice: onDeviceModelRef.current });
-      void sync();
+      onRemoved(removedTabId);
     };
 
     chromeApi.tabs.onActivated?.addListener(onActivated);
@@ -95,5 +84,3 @@ export function useActiveTabId(options: UseActiveTabIdOptions = {}): number | nu
 
   return activeTabId;
 }
-
-export default useActiveTabId;

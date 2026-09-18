@@ -508,13 +508,14 @@ async function createSession(
       turn.round.push({ call });
     },
     onToolResponse(response: ToolCall & { ok: boolean; errorMessage?: string }) {
+      if (response.ok) return;
       // The wrapper refuses an invented tool, a missing required argument, or
       // a repeated call without calling execute(), so the agent loop never
       // sees those. Call IDs can be empty, so the call is found by what it asked.
       const refused = state.turn?.round.find(
         (roundCall) => !roundCall.resolve && !roundCall.outcome && isSameCall(roundCall.call, response)
       );
-      if (response.ok || !refused) return;
+      if (!refused) return;
       refused.outcome = { errorMessage: response.errorMessage ?? 'The call was refused.' };
       console.warn(`[WebMCP] The on-device model's call to ${response.name} was refused: ${response.errorMessage}`);
     },
@@ -553,8 +554,8 @@ async function buildSession(
   history: PromptMessage[],
   signal?: AbortSignal
 ): Promise<OnDeviceSession> {
-  retireSession();
-  reportContextUsage();
+  retireSession({ saveHistory: current?.id !== id });
+  conversationHistories.delete(id);
   const state = {
     id,
     declarations: JSON.stringify(tools),
@@ -581,7 +582,7 @@ async function getSession(request: ChatTurnRequest, signal?: AbortSignal): Promi
   await current?.compacting;
 
   const tools = toPromptApiTools(request.tools);
-  const sameChat = Boolean(current && current.id === request.chatId);
+  const sameChat = !current || !request.chatId || current.id === request.chatId;
   const reusable =
     current &&
     sameChat &&
@@ -590,14 +591,15 @@ async function getSession(request: ChatTurnRequest, signal?: AbortSignal): Promi
     !current.stale;
   if (current && reusable) return current;
 
-  if (!sameChat) {
+  if (!current || !sameChat) {
     const chatId = request.chatId || crypto.randomUUID();
     const saved = (request.chatId ? conversationHistories.get(request.chatId) : null) ?? [];
     const history = toReplayHistory(saved, tools.length > 0);
     return buildSession(chatId, tools, history, signal);
   }
-  const history = toReplayHistory(current!.session.history, tools.length > 0);
-  return buildSession(current!.id, tools, history, signal);
+
+  const history = toReplayHistory(current.session.history, tools.length > 0);
+  return buildSession(current.id, tools, history, signal);
 }
 
 /**
@@ -712,7 +714,11 @@ function startTurn(
 function recordResponses(turn: Turn, toolResponses: NonNullable<ChatTurnRequest['toolResponses']>): void {
   const unanswered = [...turn.handedOut];
   for (const { functionResponse } of toolResponses) {
-    const index = unanswered.findIndex(({ call }) => call.name === functionResponse.name);
+    const index = unanswered.findIndex(({ call }) =>
+      call.callID && functionResponse.id
+        ? call.callID === functionResponse.id
+        : call.name === functionResponse.name
+    );
     if (index === -1) continue;
     const [roundCall] = unanswered.splice(index, 1);
     const { error, result } = functionResponse.response as { error?: string; result?: unknown };
@@ -846,7 +852,7 @@ export async function sendOnDeviceChat(
   if (request.toolResponses) {
     const state = current;
     const turn = state?.turn;
-    if (!state || !turn || turn.handedOut.length === 0) {
+    if (!state || (request.chatId && state.id !== request.chatId) || !turn || turn.handedOut.length === 0) {
       throw new Error('The on-device model is not waiting for tool responses.');
     }
     recordResponses(turn, request.toolResponses);

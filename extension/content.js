@@ -46,7 +46,7 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
             result = await document.modelContext.executeTool(tool, inputArgs);
           } catch (e) {
             // TODO: Remove this when executeTool doesn't accept JSON stringified inputArgs anymore in Chrome Stable.
-            if (e.message.startsWith('Failed to parse input')) {
+            if (e?.message?.startsWith('Failed to parse input')) {
               result = await document.modelContext.executeTool(tool, JSON.stringify(inputArgs));
             } else {
               throw e;

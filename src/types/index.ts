@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
-
 export interface WebMCPTool {
   name: string;
   description?: string;
@@ -19,7 +17,6 @@ export interface WebMCPTool {
    */
   consequentialHint?: boolean;
   frameId?: number;
-  window?: Window;
 }
 
 export interface ToolDeclaration {
@@ -34,31 +31,22 @@ export interface ToolDeclaration {
  * the calls of the previous turn, always with the tools of the active page.
  */
 export interface ChatTurnRequest {
+  chatId?: string;
   message?: string;
   toolResponses?: Array<{
-    functionResponse: { name: string; response: Record<string, unknown> };
+    functionResponse: {
+      id?: string;
+      name: string;
+      response: { result?: unknown; error?: string };
+    };
   }>;
   tools?: ToolDeclaration[];
-  chatId?: string;
 }
 
 export interface ChatTurnResponse {
   chatId?: string;
   text?: string;
   functionCalls?: Array<{ id?: string; name: string; args: Record<string, unknown> }>;
-}
-
-export interface DecodedToolCall {
-  id?: string;
-  name: string;
-  args: Record<string, unknown>;
-}
-
-export interface ToolResult {
-  id?: string;
-  name: string;
-  result?: unknown;
-  error?: string;
 }
 
 export interface ActivityEntry {
@@ -71,7 +59,6 @@ export interface ChatMessage {
   id: number;
   role: 'user' | 'ai' | 'error';
   text: string;
-  meta?: string;
   activityLogs?: ActivityEntry[];
   /** Written by the on-device model rather than the backend server. */
   onDevice?: boolean;
@@ -85,7 +72,6 @@ export interface ChatMessage {
 export interface PendingToolPermission {
   toolName: string;
   toolDescription?: string;
-  args?: unknown;
   /** The origin the tool belongs to, absent for a page that has none. */
   origin?: string;
   /**
@@ -103,30 +89,5 @@ export interface PendingToolPermission {
   allowAlways?: () => void;
   deny: () => void;
 }
-
-export interface ExtensionListToolsMessage {
-  action: 'LIST_TOOLS';
-  fromOrigins?: string[];
-  message?: string;
-  tools?: WebMCPTool[];
-  url?: string;
-}
-
-export interface ExtensionExecuteToolMessage {
-  action: 'EXECUTE_TOOL';
-  name: string;
-  inputArgs?: Record<string, unknown> | string;
-  frameId?: number;
-}
-
-export interface ExtensionGetCrossDocResultMessage {
-  action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT';
-  frameId?: number;
-}
-
-export type ExtensionMessage =
-  | ExtensionListToolsMessage
-  | ExtensionExecuteToolMessage
-  | ExtensionGetCrossDocResultMessage;
 
 

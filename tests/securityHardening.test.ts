@@ -18,7 +18,7 @@ import {
   __clearLogsSessions,
 } from '../server/security.js';
 import {
-  callBackend,
+  streamChat,
   getAuthToken,
 } from '../src/services/backendBridge.js';
 
@@ -237,14 +237,13 @@ test('security - backendBridge includes X-WebMCP-Auth header when auth token is 
 
     globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
       capturedHeaders = new Headers(init?.headers);
-      return {
-        ok: true,
+      return new Response('{"done":true,"text":"","functionCalls":[]}\n', {
         status: 200,
-        json: async () => ({ success: true }),
-      } as Response;
+        headers: { 'Content-Type': 'application/x-ndjson' },
+      });
     };
 
-    await callBackend('/api/test', { test: true });
+    await streamChat('/api/chat', { test: true });
 
     assert.equal(capturedHeaders.get('X-WebMCP-Auth'), 'unit-test-secret-token');
     assert.equal(capturedHeaders.get('Content-Type'), 'application/json');
@@ -252,14 +251,9 @@ test('security - backendBridge includes X-WebMCP-Auth header when auth token is 
     // The headers are the bridge's own: callers cannot pass any, which the
     // types refuse, and the ones a request carries do not depend on what a
     // caller puts in its options.
-    await callBackend('/api/test', { test: true }, { cache: 'no-store', signal: AbortSignal.timeout(5_000) });
+    await streamChat('/api/chat', { test: true }, { cache: 'no-store', signal: AbortSignal.timeout(5_000) });
     assert.equal(capturedHeaders.get('X-WebMCP-Auth'), 'unit-test-secret-token');
     assert.equal(capturedHeaders.get('Content-Type'), 'application/json');
-
-    // A request without a body carries no content type, and still the token.
-    await callBackend('/api/test');
-    assert.equal(capturedHeaders.get('X-WebMCP-Auth'), 'unit-test-secret-token');
-    assert.equal(capturedHeaders.get('Content-Type'), null);
   } finally {
     if (originalToken !== undefined) {
       process.env.WEBMCP_AUTH_TOKEN = originalToken;

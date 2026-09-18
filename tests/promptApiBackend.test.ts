@@ -140,8 +140,6 @@ function uninstallPromptApiStub() {
   delete globals.LanguageModelToolSuccess;
   delete globals.LanguageModelToolError;
   delete globals.Summarizer;
-  uninstallNavigatorStub?.();
-  uninstallNavigatorStub = undefined;
 }
 
 const BOOK_TOOL = {
@@ -206,9 +204,7 @@ test('sendOnDeviceChat declares the page tools and surfaces tool calls', async (
     assert.equal(result.text, '');
     assert.deepEqual(result.functionCalls, [
       { id: 'c1', name: '_0_book_table', args: { partySize: 2 } },
-    ]);
-    assert.ok(result.chatId);
-  } finally {
+    ]);  } finally {
     uninstallPromptApiStub();
   }
 });
@@ -230,11 +226,10 @@ test('tool responses are answered as tool successes and errors on the same call'
     assert.equal(first.functionCalls?.length, 2);
 
     const second = await sendOnDeviceChat({
-      chatId: first.chatId,
       tools,
       toolResponses: [
-        { functionResponse: { name: '_0_book_table', response: { result: { total: 22, note: null } } } },
-        { functionResponse: { name: '_0_book_table', response: { error: 'User denied permission' } } },
+        { functionResponse: { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: { total: 22, note: null } } } },
+        { functionResponse: { id: first.functionCalls![1].id, name: '_0_book_table', response: { error: 'User denied permission' } } },
       ],
     });
 
@@ -277,9 +272,8 @@ test('the text of every step is reported as it is streamed', async () => {
     seen.length = 0;
     await sendOnDeviceChat(
       {
-        chatId: first.chatId,
         tools,
-        toolResponses: [{ functionResponse: { name: '_0_book_table', response: { result: 'ok' } } }],
+        toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: 'ok' } } }],
       },
       { onText: (text) => seen.push(text) }
     );
@@ -341,16 +335,13 @@ test('a turn goes on with the new tools when a tool call changes them', async ()
 
     // The call took the page back to the hallway, whose tools differ.
     const second = await sendOnDeviceChat({
-      chatId: first.chatId,
       tools: buildToolDecls(HALLWAY_TOOLS),
-      toolResponses: [{ functionResponse: { name: '_0_returnToHallway', response: { result: `<${fence}>\nThe hallway.\n</${fence}>` } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_returnToHallway', response: { result: `<${fence}>\nThe hallway.\n</${fence}>` } } }],
     });
 
     // Same turn, new session: the model called a tool only the new page has.
     assert.equal(second.text, 'Now the third door. ');
-    assert.deepEqual(second.functionCalls?.map((call) => call.name), ['_0_openDoor3']);
-    assert.equal(second.chatId, first.chatId);
-    assert.equal(stub.creates.length, 2);
+    assert.deepEqual(second.functionCalls?.map((call) => call.name), ['_0_openDoor3']);    assert.equal(stub.creates.length, 2);
     assert.equal(stub.destroyed, 1);
 
     const rebuilt = stub.creates[1] as { tools?: Array<{ name: string }>; initialPrompts?: ReplayedPrompt[] };
@@ -373,15 +364,14 @@ test('a turn goes on with the new tools when a tool call changes them', async ()
     assert.ok(String(rebuilt.initialPrompts?.[0].content).includes(fence));
 
     const third = await sendOnDeviceChat({
-      chatId: first.chatId,
       tools: buildToolDecls(HALLWAY_TOOLS),
-      toolResponses: [{ functionResponse: { name: '_0_openDoor3', response: { result: 'A magic garden.' } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_openDoor3', response: { result: 'A magic garden.' } } }],
     });
     assert.equal(third.text, 'Behind the third door is a magic garden.');
     assert.deepEqual(third.functionCalls, []);
 
     // The next message stays on the new session, which has the whole turn.
-    const fourth = await sendOnDeviceChat({ chatId: first.chatId, message: 'Thanks!', tools: buildToolDecls(HALLWAY_TOOLS) });
+    const fourth = await sendOnDeviceChat({ message: 'Thanks!', tools: buildToolDecls(HALLWAY_TOOLS) });
     assert.equal(fourth.text, 'You are welcome.');
     assert.equal(stub.creates.length, 2);
   } finally {
@@ -400,15 +390,14 @@ test('a turn whose calls leave the page without tools ends on the session it has
     const first = await sendOnDeviceChat({ message: 'Go back to the hallway.', tools: buildToolDecls(OCEAN_TOOLS) });
     // A session without tools cannot take the calls so far.
     const second = await sendOnDeviceChat({
-      chatId: first.chatId,
       tools: [],
-      toolResponses: [{ functionResponse: { name: '_0_returnToHallway', response: { result: 'ok' } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_returnToHallway', response: { result: 'ok' } } }],
     });
     assert.equal(second.text, 'You are back in the hallway.');
     assert.equal(stub.creates.length, 1);
 
     // The next message gets a session without tools, and the text so far.
-    await sendOnDeviceChat({ chatId: first.chatId, message: 'Hi', tools: [] });
+    await sendOnDeviceChat({ message: 'Hi', tools: [] });
     assert.equal(stub.creates.length, 2);
     const rebuilt = stub.creates[1] as { tools?: unknown; initialPrompts?: ReplayedPrompt[] };
     assert.equal(rebuilt.tools, undefined);
@@ -436,9 +425,8 @@ test('a round the wrapper refused is carried over to the new session too', async
     assert.deepEqual(first.functionCalls?.map((call) => call.name), ['_0_returnToHallway']);
 
     await sendOnDeviceChat({
-      chatId: first.chatId,
       tools: buildToolDecls(HALLWAY_TOOLS),
-      toolResponses: [{ functionResponse: { name: '_0_returnToHallway', response: { result: 'ok' } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_returnToHallway', response: { result: 'ok' } } }],
     });
     const rebuilt = stub.creates[1] as { initialPrompts?: ReplayedPrompt[] };
     assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
@@ -460,13 +448,12 @@ test('the session is rebuilt with the new tools when the page registers differen
   const stub = installPromptApiStub([['Booked.'], ['Cancelled.']]);
 
   try {
-    const first = await sendOnDeviceChat({
+    await sendOnDeviceChat({
       message: 'Book a table',
       tools: buildToolDecls([BOOK_TOOL]),
     });
 
     await sendOnDeviceChat({
-      chatId: first.chatId,
       message: 'Cancel it',
       tools: buildToolDecls([{ ...BOOK_TOOL, name: 'cancel_booking' }]),
     });
@@ -503,13 +490,13 @@ test('a turn stopped while a tool call is in flight leaves no dangling call behi
 
   try {
     const tools = buildToolDecls([BOOK_TOOL]);
-    const first = await sendOnDeviceChat({ message: 'Book a table', tools });
+    await sendOnDeviceChat({ message: 'Book a table', tools });
 
     const controller = new AbortController();
-    await sendOnDeviceChat({ chatId: first.chatId, message: 'Book another', tools }, { signal: controller.signal });
+    await sendOnDeviceChat({ message: 'Book another', tools }, { signal: controller.signal });
     controller.abort();
 
-    const third = await sendOnDeviceChat({ chatId: first.chatId, message: 'Hello', tools });
+    const third = await sendOnDeviceChat({ message: 'Hello', tools });
     assert.equal(third.text, 'Hello again.');
 
     // The model of the stopped turn is still waiting on its call, so the next
@@ -637,31 +624,12 @@ test('the model download is reported to the side panel', async () => {
   }
 });
 
-/** Takes the stand-in `navigator` away again, when one was installed. */
-let uninstallNavigatorStub: (() => void) | undefined;
-
-/**
- * Stands in for the part of `navigator` that compacting reads. The browser the
- * extension runs in always has one, while Node only exposes it from v21 on: no
- * language detector is stubbed here, so compacting falls back to
- * `navigator.language` for every message it summarizes.
- */
-function installNavigatorStub() {
-  const globals = globalThis as unknown as Record<string, unknown>;
-  if ('navigator' in globals) return;
-  globals.navigator = { language: 'en-US' };
-  uninstallNavigatorStub = () => {
-    delete globals.navigator;
-  };
-}
-
 /**
  * Stands in for the Summarizer API, which compacting uses. When `downloadable`,
  * creating one reports a download first.
  */
 function installSummarizerStub(summarize: (text: string) => Promise<string>, { downloadable = false } = {}) {
   const globals = globalThis as unknown as Record<string, unknown>;
-  installNavigatorStub();
   globals.Summarizer = {
     availability: async () => (downloadable ? 'downloadable' : 'available'),
     create: async (options: { monitor?: (m: EventTarget) => void }) => {
@@ -684,12 +652,12 @@ test('the side panel hears how much of the context the conversation takes up', a
   setOnDeviceModelUi({ onContextUsage: (usage) => reported.push(usage) });
 
   try {
-    const first = await sendOnDeviceChat({ message: 'Hi', tools: [] });
-    await sendOnDeviceChat({ chatId: first.chatId, message: 'Hi again', tools: [] });
-    // Nothing while a new conversation starts, then once its session exists,
-    // and after every step.
+    await sendOnDeviceChat({ message: 'Hi', tools: [] });
+    await sendOnDeviceChat({ message: 'Hi again', tools: [] });
+    // Once the session exists, and after every step. A conversation that is
+    // only just starting reports nothing at all: there is no reset on the way
+    // in any more, so the panel is not told about an emptiness it can see.
     assert.deepEqual(reported, [
-      null,
       { used: 0, window: 1000 },
       { used: 300, window: 1000 },
       { used: 600, window: 1000 },
@@ -754,14 +722,14 @@ test('a conversation that overflows the context is compacted before the next tur
   console.info = () => {};
 
   try {
-    const first = await sendOnDeviceChat({ message: 'Tell me all about booking', tools: [] });
+    await sendOnDeviceChat({ message: 'Tell me all about booking', tools: [] });
     assert.deepEqual(compacting, []);
 
-    await sendOnDeviceChat({ chatId: first.chatId, message: 'Tell me even more', tools: [] });
+    await sendOnDeviceChat({ message: 'Tell me even more', tools: [] });
     // The turn that overflowed starts compacting once it has ended.
     assert.equal(compacting[0], 'Compacting the conversation…');
 
-    const third = await sendOnDeviceChat({ chatId: first.chatId, message: 'Thanks', tools: [] });
+    const third = await sendOnDeviceChat({ message: 'Thanks', tools: [] });
     assert.equal(third.text, 'Done.');
     // The side panel follows along message by message, since the next turn
     // waits, and hears when it is done. The system prompt is kept as it is.
@@ -811,8 +779,8 @@ test('the models compacting needs are reported as they download', async () => {
   console.info = () => {};
 
   try {
-    const first = await sendOnDeviceChat({ message: 'A question long enough to be summarized', tools: [] });
-    await sendOnDeviceChat({ chatId: first.chatId, message: 'Go on', tools: [] });
+    await sendOnDeviceChat({ message: 'A question long enough to be summarized', tools: [] });
+    await sendOnDeviceChat({ message: 'Go on', tools: [] });
     assert.deepEqual(
       reported.map(({ resource, percent }) => [resource, percent]),
       [
@@ -866,11 +834,9 @@ test('chatBridge routes a turn to the on-device model, and to the server otherwi
   const calls: string[] = [];
   globalThis.fetch = (async (url: string) => {
     calls.push(String(url));
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ chatId: 'server-chat', text: 'from the server', functionCalls: [] }),
-    };
+    return new Response(`${JSON.stringify({ done: true, text: 'from the server', functionCalls: [] })}\n`, {
+      headers: { 'Content-Type': 'application/x-ndjson' },
+    });
   }) as unknown as typeof fetch;
 
   const stub = installPromptApiStub([['from the device']]);
@@ -1034,7 +1000,7 @@ test('on-device tool results are fenced rather than base64 encoded', async () =>
     await sendOnDeviceChat({ message: 'Hi', tools: buildToolDecls([BOOK_TOOL]) });
     const fence = getSpotlightFence();
     assert.match(fence, /^untrusted-[0-9a-f]{8}$/);
-    assert.equal(getSpotlighting({ onDevice: true }), fence);
+    assert.equal(getSpotlighting(true), fence);
     assert.equal(getSpotlighting(), undefined);
 
     const untrusted = { name: 'search', untrustedContentHint: true };
@@ -1087,13 +1053,12 @@ for (const [failure, error] of [
 
     try {
       const tools = buildToolDecls([BOOK_TOOL]);
-      const first = await sendOnDeviceChat({ message: 'Book a table', tools });
-      const second = await sendOnDeviceChat({ chatId: first.chatId, message: 'And again', tools });
+      await sendOnDeviceChat({ message: 'Book a table', tools });
+      const second = await sendOnDeviceChat({ message: 'And again', tools });
 
       assert.equal(second.text, 'Recovered.');
       // The conversation is replayed into the session that replaces the failed
-      // one, and the turn keeps its chat id.
-      assert.equal(second.chatId, first.chatId);
+      // one.
       const rebuilt = stub.creates.at(-1) as { initialPrompts?: Array<{ role: string; content: string }> };
       assert.deepEqual(
         rebuilt.initialPrompts?.map((prompt) => prompt.role),
@@ -1125,12 +1090,11 @@ test('a message that no longer fits is retried without the earlier tool results'
     const tools = buildToolDecls([BOOK_TOOL]);
     const first = await sendOnDeviceChat({ message: 'Read the Q1 report.', tools });
     await sendOnDeviceChat({
-      chatId: first.chatId,
       tools,
-      toolResponses: [{ functionResponse: { name: '_0_book_table', response: { result: 'A very long report.' } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: 'A very long report.' } } }],
     });
 
-    const retried = await sendOnDeviceChat({ chatId: first.chatId, message: 'And Q2?', tools });
+    const retried = await sendOnDeviceChat({ message: 'And Q2?', tools });
     assert.equal(retried.text, 'Q2 sold 2222 units.');
     const rebuilt = stub.creates.at(-1) as { tools?: Array<{ name: string }>; initialPrompts?: ReplayedPrompt[] };
     // The tools stay, but the earlier turn comes over as its text only.
@@ -1156,11 +1120,11 @@ test('a turn whose tool results no longer fit goes on without the earlier ones',
   try {
     const tools = buildToolDecls([BOOK_TOOL]);
     const first = await sendOnDeviceChat({ message: 'Read the Q1 report.', tools });
-    const answer = { name: '_0_book_table', response: { result: 'A very long report.' } };
-    await sendOnDeviceChat({ chatId: first.chatId, tools, toolResponses: [{ functionResponse: answer }] });
-    await sendOnDeviceChat({ chatId: first.chatId, message: 'Now read Q2.', tools });
+    const answer = { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: 'A very long report.' } };
+    await sendOnDeviceChat({ tools, toolResponses: [{ functionResponse: answer }] });
+    await sendOnDeviceChat({ message: 'Now read Q2.', tools });
 
-    const second = await sendOnDeviceChat({ chatId: first.chatId, tools, toolResponses: [{ functionResponse: answer }] });
+    const second = await sendOnDeviceChat({ tools, toolResponses: [{ functionResponse: answer }] });
     assert.equal(second.text, 'Q2 sold 2222 units.');
 
     const rebuilt = stub.creates.at(-1) as { initialPrompts?: ReplayedPrompt[] };
@@ -1217,9 +1181,8 @@ test('a failure while answering tool calls is reported rather than replayed', as
     await assert.rejects(
       () =>
         sendOnDeviceChat({
-          chatId: first.chatId,
           tools,
-          toolResponses: [{ functionResponse: { name: '_0_book_table', response: { result: 'ok' } } }],
+          toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: 'ok' } } }],
         }),
       /kErrorUnknown/
     );

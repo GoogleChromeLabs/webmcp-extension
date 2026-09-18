@@ -3,20 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
 import { ButtonUI, ButtonVariant } from './ButtonUI.js';
 import { SettingsIcon } from './Icons.js';
 
 export interface ToolbarProps {
   actionVariant?: ButtonVariant;
-  actionPressed?: boolean;
   onActionClick?: () => void;
   onSettingsClick?: () => void;
   className?: string;
-  // Legacy aliases for backward compatibility
-  actionButtonType?: ButtonVariant;
-  actionButtonState?: 'Default' | 'Pressed';
-  onActionButtonClick?: () => void;
 }
 
 /**
@@ -24,19 +18,11 @@ export interface ToolbarProps {
  * Toolbar footer inside the prompt composer.
  */
 export function Toolbar({
-  actionVariant,
-  actionPressed,
+  actionVariant = 'live',
   onActionClick,
   onSettingsClick,
-  actionButtonType = 'live',
-  actionButtonState = 'Default',
-  onActionButtonClick,
   className = '',
 }: ToolbarProps) {
-  const variant = actionVariant || actionButtonType;
-  const isPressed = actionPressed ?? (actionButtonState === 'Pressed');
-  const handleClick = onActionClick || onActionButtonClick;
-
   return (
     <div className={`toolbar ${className}`}>
       {onSettingsClick && (
@@ -51,13 +37,10 @@ export function Toolbar({
         </button>
       )}
       <ButtonUI
-        variant={variant}
-        pressed={isPressed}
-        onClick={handleClick}
+        variant={actionVariant}
+        onClick={onActionClick}
       />
     </div>
   );
 }
-
-export default Toolbar;
 

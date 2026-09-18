@@ -23,7 +23,7 @@ const grants = new Set<string>();
  * whatever characters a tool name holds, which a plain separator would not:
  * without it, `('https://a', 'b|c')` and `('https://a|b', 'c')` would collide.
  */
-export function toolPermissionKey(origin: string, toolName: string, tabId?: number): string {
+function toolPermissionKey(origin: string, toolName: string, tabId?: number): string {
   return tabId !== undefined
     ? JSON.stringify([origin, toolName, tabId])
     : JSON.stringify([origin, toolName]);

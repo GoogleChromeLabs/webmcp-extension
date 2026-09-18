@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ContextUsage, DownloadProgress, setOnDeviceModelUi } from '../services/promptApiBackend.js';
 
 /**

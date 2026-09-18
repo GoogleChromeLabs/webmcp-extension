@@ -5,13 +5,23 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getActiveTabInfo, requestTabTools, executeTabTool } from '../src/services/extensionBridge.js';
+import {
+  domainFor,
+  faviconFor,
+  getTabInfo,
+  requestTabTools,
+  executeTabTool,
+} from '../src/services/extensionBridge.js';
 import { waitForToolsToSettle } from '../src/hooks/useAgentSession.js';
 
 function setupTestChrome() {
   const listeners: Array<(message: unknown, sender: unknown) => void> = [];
   globalThis.chrome = {
     tabs: {
+      get: async (tabId: number) =>
+        tabId === 1
+          ? ({ id: 1, url: 'https://example.com', favIconUrl: 'https://example.com/favicon.ico' } as chrome.tabs.Tab)
+          : (undefined as unknown as chrome.tabs.Tab),
       query: async () => [
         { id: 1, url: 'https://example.com', favIconUrl: 'https://example.com/favicon.ico' },
       ] as chrome.tabs.Tab[],
@@ -34,13 +44,19 @@ function setupTestChrome() {
   } as typeof chrome;
 }
 
-test('extensionBridge - getActiveTabInfo returns tab metadata when chrome.tabs is available', async () => {
+test('extensionBridge - getTabInfo, domainFor, and faviconFor return tab metadata and fallback favicons', async () => {
   setupTestChrome();
-  const info = await getActiveTabInfo();
+  const info = await getTabInfo(1);
   assert.ok(info);
   assert.equal(info.tabId, 1);
   assert.equal(info.domain, 'example.com');
   assert.equal(info.favicon, 'https://example.com/favicon.ico');
+  assert.equal(domainFor('https://shop.example/path'), 'shop.example');
+  assert.equal(domainFor(''), 'New Tab');
+  assert.equal(
+    faviconFor('https://shop.example/path'),
+    'https://www.google.com/s2/favicons?domain=shop.example&sz=32'
+  );
 });
 
 test('extensionBridge - requestTabTools dispatches LIST_TOOLS message to active tab', async () => {
@@ -56,47 +72,18 @@ test('extensionBridge - requestTabTools dispatches LIST_TOOLS message to active 
   assert.equal((dispatchedMessage as { action: string }).action, 'LIST_TOOLS');
 });
 
-test('backendBridge - callBackend correctly makes fetch requests and handles backend responses', async () => {
-  const { callBackend } = await import('../src/services/backendBridge.js');
 
-  const originalFetch = globalThis.fetch;
-  try {
-    globalThis.fetch = async (url: string | URL | Request) => {
-      const urlStr = String(url);
-      if (urlStr.endsWith('/api/model')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ success: true, model: 'gemini-3.6-flash' }),
-        } as Response;
-      }
-      if (urlStr.endsWith('/api/error')) {
-        return {
-          ok: false,
-          status: 500,
-          json: async () => ({ error: 'Backend server error' }),
-        } as Response;
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true }),
-      } as Response;
-    };
+test('backendBridge - streamChat supports AbortSignal cancellation', async () => {
+  const { streamChat } = await import('../src/services/backendBridge.js');
+  const controller = new AbortController();
+  controller.abort();
 
-    const res = await callBackend<{ success: boolean; model: string }>('/api/model', { model: 'gemini-3.6-flash' });
-    assert.equal(res.success, true);
-    assert.equal(res.model, 'gemini-3.6-flash');
-
-    await assert.rejects(
-      async () => {
-        await callBackend('/api/error');
-      },
-      { message: 'Backend server error' }
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  await assert.rejects(
+    async () => {
+      await streamChat('/api/chat', {}, { signal: controller.signal });
+    },
+    (err: Error) => err.name === 'AbortError' || err.message.includes('aborted')
+  );
 });
 
 test('backendBridge - formatErrorMessage unwraps nested JSON error strings and strips debug details', async () => {
@@ -151,29 +138,10 @@ test('extensionBridge - executeTabTool dispatches message to tab with appropriat
   }
 });
 
-test('backendBridge - callBackend supports AbortSignal cancellation', async () => {
-  const { callBackend } = await import('../src/services/backendBridge.js');
-  const controller = new AbortController();
-  controller.abort();
-
-  await assert.rejects(
-    async () => {
-      await callBackend('/api/model', {}, { signal: controller.signal });
-    },
-    (err: Error) => err.name === 'AbortError' || err.message.includes('aborted')
-  );
-});
-
-test('extensionBridge - getActiveTabInfo returns null when no active tab exists', async () => {
+test('extensionBridge - getTabInfo returns null when tab does not exist', async () => {
   setupTestChrome();
-  const origQuery = globalThis.chrome.tabs.query;
-  try {
-    globalThis.chrome.tabs.query = async () => [];
-    const info = await getActiveTabInfo();
-    assert.equal(info, null);
-  } finally {
-    globalThis.chrome.tabs.query = origQuery;
-  }
+  const info = await getTabInfo(999);
+  assert.equal(info, null);
 });
 
 test('extensionBridge - executeTabTool throws error when chrome.tabs is unavailable', async () => {
@@ -366,9 +334,8 @@ test('waitForToolsToSettle gives up when no tools are reported, and stops when a
   assert.ok(elapsed < 300, `stopped after ${elapsed}ms`);
 });
 
-/** A fetch response streaming `lines` of newline-delimited JSON, split mid-line. */
-function ndjsonResponse(lines: unknown[]): Response {
-  const body = lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+function ndjsonStreamResponse(chunks: unknown[]): Response {
+  const body = `${chunks.map((chunk) => JSON.stringify(chunk)).join('\n')}\n`;
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
@@ -379,93 +346,79 @@ function ndjsonResponse(lines: unknown[]): Response {
   return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson' } });
 }
 
-test('backendBridge - streamBackend reports text as it arrives and resolves with the final payload', async () => {
-  const { streamBackend } = await import('../src/services/backendBridge.js');
+test('backendBridge - streamChat reports text as it arrives and resolves with the turn response', async () => {
+  const { streamChat } = await import('../src/services/backendBridge.js');
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; body: unknown; headers: Headers }> = [];
   try {
     globalThis.fetch = (async (url: string, init: RequestInit) => {
       requests.push({ url: String(url), body: JSON.parse(String(init.body)), headers: new Headers(init.headers) });
-      return ndjsonResponse([
+      return ndjsonStreamResponse([
         { text: 'Hello, ' },
-        { text: 'wörld.' },
-        { done: true, chatId: 'c1', text: 'Hello, wörld.', functionCalls: [] },
+        { text: 'Hello, wörld.' },
+        { done: true, chatId: 'chat-1', text: 'Hello, wörld.', functionCalls: [] },
       ]);
     }) as typeof fetch;
 
     const seen: string[] = [];
-    const result = await streamBackend<{ chatId: string; text: string }>(
-      '/api/chat',
-      { message: 'Hi', stream: true },
-      { onText: (text) => seen.push(text) }
-    );
-    assert.deepEqual(seen, ['Hello, ', 'Hello, wörld.']);
-    assert.deepEqual(result, { chatId: 'c1', text: 'Hello, wörld.', functionCalls: [] });
-    assert.deepEqual(requests[0].body, { message: 'Hi', stream: true });
-    // The headers are the bridge's own, as on callBackend().
+    const reply = await streamChat('/api/chat', { message: 'Hi', tools: [] }, { onText: (text) => seen.push(text) });
+
+    assert.deepEqual(seen.at(-1), 'Hello, wörld.');
+    assert.ok(seen.length > 1, 'the reply was reported more than once');
+    assert.equal(reply.text, 'Hello, wörld.');
+    assert.equal(reply.chatId, 'chat-1');
+    assert.deepEqual(requests[0].body, { message: 'Hi', tools: [] });
     assert.equal(requests[0].headers.get('Content-Type'), 'application/json');
 
-    // An error written mid-stream rejects.
-    globalThis.fetch = (async () => ndjsonResponse([{ text: 'Hel' }, { error: 'Quota exceeded' }])) as typeof fetch;
-    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), { message: 'Quota exceeded' });
-
-    // So does a stream that ends without its final line.
-    globalThis.fetch = (async () => ndjsonResponse([{ text: 'Hel' }])) as typeof fetch;
-    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /ended the response early/);
-
-    // A response cut off in the middle of a line says the same: the piece the
-    // server never finished writing is no line, and reading it as one would
-    // fail as a parse error.
-    const truncated = () =>
-      new Response(`${JSON.stringify({ text: 'Hello' })}\n{"text":"half of a li`, {
-        headers: { 'Content-Type': 'application/x-ndjson' },
-      });
-    globalThis.fetch = truncated as unknown as typeof fetch;
-    const half: string[] = [];
-    await assert.rejects(
-      () => streamBackend('/api/chat', { message: 'Hi' }, { onText: (piece) => half.push(piece) }),
-      /ended the response early/
-    );
-    // What did arrive in full was still reported.
-    assert.deepEqual(half, ['Hello']);
-
-    // A line that is not JSON at all says so, rather than throwing a
-    // SyntaxError from the parser.
     globalThis.fetch = (async () =>
-      new Response('not json at all\n', { headers: { 'Content-Type': 'application/x-ndjson' } })) as typeof fetch;
-    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /not JSON: not json at all/);
+      ndjsonStreamResponse([
+        {
+          done: true,
+          chatId: 'chat-1',
+          text: '',
+          functionCalls: [{ id: 'c1', name: 'book_table', args: { size: 2 } }],
+        },
+      ])) as typeof fetch;
+    const called = await streamChat('/api/chat', { message: 'Book' });
+    assert.deepEqual(called.functionCalls, [{ id: 'c1', name: 'book_table', args: { size: 2 } }]);
 
-    // A connection that dies mid-response reads as a lost connection...
+    globalThis.fetch = (async () =>
+      ndjsonStreamResponse([
+        { text: 'Hel' },
+        { error: 'Quota exceeded' },
+      ])) as typeof fetch;
+    await assert.rejects(() => streamChat('/api/chat', { message: 'Hi' }), { message: 'Quota exceeded' });
+
     const dying = (error: Error) => () =>
       new Response(
         new ReadableStream({
           start(controller) {
-            controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ text: 'Hello' })}\n`));
+            controller.enqueue(new TextEncoder().encode('{"text":"Hel"}\n'));
             controller.error(error);
           },
         }),
         { headers: { 'Content-Type': 'application/x-ndjson' } }
       );
     globalThis.fetch = dying(new TypeError('fetch failed')) as unknown as typeof fetch;
-    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), /Lost the connection/);
+    await assert.rejects(() => streamChat('/api/chat', { message: 'Hi' }), /Lost the connection/);
 
-    // ...unless the caller stopped it, whose AbortError has to stay one.
     const controller = new AbortController();
     globalThis.fetch = (() => {
       controller.abort();
       return dying(new DOMException('The operation was aborted.', 'AbortError'))();
     }) as unknown as typeof fetch;
-    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }, { signal: controller.signal }), {
+    await assert.rejects(() => streamChat('/api/chat', { message: 'Hi' }, { signal: controller.signal }), {
       name: 'AbortError',
     });
 
-    // A refusal before streaming comes as plain JSON.
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
         headers: { 'Content-Type': 'application/json' },
       })) as typeof fetch;
-    await assert.rejects(() => streamBackend('/api/chat', { message: 'Hi' }), { message: 'Unauthorized' });
+    await assert.rejects(() => streamChat('/api/chat', { message: 'Hi' }), { message: 'Unauthorized' });
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
+

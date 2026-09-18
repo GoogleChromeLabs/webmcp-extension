@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 // Clean generic web favicon fallback SVG (globe)
 const GENERIC_FAVICON =

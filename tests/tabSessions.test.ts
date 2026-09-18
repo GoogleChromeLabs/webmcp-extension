@@ -78,9 +78,32 @@ function installTestChrome(): TestChrome {
   return state;
 }
 
-/** A response stream in the shape the backend server writes. */
-function ndjsonResponse(lines: unknown[]): Response {
-  const body = lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+/** A response stream in the shape the backend server writes (NDJSON). */
+function sseResponse(reply: {
+  chatId?: string;
+  text?: string;
+  functionCalls?: Array<{ id?: string; name: string; args?: Record<string, unknown> }>;
+  error?: string;
+}): Response {
+  const chunks: unknown[] = [];
+  if (reply.error) {
+    chunks.push({ error: reply.error });
+  } else {
+    if (reply.text) {
+      chunks.push({ text: reply.text });
+    }
+    chunks.push({
+      done: true,
+      chatId: reply.chatId,
+      text: reply.text ?? '',
+      functionCalls: (reply.functionCalls ?? []).map((call, index) => ({
+        id: call.id ?? `call_${index + 1}`,
+        name: call.name,
+        args: call.args ?? {},
+      })),
+    });
+  }
+  const body = `${chunks.map((chunk) => JSON.stringify(chunk)).join('\n')}\n`;
   return new Response(body, { headers: { 'Content-Type': 'application/x-ndjson' } });
 }
 
@@ -90,19 +113,33 @@ function ndjsonResponse(lines: unknown[]): Response {
  */
 function installBackend(replies: Array<Record<string, unknown>>): {
   requests: Array<Record<string, unknown>>;
+  resets: Array<Record<string, unknown>>;
   restore: () => void;
 } {
   const originalFetch = globalThis.fetch;
   const requests: Array<Record<string, unknown>> = [];
+  const resets: Array<Record<string, unknown>> = [];
   let turn = 0;
 
-  globalThis.fetch = (async (_url: string, init: RequestInit) => {
-    requests.push(JSON.parse(String(init.body)));
-    const reply = replies[turn++] ?? { text: 'done', functionCalls: [] };
-    return ndjsonResponse([{ done: true, ...reply }]);
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    const body = init.body ? JSON.parse(String(init.body)) : {};
+    if (String(url).endsWith('/api/chat/reset')) {
+      resets.push(body);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    requests.push(body);
+    const reply = (replies[turn++] ?? { text: 'done', functionCalls: [] }) as {
+      chatId?: string;
+      text?: string;
+      functionCalls?: Array<{ id?: string; name: string; args?: Record<string, unknown> }>;
+      error?: string;
+    };
+    return sseResponse(reply);
   }) as unknown as typeof fetch;
 
-  return { requests, restore: () => { globalThis.fetch = originalFetch; } };
+  return { requests, resets, restore: () => { globalThis.fetch = originalFetch; } };
 }
 
 /**
@@ -183,11 +220,12 @@ test('a permission prompt belongs to the tab that asked, and is not carried to a
     assert.equal(readSession(2).anyBusy, false);
 
     // Both turns belonged to the same conversation, which is tab 1's.
-    assert.deepEqual(backend.requests.map((request) => request.chatId), [undefined, 'chat-tab-1']);
+    assert.equal(backend.requests[1].chatId, 'chat-tab-1');
+    assert.equal(backend.requests[0].message, 'Book a table');
   } finally {
+    tabSessions.clear();
     backend.restore();
     browser.restore();
-    tabSessions.clear();
   }
 });
 
@@ -221,20 +259,21 @@ test('each tab keeps its own conversation, composer and progress', async () => {
       ['Ask about tab two', 'Hello from tab two.']
     );
 
-    // Each tab carries on its own conversation with the backend.
-    assert.deepEqual(backend.requests.map((request) => request.message), [
-      'Ask about tab one',
-      'Ask about tab two',
-    ]);
+    // Each tab carries on its own isolated conversation with the backend.
+    assert.deepEqual(
+      backend.requests.map((request) => request.message),
+      ['Ask about tab one', 'Ask about tab two']
+    );
+    assert.notEqual(backend.requests[0].chatId, backend.requests[1].chatId);
 
     // Starting over in one tab leaves the other alone.
     readSession(2).handleReset();
     assert.equal(readSession(2).messages.length, 0);
     assert.equal(readSession(1).messages.length, 2);
   } finally {
+    tabSessions.clear();
     backend.restore();
     browser.restore();
-    tabSessions.clear();
   }
 });
 
@@ -271,9 +310,9 @@ test('a turn keeps running in its own tab while the user works in another', asyn
     assert.equal(readSession(1).messages.at(-1)?.text, 'All done.');
     assert.deepEqual(readSession(2).messages, []);
   } finally {
+    tabSessions.clear();
     backend.restore();
     browser.restore();
-    tabSessions.clear();
   }
 });
 
@@ -376,9 +415,9 @@ test('a tool that opens its own tab moves the work there, not the conversation',
     assert.equal(readSession(1).messages.at(-1)?.text, 'Confirmed on the new page.');
     assert.deepEqual(tabSessions.getState(7).messages, []);
   } finally {
+    tabSessions.clear();
     backend.restore();
     globalThis.chrome = originalChrome;
-    tabSessions.clear();
   }
 });
 
@@ -471,9 +510,9 @@ test('denying a permission prompt sends refusal response and does not execute to
     assert.equal(finished.busy, false);
     assert.equal(finished.pendingPermission, null);
   } finally {
+    tabSessions.clear();
     backend.restore();
     browser.restore();
-    tabSessions.clear();
   }
 });
 
@@ -551,34 +590,23 @@ test('getTabInfo returns tab metadata when tab exists and null when tabs.get thr
   }
 });
 
-test('tabSessions.remove resets backend chat session when chatId is present', () => {
+test('tabSessions.remove resets backend chat session when chatId is present', async () => {
   tabSessions.clear();
-  const originalFetch = globalThis.fetch;
-  const resetRequests: Array<Record<string, unknown>> = [];
-
-  globalThis.fetch = (async (url: string, init: RequestInit) => {
-    if (String(url).endsWith('/api/reset')) {
-      resetRequests.push(JSON.parse(String(init.body)));
-      return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
-    }
-    return new Response('{}');
-  }) as unknown as typeof fetch;
+  const backend = installBackend([{ chatId: 'chat-tab-42', text: 'First reply', functionCalls: [] }]);
 
   try {
-    const internals = tabSessions.getInternals(42);
-    internals.chatId = 'chat-to-clean';
-    tabSessions.update(42, { messages: [{ id: 1, role: 'user', text: 'hi' }] });
-
+    const tab42 = readSession(42);
+    tab42.setUserPrompt('Initial message');
+    await tab42.handleSendPrompt();
+    assert.equal(tabSessions.getInternals(42).chatId, 'chat-tab-42');
     assert.equal(tabSessions.has(42), true);
 
     tabSessions.remove(42);
-
     assert.equal(tabSessions.has(42), false);
-    assert.equal(resetRequests.length, 1);
-    assert.deepEqual(resetRequests[0], { chatId: 'chat-to-clean' });
+    assert.deepEqual(backend.resets, [{ chatId: 'chat-tab-42' }]);
   } finally {
-    globalThis.fetch = originalFetch;
     tabSessions.clear();
+    backend.restore();
   }
 });
 
@@ -744,12 +772,10 @@ test('useAgentSession logs raw errors to console and displays a generic error me
   };
 
   globalThis.fetch = (async () =>
-    ndjsonResponse([
-      {
-        error:
-          '{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}',
-      },
-    ])) as unknown as typeof fetch;
+    sseResponse({
+      error:
+        '{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}',
+    })) as unknown as typeof fetch;
 
   try {
     const tab1 = readSession(1);
@@ -806,9 +832,9 @@ test('a call to a tool the page does not expose is rejected immediately without 
       'Tool "nonexistent_tool" is not available on this page.'
     );
   } finally {
+    tabSessions.clear();
     backend.restore();
     browser.restore();
-    tabSessions.clear();
   }
 });
 
