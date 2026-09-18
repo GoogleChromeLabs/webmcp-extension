@@ -3,29 +3,33 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Dispatch,
+  MutableRefObject,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
 import { getSpotlighting, resetChatSession, sendChatTurn } from '../services/chatBridge.js';
 import { executeTabTool, requestTabTools } from '../services/extensionBridge.js';
+import { tabSessions } from '../services/tabSessionStore.js';
 import { buildToolDecls, decodeToolName, isToolUntrusted } from '../services/toolEncoder.js';
 import {
   ActivityEntry,
   ChatMessage,
   ChatTurnResponse,
+  PendingToolPermission,
   WebMCPTool,
 } from '../types/index.js';
+
+export type { PendingToolPermission } from '../types/index.js';
 
 export interface UseAgentSessionOptions {
   sensitiveActionAlerts?: boolean;
   /** Run the model on the device through the Prompt API instead of the server. */
   onDeviceModel?: boolean;
-}
-
-export interface PendingToolPermission {
-  toolName: string;
-  toolDescription?: string;
-  args?: unknown;
-  allow: () => void;
-  deny: () => void;
 }
 
 export interface UseAgentSessionReturn {
@@ -35,6 +39,8 @@ export interface UseAgentSessionReturn {
   /** The reply being written right now, until it becomes one of `messages`. */
   streamingText: string;
   busy: boolean;
+  /** Set while any tab is mid-turn, including tabs that are not in front. */
+  anyBusy: boolean;
   activityLog: ActivityEntry[];
   pendingPermission: PendingToolPermission | null;
   handleSendPrompt: () => Promise<void>;
@@ -140,22 +146,42 @@ export async function waitForToolsToSettle(
 let nextId = Date.now();
 const generateId = (): number => ++nextId;
 
+/**
+ * A read-only view of the tools of whichever tab a turn is working with, in
+ * the shape `waitForToolsToSettle` takes. It reads through to the store on
+ * every access, so a turn sees the latest report for its page rather than a
+ * list captured when it started — and follows the page if a tool opens one in
+ * a new tab.
+ */
+function toolsViewFor(getTabId: () => number): MutableRefObject<WebMCPTool[]> {
+  return {
+    get current(): WebMCPTool[] {
+      return tabSessions.getState(getTabId()).tools;
+    },
+    // Tools only ever come from the page's own reports.
+    set current(_tools: WebMCPTool[]) {},
+  } as MutableRefObject<WebMCPTool[]>;
+}
+
+/**
+ * The agent conversation for one tab.
+ *
+ * The side panel is shared by every tab in a window, so the conversation is
+ * kept per tab and the panel shows the one belonging to the tab in front.
+ * Switching tabs puts away that tab's messages, its progress and — the point
+ * of all this — its permission prompt, instead of leaving them over a page
+ * that never asked for anything. A turn that was already running keeps going
+ * in the background and writes to its own tab.
+ */
 export function useAgentSession(
-  toolsOrRef: WebMCPTool[] | MutableRefObject<WebMCPTool[]>,
+  activeTabId: number | null,
   options?: UseAgentSessionOptions
 ): UseAgentSessionReturn {
-  // Chat & Execution State
-  const [userPrompt, setUserPrompt] = useState<string>('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [busy, setBusy] = useState<boolean>(false);
-  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
-  const [streamingText, setStreamingText] = useState<string>('');
-  const streamingTextRef = useRef<string>('');
-  const showStreamingText = (text: string) => {
-    streamingTextRef.current = text;
-    setStreamingText(text);
-  };
-  const [pendingPermission, setPendingPermission] = useState<PendingToolPermission | null>(null);
+  // The third argument is the snapshot for a render outside a browser, which
+  // is the same one: the store is plain state, not anything the DOM holds.
+  const readSession = () => tabSessions.getState(activeTabId);
+  const session = useSyncExternalStore(tabSessions.subscribe, readSession, readSession);
+  const anyBusy = useSyncExternalStore(tabSessions.subscribe, tabSessions.isAnyBusy, tabSessions.isAnyBusy);
 
   // Settings sync refs
   const sensitiveActionAlertsRef = useRef<boolean>(options?.sensitiveActionAlerts ?? true);
@@ -165,136 +191,188 @@ export function useAgentSession(
 
   const onDeviceModelRef = useRef<boolean>(options?.onDeviceModel ?? false);
   useEffect(() => {
+    const next = options?.onDeviceModel ?? false;
     // Switching backends starts a new conversation: neither one can carry on
-    // where the other left off.
-    if (onDeviceModelRef.current !== (options?.onDeviceModel ?? false)) {
-      resetChatSession({ chatId: chatIdRef.current, onDevice: onDeviceModelRef.current });
-      chatIdRef.current = undefined;
+    // where the other left off. That holds for every tab, not just the one in
+    // front, since they all move to the new backend together.
+    if (onDeviceModelRef.current !== next) {
+      for (const tabId of tabSessions.tabIds()) {
+        const internals = tabSessions.getInternals(tabId);
+        resetChatSession({ chatId: internals.chatId, onDevice: onDeviceModelRef.current });
+        internals.chatId = undefined;
+      }
     }
-    onDeviceModelRef.current = options?.onDeviceModel ?? false;
+    onDeviceModelRef.current = next;
   }, [options?.onDeviceModel]);
 
-  // Safely support either MutableRefObject or raw tools array without breaking encapsulation
-  const internalToolsRef = useRef<WebMCPTool[]>([]);
-  const activeToolsRef = 'current' in toolsOrRef ? toolsOrRef : internalToolsRef;
-  if (!('current' in toolsOrRef)) {
-    internalToolsRef.current = toolsOrRef;
-  }
-
-  // Persistent refs for async turn execution
-  const chatIdRef = useRef<string | undefined>(undefined);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const turnLogsRef = useRef<ActivityEntry[]>([]);
-
-  // Cleanup in-flight requests on unmount
+  // Cleanup in-flight requests on unmount: the panel is closing, and nothing
+  // is left to show a reply to.
   useEffect(() => {
     return () => {
-      abortControllerRef.current?.abort();
-      setPendingPermission(null);
+      for (const tabId of tabSessions.tabIds()) {
+        tabSessions.getInternals(tabId).abortController?.abort();
+        tabSessions.update(tabId, { pendingPermission: null, busy: false });
+      }
     };
   }, []);
 
-  // Activity logger helpers
-  const logActivity = (source: 'assistant' | 'user', name: string, args: unknown): ActivityEntry => {
-    const entry: ActivityEntry = {
-      id: generateId(),
-      time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-      source,
-      name,
-      args,
-      start: performance.now(),
-      status: 'running',
-    };
-    turnLogsRef.current = [entry, ...turnLogsRef.current];
-    setActivityLog((prev) => [entry, ...prev]);
-    return entry;
-  };
-
-  const completeActivity = (entry: ActivityEntry, { result, error }: { result?: unknown; error?: string }) => {
-    const durationMs = Math.round(performance.now() - entry.start);
-    const update = (item: ActivityEntry) =>
-      item.id === entry.id
-        ? {
-            ...item,
-            status: (error ? 'err' : 'ok') as 'ok' | 'err',
-            durationMs,
-            result,
-            error,
-          }
-        : item;
-
-    turnLogsRef.current = turnLogsRef.current.map(update);
-    setActivityLog((prev) => prev.map(update));
-  };
+  const setUserPrompt = useCallback<Dispatch<SetStateAction<string>>>(
+    (value) => {
+      if (activeTabId == null) return;
+      tabSessions.update(activeTabId, (previous) => ({
+        userPrompt: typeof value === 'function' ? value(previous.userPrompt) : value,
+      }));
+    },
+    [activeTabId]
+  );
 
   // Dedicated cancellation handler
   const handleStop = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    if (activeTabId == null) return;
+    const internals = tabSessions.getInternals(activeTabId);
+    if (internals.abortController) {
+      internals.abortController.abort();
+      internals.abortController = null;
     }
     // What was written before the stop stays, rather than vanishing.
-    const partial = streamingTextRef.current.trim();
-    if (partial) {
-      const logs = [...turnLogsRef.current];
-      setMessages((prev) => [...prev, { id: generateId(), role: 'ai', text: partial, activityLogs: logs, onDevice: onDeviceModelRef.current }]);
-    }
-    showStreamingText('');
-    setPendingPermission(null);
-    setBusy(false);
-  }, []);
+    const partial = tabSessions.getState(activeTabId).streamingText.trim();
+    const logs = [...internals.turnLogs];
+    tabSessions.update(activeTabId, (previous) => ({
+      messages: partial
+        ? [
+            ...previous.messages,
+            { id: generateId(), role: 'ai', text: partial, activityLogs: logs, onDevice: onDeviceModelRef.current },
+          ]
+        : previous.messages,
+      streamingText: '',
+      pendingPermission: null,
+      busy: false,
+    }));
+  }, [activeTabId]);
 
   // Reset chat session state
   const handleReset = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    if (activeTabId == null) return;
+    const internals = tabSessions.getInternals(activeTabId);
+    if (internals.abortController) {
+      internals.abortController.abort();
+      internals.abortController = null;
     }
-    resetChatSession({ chatId: chatIdRef.current, onDevice: onDeviceModelRef.current });
-    chatIdRef.current = undefined;
-    turnLogsRef.current = [];
-    setUserPrompt('');
-    setMessages([]);
-    setActivityLog([]);
-    showStreamingText('');
-    setPendingPermission(null);
-    setBusy(false);
-  }, []);
+    if (internals.chatId) {
+      resetChatSession({ chatId: internals.chatId, onDevice: onDeviceModelRef.current });
+      internals.chatId = undefined;
+    }
+    internals.turnLogs = [];
+    tabSessions.update(activeTabId, {
+      userPrompt: '',
+      messages: [],
+      activityLog: [],
+      streamingText: '',
+      pendingPermission: null,
+      busy: false,
+    });
+  }, [activeTabId]);
 
   // Main prompt sending logic via backend
   const handleSendPrompt = useCallback(async () => {
-    if (busy) return;
+    // The tab is pinned for the whole turn. Everything below writes to it and
+    // runs tools against it, however many times the user switches tabs while
+    // it is working.
+    const tabId = activeTabId;
+    if (tabId == null) return;
 
-    const textToSend = userPrompt.trim();
+    const state = tabSessions.getState(tabId);
+    if (state.busy) return;
+
+    const textToSend = state.userPrompt.trim();
     if (!textToSend) return;
 
+    // The browser holds a single on-device session, so two tabs cannot be
+    // mid-turn on it at once. Saying so beats quietly wrecking both.
+    if (onDeviceModelRef.current && tabSessions.busyTabIds().some((busyTabId) => busyTabId !== tabId)) {
+      tabSessions.update(tabId, (previous) => ({
+        messages: [
+          ...previous.messages,
+          {
+            id: generateId(),
+            role: 'error',
+            text: 'The on-device model can only answer one tab at a time. Wait for the reply in the other tab to finish, or stop it.',
+          },
+        ],
+      }));
+      return;
+    }
+
+    const internals = tabSessions.getInternals(tabId);
+    // The conversation stays on `tabId`, where the user can see it, but the
+    // page being worked on can move: a tool may open a tab of its own and the
+    // flow carries on there.
+    let turnTabId = tabId;
+    const toolsView = toolsViewFor(() => turnTabId);
+
     // Initialize turn abort controller
-    abortControllerRef.current?.abort();
+    internals.abortController?.abort();
     const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+    internals.abortController = abortController;
     const { signal } = abortController;
     // Replies are shown as they are written, and become messages once done.
+    const showStreamingText = (text: string) => tabSessions.update(tabId, { streamingText: text });
     const onText = (text: string) => {
       if (!signal.aborted) showStreamingText(text);
     };
 
-    setBusy(true);
-    setUserPrompt('');
-    setPendingPermission(null);
-    turnLogsRef.current = [];
-    setActivityLog([]);
-    setMessages((prev) => [
-      ...prev,
-      { id: generateId(), role: 'user', text: textToSend, meta: 'you' },
-    ]);
+    // Activity logger helpers, scoped to this turn's tab.
+    const logActivity = (source: 'assistant' | 'user', name: string, args: unknown): ActivityEntry => {
+      const entry: ActivityEntry = {
+        id: generateId(),
+        time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+        source,
+        name,
+        args,
+        start: performance.now(),
+        status: 'running',
+      };
+      internals.turnLogs = [entry, ...internals.turnLogs];
+      tabSessions.update(tabId, (previous) => ({ activityLog: [entry, ...previous.activityLog] }));
+      return entry;
+    };
+
+    const completeActivity = (entry: ActivityEntry, { result, error }: { result?: unknown; error?: string }) => {
+      const durationMs = Math.round(performance.now() - entry.start);
+      const update = (item: ActivityEntry) =>
+        item.id === entry.id
+          ? {
+              ...item,
+              status: (error ? 'err' : 'ok') as 'ok' | 'err',
+              durationMs,
+              result,
+              error,
+            }
+          : item;
+
+      internals.turnLogs = internals.turnLogs.map(update);
+      tabSessions.update(tabId, (previous) => ({ activityLog: previous.activityLog.map(update) }));
+    };
+
+    const addMessage = (message: ChatMessage) =>
+      tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
+
+    internals.turnLogs = [];
+    tabSessions.update(tabId, (previous) => ({
+      busy: true,
+      userPrompt: '',
+      pendingPermission: null,
+      activityLog: [],
+      messages: [...previous.messages, { id: generateId(), role: 'user', text: textToSend, meta: 'you' }],
+    }));
 
     try {
-      const toolDecls = buildToolDecls(activeToolsRef.current);
+      const toolDecls = buildToolDecls(toolsView.current);
       let currentResult: ChatTurnResponse = await sendChatTurn(
         {
           message: textToSend,
           tools: toolDecls,
-          chatId: chatIdRef.current,
+          chatId: internals.chatId,
         },
         { signal, onDevice: onDeviceModelRef.current, onText }
       );
@@ -304,7 +382,7 @@ export function useAgentSession(
       showStreamingText('');
 
       if (currentResult.chatId) {
-        chatIdRef.current = currentResult.chatId;
+        internals.chatId = currentResult.chatId;
       }
 
       let messageRendered = false;
@@ -319,11 +397,14 @@ export function useAgentSession(
       ) {
         turnCount++;
         if (currentResult.text?.trim()) {
-          const logs = [...turnLogsRef.current];
-          setMessages((prev) => [
-            ...prev,
-            { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs, onDevice: onDeviceModelRef.current },
-          ]);
+          const logs = [...internals.turnLogs];
+          addMessage({
+            id: generateId(),
+            role: 'ai',
+            text: currentResult.text.trim(),
+            activityLogs: logs,
+            onDevice: onDeviceModelRef.current,
+          });
           messageRendered = true;
         }
 
@@ -331,12 +412,11 @@ export function useAgentSession(
         for (const call of currentResult.functionCalls) {
           if (signal.aborted) break;
           const { name, frameId } = decodeToolName(call.name);
-          // Find the tool declaration in activeToolsRef
+          // Find the tool declaration among this tab's tools
           const targetTool =
-            activeToolsRef.current.find(
+            toolsView.current.find(
               (t) => t.name === name && (frameId === undefined || t.frameId === frameId)
-            ) ||
-            activeToolsRef.current.find((t) => t.name === name);
+            ) || toolsView.current.find((t) => t.name === name);
 
           const isReadOnly = targetTool?.readOnlyHint === true;
           const entry = logActivity('assistant', name, call.args);
@@ -344,9 +424,10 @@ export function useAgentSession(
           // If sensitive action alerts is enabled and tool is not readonly, prompt the user before execution
           if (sensitiveActionAlertsRef.current && !isReadOnly) {
             const allowed = await new Promise<boolean>((resolve) => {
+              const clearPrompt = () => tabSessions.update(tabId, { pendingPermission: null });
               const onAbort = () => {
                 signal.removeEventListener('abort', onAbort);
-                setPendingPermission(null);
+                clearPrompt();
                 resolve(false);
               };
 
@@ -357,19 +438,23 @@ export function useAgentSession(
 
               signal.addEventListener('abort', onAbort, { once: true });
 
-              setPendingPermission({
-                toolName: targetTool?.name || name,
-                toolDescription: targetTool?.description,
-                args: call.args,
-                allow: () => {
-                  signal.removeEventListener('abort', onAbort);
-                  setPendingPermission(null);
-                  resolve(true);
-                },
-                deny: () => {
-                  signal.removeEventListener('abort', onAbort);
-                  setPendingPermission(null);
-                  resolve(false);
+              // Filed under this turn's tab, so it is only on screen while
+              // that tab is in front.
+              tabSessions.update(tabId, {
+                pendingPermission: {
+                  toolName: targetTool?.name || name,
+                  toolDescription: targetTool?.description,
+                  args: call.args,
+                  allow: () => {
+                    signal.removeEventListener('abort', onAbort);
+                    clearPrompt();
+                    resolve(true);
+                  },
+                  deny: () => {
+                    signal.removeEventListener('abort', onAbort);
+                    clearPrompt();
+                    resolve(false);
+                  },
                 },
               });
             });
@@ -391,7 +476,11 @@ export function useAgentSession(
           try {
             // Security Note: This is where you might utilize a critic to check that the
             // tool call and parameters align with the user's intent before execution.
-            const rawRes = await executeTabTool(name, call.args, frameId);
+            const rawRes = await executeTabTool(name, call.args, frameId, turnTabId, {
+              onTabChanged: (movedTabId) => {
+                turnTabId = movedTabId;
+              },
+            });
             if (signal.aborted) break;
 
             const limitedRes = applyTokenLimit(rawRes);
@@ -419,16 +508,19 @@ export function useAgentSession(
 
         if (signal.aborted) break;
 
-        await waitForToolsToSettle(activeToolsRef, { requestTools: requestTabTools, signal });
+        await waitForToolsToSettle(toolsView, {
+          requestTools: () => requestTabTools(turnTabId),
+          signal,
+        });
         if (signal.aborted) break;
 
-        const updatedTools = buildToolDecls(activeToolsRef.current);
+        const updatedTools = buildToolDecls(toolsView.current);
 
         currentResult = await sendChatTurn(
           {
             toolResponses,
             tools: updatedTools,
-            chatId: chatIdRef.current,
+            chatId: internals.chatId,
           },
           { signal, onDevice: onDeviceModelRef.current, onText }
         );
@@ -437,46 +529,49 @@ export function useAgentSession(
         showStreamingText('');
 
         if (currentResult.chatId) {
-          chatIdRef.current = currentResult.chatId;
+          internals.chatId = currentResult.chatId;
         }
       }
 
       if (signal.aborted) return;
 
       if (currentResult.text?.trim()) {
-        const logs = [...turnLogsRef.current];
-        setMessages((prev) => [
-          ...prev,
-          { id: generateId(), role: 'ai', text: currentResult.text!.trim(), activityLogs: logs, onDevice: onDeviceModelRef.current },
-        ]);
+        const logs = [...internals.turnLogs];
+        addMessage({
+          id: generateId(),
+          role: 'ai',
+          text: currentResult.text.trim(),
+          activityLogs: logs,
+          onDevice: onDeviceModelRef.current,
+        });
       } else if (!messageRendered && (!currentResult.functionCalls || currentResult.functionCalls.length === 0)) {
-        setMessages((prev) => [
-          ...prev,
-          { id: generateId(), role: 'error', text: 'The model returned an empty response.' },
-        ]);
+        addMessage({ id: generateId(), role: 'error', text: 'The model returned an empty response.' });
       }
     } catch (err: unknown) {
       if (signal.aborted) return;
       showStreamingText('');
       const errorMsg = (err as Error)?.message || String(err);
-      setMessages((prev) => [...prev, { id: generateId(), role: 'error', text: errorMsg }]);
-      chatIdRef.current = undefined;
+      addMessage({ id: generateId(), role: 'error', text: errorMsg });
+      internals.chatId = undefined;
     } finally {
       if (!signal.aborted) {
-        setPendingPermission(null);
-        setBusy(false);
+        tabSessions.update(tabId, { pendingPermission: null, busy: false });
+        if (internals.abortController === abortController) {
+          internals.abortController = null;
+        }
       }
     }
-  }, [busy, userPrompt, activeToolsRef]);
+  }, [activeTabId]);
 
   return {
-    userPrompt,
+    userPrompt: session.userPrompt,
     setUserPrompt,
-    messages,
-    streamingText,
-    busy,
-    activityLog,
-    pendingPermission,
+    messages: session.messages,
+    streamingText: session.streamingText,
+    busy: session.busy,
+    anyBusy,
+    activityLog: session.activityLog,
+    pendingPermission: session.pendingPermission,
     handleSendPrompt,
     handleStop,
     handleReset,

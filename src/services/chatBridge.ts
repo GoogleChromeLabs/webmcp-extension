@@ -38,7 +38,10 @@ export function getSpotlighting(options: { onDevice?: boolean } = {}): string | 
 export function resetChatSession(options: { chatId?: string; onDevice?: boolean } = {}): void {
   const { chatId, onDevice } = options;
   if (onDevice) {
-    resetOnDeviceChat();
+    // If a specific chatId was requested but is undefined (e.g. tab had no
+    // conversation yet), do not touch the active session of another tab.
+    if ('chatId' in options && !chatId) return;
+    resetOnDeviceChat(chatId);
     return;
   }
   if (chatId) {

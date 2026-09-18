@@ -894,6 +894,138 @@ test('chatBridge routes a turn to the on-device model, and to the server otherwi
   }
 });
 
+test('resetting one tab’s chat leaves the on-device session another tab is holding', async () => {
+  const stub = installPromptApiStub([['still here'], ['and still here']]);
+  try {
+    const live = await sendChatTurn({ message: 'Hi', tools: [] }, { onDevice: true });
+    assert.ok(live.chatId);
+    assert.equal(stub.destroyed, 0);
+
+    // A second tab resetting its own conversation, which was never the one
+    // loaded, must not destroy the session this one is using.
+    resetChatSession({ chatId: 'a-conversation-from-another-tab', onDevice: true });
+    assert.equal(stub.destroyed, 0);
+
+    // Another tab pressing "new chat" before having a conversation (chatId: undefined)
+    // must also not touch the live session.
+    resetChatSession({ chatId: undefined, onDevice: true });
+    assert.equal(stub.destroyed, 0);
+
+    // ...and the live conversation carries on in the same session.
+    const next = await sendChatTurn({ message: 'Still there?', tools: [], chatId: live.chatId }, { onDevice: true });
+    assert.equal(next.text, 'and still here');
+    assert.equal(next.chatId, live.chatId);
+    assert.equal(stub.creates.length, 1);
+
+    // Naming the conversation that is loaded does end it.
+    resetChatSession({ chatId: live.chatId, onDevice: true });
+    assert.equal(stub.destroyed, 1);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('alternating tabs preserve each others on-device conversation history', async () => {
+  const stub = installPromptApiStub([['answer to a1'], ['answer to b1'], ['answer to a2']]);
+  try {
+    const a = await sendChatTurn({ message: 'My code is 42', tools: [] }, { onDevice: true });
+    await sendChatTurn({ message: 'Hello from tab two', tools: [] }, { onDevice: true });
+
+    // When tab one resumes, its history is replayed into the new session
+    await sendChatTurn({ message: 'What is my code?', tools: [], chatId: a.chatId }, { onDevice: true });
+
+    const replayed = (stub.creates.at(-1)?.initialPrompts as Array<{ role: string; content: unknown }>) ?? [];
+    const userTurns = replayed.filter((prompt) => prompt.role === 'user');
+    assert.deepEqual(
+      userTurns.map((prompt) => prompt.content),
+      ['My code is 42'],
+      "tab one's conversation history should be preserved and replayed"
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('resetting active on-device chat does not leak or replay history if chatId is reused', async () => {
+  const stub = installPromptApiStub([['answer to a1'], ['fresh answer after reset']]);
+  try {
+    const a = await sendChatTurn({ message: 'My secret code is 42', tools: [] }, { onDevice: true });
+    assert.ok(a.chatId);
+
+    // Reset tab a's conversation while it is the active on-device session.
+    resetChatSession({ chatId: a.chatId, onDevice: true });
+
+    // If a turn is sent with the same chatId or another message, it should start fresh without replaying history.
+    await sendChatTurn({ message: 'What is my secret code?', tools: [], chatId: a.chatId }, { onDevice: true });
+
+    const replayed = (stub.creates.at(-1)?.initialPrompts as Array<{ role: string; content: unknown }>) ?? [];
+    const userTurns = replayed.filter((prompt) => prompt.role === 'user');
+    assert.deepEqual(
+      userTurns.map((prompt) => prompt.content),
+      [],
+      'reset conversation history must not be saved or replayed'
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('global resetOnDeviceChat clears all conversation histories and does not repopulate active session history', async () => {
+  const stub = installPromptApiStub([['answer to a1'], ['answer to b1'], ['fresh answer A'], ['fresh answer B']]);
+  try {
+    const a = await sendChatTurn({ message: 'Message from A', tools: [] }, { onDevice: true });
+    // Switch to tab B to retire A into conversationHistories
+    const b = await sendChatTurn({ message: 'Message from B', tools: [] }, { onDevice: true });
+
+    // Both conversation histories exist (A in map, B in active session).
+    // Now call global reset:
+    resetOnDeviceChat();
+
+    // Now send with A's chatId and B's chatId:
+    await sendChatTurn({ message: 'Follow-up for A', tools: [], chatId: a.chatId }, { onDevice: true });
+    const replayedA = (stub.creates.at(-1)?.initialPrompts as Array<{ role: string; content: unknown }>) ?? [];
+    assert.deepEqual(
+      replayedA.filter((p) => p.role === 'user').map((p) => p.content),
+      [],
+      'tab A history must be cleared'
+    );
+
+    await sendChatTurn({ message: 'Follow-up for B', tools: [], chatId: b.chatId }, { onDevice: true });
+    const replayedB = (stub.creates.at(-1)?.initialPrompts as Array<{ role: string; content: unknown }>) ?? [];
+    assert.deepEqual(
+      replayedB.filter((p) => p.role === 'user').map((p) => p.content),
+      [],
+      'tab B history must be cleared and not repopulated on retire'
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('resetting the active tab preserves the spotlighting fence while another tab still holds history', async () => {
+  installPromptApiStub([['answer to a1'], ['answer to b1'], ['answer to a2']]);
+  try {
+    const a = await sendChatTurn({ message: 'Hi from A', tools: [] }, { onDevice: true });
+    const initialFence = getSpotlightFence();
+    assert.ok(initialFence);
+
+    // Tab B takes over the active session; Tab A is saved in conversationHistories.
+    const b = await sendChatTurn({ message: 'Hi from B', tools: [] }, { onDevice: true });
+    assert.equal(getSpotlightFence(), initialFence);
+
+    // Resetting Tab B (currently active) must NOT wipe the fence needed by Tab A's saved history.
+    resetChatSession({ chatId: b.chatId, onDevice: true });
+    assert.equal(getSpotlightFence(), initialFence);
+
+    // Once Tab A is also reset and no conversations remain, the next conversation gets a fresh fence.
+    resetChatSession({ chatId: a.chatId, onDevice: true });
+    const freshFence = getSpotlightFence();
+    assert.notEqual(freshFence, initialFence);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
 test('on-device tool results are fenced rather than base64 encoded', async () => {
   installPromptApiStub([['ok']]);
   try {

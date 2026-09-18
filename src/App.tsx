@@ -15,6 +15,7 @@ import OnDeviceModelStatus from './components/OnDeviceModelStatus.js';
 import ContextMeter from './components/ContextMeter.js';
 import { EditSquareIcon } from './components/Icons.js';
 
+import { useActiveTabId } from './hooks/useActiveTabId.js';
 import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
 import { ContextUsage, isPromptApiSupported, prepareOnDeviceModel } from './services/promptApiBackend.js';
@@ -52,24 +53,29 @@ export function App() {
   };
 
   // Custom Hooks
-  const { tools, toolsRef, domain, favicon, statusMsg } = useActiveTabTools();
+  // The panel is shared by every tab in the window, so it follows whichever
+  // tab is in front and shows that tab's page and conversation.
+  const activeTabId = useActiveTabId({ onDeviceModel });
+  const { tools, domain, favicon, statusMsg } = useActiveTabTools(activeTabId);
   const {
     userPrompt,
     setUserPrompt,
     messages,
     streamingText,
     busy,
+    anyBusy,
     activityLog,
     pendingPermission,
     handleSendPrompt,
     handleStop,
     handleReset,
-  } = useAgentSession(toolsRef, { sensitiveActionAlerts, onDeviceModel });
+  } = useAgentSession(activeTabId, { sensitiveActionAlerts, onDeviceModel });
 
   const handleToggleOnDeviceModel = () => {
     // Switching backends mid-response would pull the conversation out from
-    // under the request in flight. The switch is disabled then, too.
-    if (busy) return;
+    // under the request in flight, in whichever tab is running it. The switch
+    // is disabled then, too.
+    if (anyBusy) return;
     const next = !onDeviceModel;
     localStorage.setItem('onDeviceModel', String(next));
     setOnDeviceModel(next);
@@ -144,7 +150,7 @@ export function App() {
             onDeviceModel={onDeviceModel}
             onToggleOnDeviceModel={handleToggleOnDeviceModel}
             onDeviceModelSupported={onDeviceModelSupported}
-            responseInProgress={busy}
+            responseInProgress={anyBusy}
             onClose={() => setShowSettings(false)}
           />
         ) : (

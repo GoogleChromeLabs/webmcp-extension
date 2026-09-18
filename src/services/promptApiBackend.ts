@@ -229,17 +229,46 @@ interface OnDeviceSession {
 }
 
 let current: OnDeviceSession | null = null;
+const conversationHistories = new Map<string, Array<{ role: string; content: unknown }>>();
 
-/** Stops the current session, keeping the conversation's spotlighting fence. */
-function retireSession(): void {
-  current?.turn?.controller.abort();
-  current?.session.destroy();
-  current = null;
+/** Stops the current session, saving history by default and keeping the conversation's spotlighting fence. */
+function retireSession(options: { saveHistory?: boolean } = {}): void {
+  if (current) {
+    if (options.saveHistory !== false) {
+      try {
+        if (current.session?.history) {
+          conversationHistories.set(current.id, [...current.session.history]);
+        }
+      } catch {}
+    }
+    current.turn?.controller.abort();
+    current.session.destroy();
+    current = null;
+  }
 }
 
-/** Ends the on-device conversation, if there is one. */
-export function resetOnDeviceChat(): void {
-  retireSession();
+/**
+ * Ends the on-device conversation, if there is one.
+ *
+ * The browser holds a single session, while the side panel keeps a
+ * conversation per tab. Naming a `chatId` ends only that conversation, so
+ * resetting or closing one tab leaves the session another tab is holding
+ * alone. Naming none ends whatever is loaded.
+ */
+export function resetOnDeviceChat(chatId?: string): void {
+  if (chatId !== undefined) {
+    if (current !== null && current.id === chatId) {
+      retireSession({ saveHistory: false });
+      reportContextUsage();
+    }
+    conversationHistories.delete(chatId);
+    if (current === null && conversationHistories.size === 0) {
+      fence = '';
+    }
+    return;
+  }
+  retireSession({ saveHistory: false });
+  conversationHistories.clear();
   fence = '';
   reportContextUsage();
 }
@@ -525,6 +554,7 @@ async function buildSession(
   signal?: AbortSignal
 ): Promise<OnDeviceSession> {
   retireSession();
+  reportContextUsage();
   const state = {
     id,
     declarations: JSON.stringify(tools),
@@ -561,8 +591,10 @@ async function getSession(request: ChatTurnRequest, signal?: AbortSignal): Promi
   if (current && reusable) return current;
 
   if (!sameChat) {
-    resetOnDeviceChat();
-    return buildSession(request.chatId || crypto.randomUUID(), tools, [], signal);
+    const chatId = request.chatId || crypto.randomUUID();
+    const saved = (request.chatId ? conversationHistories.get(request.chatId) : null) ?? [];
+    const history = toReplayHistory(saved, tools.length > 0);
+    return buildSession(chatId, tools, history, signal);
   }
   const history = toReplayHistory(current!.session.history, tools.length > 0);
   return buildSession(current!.id, tools, history, signal);
