@@ -12,6 +12,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
+import { formatErrorMessage } from '../services/backendBridge.js';
 import { getSpotlighting, resetChatSession, sendChatTurn } from '../services/chatBridge.js';
 import { executeTabTool, getTabInfo, requestTabTools } from '../services/extensionBridge.js';
 import { tabSessions } from '../services/tabSessionStore.js';
@@ -635,7 +636,7 @@ export function useAgentSession(
     } catch (err: unknown) {
       if (signal.aborted) return;
       showStreamingText('');
-      const errorMsg = (err as Error)?.message || String(err);
+      const errorMsg = formatErrorMessage(err);
       addMessage({ id: generateId(), role: 'error', text: errorMsg });
       internals.chatId = undefined;
     } finally {

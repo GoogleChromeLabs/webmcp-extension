@@ -124,7 +124,13 @@ html, body {
   color: var(--color-error);
   background: var(--color-error-container);
   border-radius: 8px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
   word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
   margin-bottom: 4px;
 }
 
@@ -432,6 +438,8 @@ main {
   flex-direction: column;
   gap: 12px;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .chat-card__header {
@@ -530,6 +538,22 @@ main {
   border-radius: 12px;
   font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 18px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.msg-body {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 /* Markdown Elements */

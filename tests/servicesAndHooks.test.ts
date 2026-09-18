@@ -99,6 +99,29 @@ test('backendBridge - callBackend correctly makes fetch requests and handles bac
   }
 });
 
+test('backendBridge - formatErrorMessage unwraps nested JSON error strings and strips debug details', async () => {
+  const { formatErrorMessage } = await import('../src/services/backendBridge.js');
+
+  // Plain strings remain unchanged
+  assert.equal(formatErrorMessage('Backend server error'), 'Backend server error');
+
+  // Synthetic nested JSON error payload with code, status, and internal details array
+  const innerJson = JSON.stringify({
+    error: {
+      code: 503,
+      message: 'Service temporarily unavailable. Please retry.',
+      status: 'UNAVAILABLE',
+      details: [{ '@type': 'synthetic.debug', detail: 'internal-trace-data-token' }],
+    },
+  });
+  const outerPayload = `Streaming error: ${JSON.stringify({ error: { message: innerJson } })}`;
+
+  assert.equal(
+    formatErrorMessage(outerPayload),
+    'Streaming error: Service temporarily unavailable. Please retry. (503 UNAVAILABLE)'
+  );
+});
+
 test('extensionBridge - executeTabTool dispatches message to tab with appropriate frame options', async () => {
   setupTestChrome();
   const sentMessages: Array<{ tabId: number; message: unknown; options?: unknown }> = [];
