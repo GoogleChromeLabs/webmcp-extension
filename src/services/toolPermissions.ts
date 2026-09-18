@@ -78,7 +78,7 @@ export function clearSessionToolPermissions(tabId?: number): void {
   }
 }
 
-/** The grants held right now, for tests and for showing them to the user. */
+/** The grants held right now, for inspecting session state in tests. */
 export function listSessionToolPermissions(
   tabId?: number
 ): Array<{ origin: string; toolName: string; tabId?: number }> {
