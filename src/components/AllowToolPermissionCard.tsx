@@ -16,7 +16,7 @@ export interface AllowToolPermissionCardProps {
   origin?: string;
   /**
    * The page marked this tool `consequentialHint`: running it may do something
-   * that cannot be undone. Shows a warning and withholds the session-grant
+   * that may be irreversible. Shows a warning and withholds the session-grant
    * button however the caller was configured.
    */
   consequential?: boolean;
@@ -94,7 +94,7 @@ export function AllowToolPermissionCard({
         </div>
         <div className="tool-permission-card__title-group">
           <h3 id="permission-title" className="tool-permission-card__title">
-            {consequential ? 'This action cannot be undone' : 'Allow tool actions'}
+            {consequential ? 'This action may be irreversible' : 'Allow tool actions'}
           </h3>
           <p className="tool-permission-card__subtitle">
             {consequential

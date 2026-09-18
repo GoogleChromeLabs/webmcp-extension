@@ -651,7 +651,7 @@ test('a consequential tool gets the warning card and no session-grant button', (
   const html = renderToString(React.createElement(AllowToolPermissionCard, props));
 
   // The warning is stated plainly and names what could go wrong.
-  assert.ok(html.includes('This action cannot be undone'));
+  assert.ok(html.includes('This action may be irreversible'));
   assert.ok(html.includes('may not'));
   assert.ok(html.includes('reverse'));
   assert.ok(html.includes('tool-permission-card--consequential'));

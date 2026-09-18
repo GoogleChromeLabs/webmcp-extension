@@ -121,7 +121,7 @@ export interface ToolPermissionQuery {
  *   so it says nothing about a tool inside a cross-origin iframe. Keying those
  *   on it would let a grant for the page's own tool authorise a same-named tool
  *   belonging to an embedded third party.
- * - **It is not consequential.** An action that cannot be undone is worth a
+ * - **It is not consequential.** An action that may be irreversible is worth a
  *   decision every single time; there is no "and don't ask again" for those.
  *
  * The same test decides whether to offer the choice and whether to honour it,

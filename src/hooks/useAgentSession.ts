@@ -524,7 +524,7 @@ export function useAgentSession(
                   allow: settle('allow'),
                   // Only offered where the grant would mean what the button says:
                   // a known tool, in the top frame, of a page with an origin, and
-                  // never for something that cannot be undone.
+                  // never for something that may be irreversible.
                   allowAlways: grantEligible ? settle('allowAlways') : undefined,
                   deny: settle('deny'),
                 },
