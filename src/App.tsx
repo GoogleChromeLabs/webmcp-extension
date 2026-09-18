@@ -198,68 +198,70 @@ export function App() {
                     </button>
                   </div>
 
-                  {/* Messages and Logs */}
-                  {messages.map((msg) => {
-                    if (msg.role === 'user') {
-                      return (
-                        <div key={msg.id} className="user-bubble">
-                          {msg.text}
-                        </div>
-                      );
-                    }
-
-                    if (msg.role === 'ai') {
-                      return (
-                        <React.Fragment key={msg.id}>
-                          {/* Hidden, not removed, for on-device replies: the Prompt API has no thinking to show yet. */}
-                          <ActionLog
-                            status="completed"
-                            activityLogs={msg.activityLogs}
-                            hidden={msg.onDevice}
-                          />
-                          <div className="ai-response">
-                            <MarkdownText content={msg.text} />
+                  <div className="chat-card__messages">
+                    {/* Messages and Logs */}
+                    {messages.map((msg) => {
+                      if (msg.role === 'user') {
+                        return (
+                          <div key={msg.id} className="user-bubble">
+                            {msg.text}
                           </div>
-                        </React.Fragment>
-                      );
-                    }
-
-                    if (msg.role === 'error') {
-                      return (
-                        <div key={msg.id} className="msg error">
-                          <div className="msg-body">{msg.text}</div>
-                        </div>
-                      );
-                    }
-
-                    return null;
-                  })}
-
-                  {/* Pending/Running Action Log */}
-                  {busy && (
-                    <ActionLog
-                      status={
-                        pendingPermission
-                          ? 'permission'
-                          : activityLog.length === 0
-                          ? 'initiation'
-                          : 'running'
+                        );
                       }
-                      statusText={
-                        pendingPermission ? 'Waiting for permission' : streamingText ? 'Writing...' : undefined
+
+                      if (msg.role === 'ai') {
+                        return (
+                          <React.Fragment key={msg.id}>
+                            {/* Hidden, not removed, for on-device replies: the Prompt API has no thinking to show yet. */}
+                            <ActionLog
+                              status="completed"
+                              activityLogs={msg.activityLogs}
+                              hidden={msg.onDevice}
+                            />
+                            <div className="ai-response">
+                              <MarkdownText content={msg.text} />
+                            </div>
+                          </React.Fragment>
+                        );
                       }
-                      activityLogs={activityLog}
-                    />
-                  )}
 
-                  {/* The reply as it is written. Not a live region: announcing every chunk would be noise, and the finished message is what gets read. */}
-                  {busy && streamingText && (
-                    <div className="ai-response">
-                      <MarkdownText content={streamingText} />
-                    </div>
-                  )}
+                      if (msg.role === 'error') {
+                        return (
+                          <div key={msg.id} className="msg error">
+                            <div className="msg-body">{msg.text}</div>
+                          </div>
+                        );
+                      }
 
-                  <div ref={chatStreamEndRef} />
+                      return null;
+                    })}
+
+                    {/* Pending/Running Action Log */}
+                    {busy && (
+                      <ActionLog
+                        status={
+                          pendingPermission
+                            ? 'permission'
+                            : activityLog.length === 0
+                            ? 'initiation'
+                            : 'running'
+                        }
+                        statusText={
+                          pendingPermission ? 'Waiting for permission' : streamingText ? 'Writing...' : undefined
+                        }
+                        activityLogs={activityLog}
+                      />
+                    )}
+
+                    {/* The reply as it is written. Not a live region: announcing every chunk would be noise, and the finished message is what gets read. */}
+                    {busy && streamingText && (
+                      <div className="ai-response">
+                        <MarkdownText content={streamingText} />
+                      </div>
+                    )}
+
+                    <div ref={chatStreamEndRef} />
+                  </div>
                 </div>
               )}
             </div>

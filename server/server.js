@@ -462,7 +462,11 @@ const server = http.createServer(async (req, res) => {
             requestPayload: { message, tools, toolResponses, chatId },
             error: error.message || String(error),
           });
-          res.end(`${JSON.stringify({ error: error.message || String(error) })}\n`);
+          res.end(
+            `${JSON.stringify({
+              error: 'Something went wrong while processing your request. The error details have been logged.',
+            })}\n`
+          );
           return;
         }
 

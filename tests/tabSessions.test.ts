@@ -731,3 +731,46 @@ test('useActiveTabId cleans up removedTabId on chrome.tabs.onReplaced', async ()
     tabSessions.clear();
   }
 });
+
+test('useAgentSession logs raw errors to console and displays a generic error message in chat', async () => {
+  tabSessions.clear();
+  const browser = installTestChrome();
+  const originalFetch = globalThis.fetch;
+  const originalConsoleError = console.error;
+  const loggedErrors: unknown[][] = [];
+
+  console.error = (...args: unknown[]) => {
+    loggedErrors.push(args);
+  };
+
+  globalThis.fetch = (async () =>
+    ndjsonResponse([
+      {
+        error:
+          '{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}',
+      },
+    ])) as unknown as typeof fetch;
+
+  try {
+    const tab1 = readSession(1);
+    tab1.setUserPrompt('open first door');
+    await tab1.handleSendPrompt();
+
+    const state1 = tabSessions.getState(1);
+    assert.equal(state1.messages.length, 2);
+    assert.equal(state1.messages[1].role, 'error');
+    assert.equal(
+      state1.messages[1].text,
+      'Something went wrong while processing your request. The error details have been logged.'
+    );
+    assert.ok(!state1.messages[1].text.includes('high demand'));
+    assert.ok(loggedErrors.length > 0);
+    assert.ok(String(loggedErrors[0][1]).includes('This model is currently experiencing high demand.'));
+  } finally {
+    console.error = originalConsoleError;
+    globalThis.fetch = originalFetch;
+    browser.restore();
+    tabSessions.clear();
+  }
+});
+

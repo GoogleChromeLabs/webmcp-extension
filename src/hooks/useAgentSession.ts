@@ -636,8 +636,12 @@ export function useAgentSession(
     } catch (err: unknown) {
       if (signal.aborted) return;
       showStreamingText('');
-      const errorMsg = formatErrorMessage(err);
-      addMessage({ id: generateId(), role: 'error', text: errorMsg });
+      console.error('[WebMCP] Error during chat turn:', formatErrorMessage(err), err);
+      addMessage({
+        id: generateId(),
+        role: 'error',
+        text: 'Something went wrong while processing your request. The error details have been logged.',
+      });
       internals.chatId = undefined;
     } finally {
       if (!signal.aborted) {

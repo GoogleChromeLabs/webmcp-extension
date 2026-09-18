@@ -233,6 +233,7 @@ main {
 
 #chatStream {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0;
   display: flex;
@@ -433,12 +434,13 @@ main {
 .chat-card {
   background: var(--color-surface);
   border-radius: 16px;
-  padding: 16px;
+  padding: 16px 16px 0 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -449,6 +451,22 @@ main {
   width: 100%;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--color-surface-container);
+  flex-shrink: 0;
+}
+
+.chat-card__messages {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.chat-card__messages > * {
+  flex-shrink: 0;
 }
 
 .context-meter {
@@ -521,6 +539,7 @@ main {
   line-height: 18px;
   color: var(--color-on-surface);
   word-break: break-word;
+  flex-shrink: 0;
 }
 
 .ai-response {
@@ -529,6 +548,7 @@ main {
   color: var(--color-on-surface);
   padding: 4px 0;
   word-break: break-word;
+  flex-shrink: 0;
 }
 
 .msg.error {
@@ -544,8 +564,7 @@ main {
   box-sizing: border-box;
   overflow-wrap: anywhere;
   word-break: break-word;
-  max-height: 200px;
-  overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .msg-body {
@@ -617,6 +636,7 @@ main {
   background-color: var(--color-surface-container);
   overflow: hidden;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .action-log__header {
