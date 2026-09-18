@@ -946,6 +946,62 @@ test('alternating tabs preserve each others on-device conversation history', asy
   }
 });
 
+test('resetting active on-device chat does not leak or replay history if chatId is reused', async () => {
+  const stub = installPromptApiStub([['answer to a1'], ['fresh answer after reset']]);
+  try {
+    const a = await sendChatTurn({ message: 'My secret code is 42', tools: [] }, { onDevice: true });
+    assert.ok(a.chatId);
+
+    // Reset tab a's conversation while it is the active on-device session.
+    resetChatSession({ chatId: a.chatId, onDevice: true });
+
+    // If a turn is sent with the same chatId or another message, it should start fresh without replaying history.
+    await sendChatTurn({ message: 'What is my secret code?', tools: [], chatId: a.chatId }, { onDevice: true });
+
+    const replayed = (stub.creates.at(-1)?.initialPrompts as Array<{ role: string; content: unknown }>) ?? [];
+    const userTurns = replayed.filter((prompt) => prompt.role === 'user');
+    assert.deepEqual(
+      userTurns.map((prompt) => prompt.content),
+      [],
+      'reset conversation history must not be saved or replayed'
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('global resetOnDeviceChat clears all conversation histories and does not repopulate active session history', async () => {
+  const stub = installPromptApiStub([['answer to a1'], ['answer to b1'], ['fresh answer A'], ['fresh answer B']]);
+  try {
+    const a = await sendChatTurn({ message: 'Message from A', tools: [] }, { onDevice: true });
+    // Switch to tab B to retire A into conversationHistories
+    const b = await sendChatTurn({ message: 'Message from B', tools: [] }, { onDevice: true });
+
+    // Both conversation histories exist (A in map, B in active session).
+    // Now call global reset:
+    resetOnDeviceChat();
+
+    // Now send with A's chatId and B's chatId:
+    await sendChatTurn({ message: 'Follow-up for A', tools: [], chatId: a.chatId }, { onDevice: true });
+    const replayedA = (stub.creates.at(-1)?.initialPrompts as Array<{ role: string; content: unknown }>) ?? [];
+    assert.deepEqual(
+      replayedA.filter((p) => p.role === 'user').map((p) => p.content),
+      [],
+      'tab A history must be cleared'
+    );
+
+    await sendChatTurn({ message: 'Follow-up for B', tools: [], chatId: b.chatId }, { onDevice: true });
+    const replayedB = (stub.creates.at(-1)?.initialPrompts as Array<{ role: string; content: unknown }>) ?? [];
+    assert.deepEqual(
+      replayedB.filter((p) => p.role === 'user').map((p) => p.content),
+      [],
+      'tab B history must be cleared and not repopulated on retire'
+    );
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
 
 test('on-device tool results are fenced rather than base64 encoded', async () => {
   installPromptApiStub([['ok']]);

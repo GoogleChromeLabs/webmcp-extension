@@ -231,14 +231,16 @@ interface OnDeviceSession {
 let current: OnDeviceSession | null = null;
 const conversationHistories = new Map<string, Array<{ role: string; content: unknown }>>();
 
-/** Stops the current session, saving history and keeping the conversation's spotlighting fence. */
-function retireSession(): void {
+/** Stops the current session, saving history by default and keeping the conversation's spotlighting fence. */
+function retireSession(options: { saveHistory?: boolean } = {}): void {
   if (current) {
-    try {
-      if (current.session?.history) {
-        conversationHistories.set(current.id, [...current.session.history]);
-      }
-    } catch {}
+    if (options.saveHistory !== false) {
+      try {
+        if (current.session?.history) {
+          conversationHistories.set(current.id, [...current.session.history]);
+        }
+      } catch {}
+    }
     current.turn?.controller.abort();
     current.session.destroy();
     current = null;
@@ -255,16 +257,16 @@ function retireSession(): void {
  */
 export function resetOnDeviceChat(chatId?: string): void {
   if (chatId !== undefined) {
-    conversationHistories.delete(chatId);
     if (current !== null && current.id === chatId) {
-      retireSession();
+      retireSession({ saveHistory: false });
       fence = '';
       reportContextUsage();
     }
+    conversationHistories.delete(chatId);
     return;
   }
+  retireSession({ saveHistory: false });
   conversationHistories.clear();
-  retireSession();
   fence = '';
   reportContextUsage();
 }

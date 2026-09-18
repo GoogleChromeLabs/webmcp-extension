@@ -72,10 +72,14 @@ export function useActiveTabId(options: UseActiveTabIdOptions = {}): number | nu
       tabSessions.remove(removedTabId, { onDevice: onDeviceModelRef.current });
       void sync();
     };
+    const onReplaced = (_addedTabId: number, removedTabId: number) => {
+      tabSessions.remove(removedTabId, { onDevice: onDeviceModelRef.current });
+      void sync();
+    };
 
     chromeApi.tabs.onActivated?.addListener(onActivated);
     chromeApi.tabs.onRemoved?.addListener(onRemoved);
-    chromeApi.tabs.onReplaced?.addListener(onActivated);
+    chromeApi.tabs.onReplaced?.addListener(onReplaced);
     chromeApi.windows?.onFocusChanged?.addListener(onActivated);
 
     void sync();
@@ -84,7 +88,7 @@ export function useActiveTabId(options: UseActiveTabIdOptions = {}): number | nu
       cancelled = true;
       chromeApi.tabs.onActivated?.removeListener(onActivated);
       chromeApi.tabs.onRemoved?.removeListener(onRemoved);
-      chromeApi.tabs.onReplaced?.removeListener(onActivated);
+      chromeApi.tabs.onReplaced?.removeListener(onReplaced);
       chromeApi.windows?.onFocusChanged?.removeListener(onActivated);
     };
   }, []);

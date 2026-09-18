@@ -21,6 +21,7 @@ interface ToolsReport {
   tools?: WebMCPTool[];
   url?: string;
   type?: string;
+  action?: string;
 }
 
 /** The favicon a tab reports, or one derived from its host. */
@@ -96,9 +97,9 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
     const chromeApi = window.chrome;
     if (!chromeApi?.runtime) return;
 
-    const listener = ({ message, tools, url, type }: ToolsReport, sender?: chrome.runtime.MessageSender) => {
+    const listener = ({ message, tools, url, type, action }: ToolsReport, sender?: chrome.runtime.MessageSender) => {
       // Internal signals (e.g. contentScriptReady) are handled elsewhere.
-      if (type) return;
+      if (type || action) return;
       if (sender?.frameId && sender.frameId !== 0) return;
 
       // A report with no tab comes from the service worker, which only speaks
@@ -108,8 +109,8 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
 
       const pageUrl = url || sender?.tab?.url || '';
       tabSessions.update(tabId, (previous) => ({
-        statusMsg: message || '',
-        tools: tools || [],
+        statusMsg: message !== undefined ? message : previous.statusMsg,
+        tools: tools !== undefined ? tools : previous.tools,
         domain: pageUrl ? domainFor(pageUrl) : previous.domain,
         favicon: pageUrl ? faviconFor(pageUrl, sender?.tab?.favIconUrl) : previous.favicon,
       }));

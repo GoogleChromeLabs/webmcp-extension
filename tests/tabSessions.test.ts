@@ -9,6 +9,8 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 
 import { useAgentSession, UseAgentSessionOptions, UseAgentSessionReturn } from '../src/hooks/useAgentSession.js';
+import { useActiveTabTools } from '../src/hooks/useActiveTabTools.js';
+import { useActiveTabId } from '../src/hooks/useActiveTabId.js';
 import { requestTabTools, executeTabTool, getTabInfo } from '../src/services/extensionBridge.js';
 import { tabSessions } from '../src/services/tabSessionStore.js';
 import { WebMCPTool } from '../src/types/index.js';
@@ -576,6 +578,151 @@ test('tabSessions.remove resets backend chat session when chatId is present', ()
     assert.deepEqual(resetRequests[0], { chatId: 'chat-to-clean' });
   } finally {
     globalThis.fetch = originalFetch;
+    tabSessions.clear();
+  }
+});
+
+function runHook<T>(useHook: () => T): { result: { current: T }; cleanup: () => void } {
+  const effects: Array<() => void | (() => void)> = [];
+  const result = {} as { current: T };
+  const HookRunner = () => {
+    const disp = (React as unknown as { __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: { ReactCurrentDispatcher: { current: unknown } } })
+      .__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher;
+    const realDispatcher = disp.current as Record<string, unknown>;
+    disp.current = new Proxy(realDispatcher, {
+      get(target, prop) {
+        if (prop === 'useEffect') {
+          return (fn: () => void | (() => void)) => {
+            effects.push(fn);
+          };
+        }
+        return target[prop as string];
+      },
+    });
+    result.current = useHook();
+    disp.current = realDispatcher;
+    return null;
+  };
+  renderToString(React.createElement(HookRunner));
+  const cleanups: Array<() => void> = [];
+  for (const eff of effects) {
+    const clean = eff();
+    if (typeof clean === 'function') cleanups.push(clean);
+  }
+  return {
+    result,
+    cleanup: () => {
+      for (const clean of cleanups) clean();
+    },
+  };
+}
+
+test('useActiveTabTools preserves tools on status messages and ignores action messages', () => {
+  tabSessions.clear();
+  const listeners: Array<(message: unknown, sender?: unknown) => void> = [];
+  const origChrome = globalThis.chrome;
+  const origWindow = globalThis.window;
+
+  globalThis.chrome = {
+    runtime: {
+      onMessage: {
+        addListener: (cb: (message: unknown, sender?: unknown) => void) => listeners.push(cb),
+        removeListener: (cb: (message: unknown, sender?: unknown) => void) => {
+          const idx = listeners.indexOf(cb);
+          if (idx !== -1) listeners.splice(idx, 1);
+        },
+      },
+    },
+    tabs: {
+      get: async () => ({ id: 1, url: 'https://example.com' } as chrome.tabs.Tab),
+      sendMessage: async () => ({ success: true }),
+      onUpdated: { addListener: () => {}, removeListener: () => {} },
+    },
+  } as unknown as typeof chrome;
+
+  globalThis.window = {
+    chrome: globalThis.chrome,
+  } as unknown as Window & typeof globalThis;
+
+  try {
+    const { cleanup } = runHook(() => useActiveTabTools(1));
+    assert.equal(listeners.length, 1);
+    const listener = listeners[0];
+
+    // 1. A report with tools arrives for tab 1
+    listener({ tools: [BOOK_TOOL], url: 'https://example.com' }, { tab: { id: 1 } });
+    assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
+
+    // 2. An internal frame message with action arrives: it should be ignored and NOT wipe tools
+    listener({ action: 'INJECT_GET_FRAME_ID' }, { tab: { id: 1 }, frameId: 0 });
+    assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
+
+    listener({ action: 'GET_FRAME_ID' }, { tab: { id: 1 }, frameId: 0 });
+    assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
+
+    // 3. A status/error message arrives without tools: it should preserve previous tools
+    listener({ message: 'Could not connect' }, { tab: { id: 1 } });
+    assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
+    assert.equal(tabSessions.getState(1).statusMsg, 'Could not connect');
+
+    cleanup();
+    assert.equal(listeners.length, 0);
+  } finally {
+    globalThis.chrome = origChrome;
+    globalThis.window = origWindow;
+    tabSessions.clear();
+  }
+});
+
+test('useActiveTabId cleans up removedTabId on chrome.tabs.onReplaced', async () => {
+  tabSessions.clear();
+  let replacedListener: ((addedTabId: number, removedTabId: number) => void) | null = null;
+  const origChrome = globalThis.chrome;
+  const origWindow = globalThis.window;
+
+  globalThis.chrome = {
+    tabs: {
+      query: async () => [{ id: 2, url: 'https://example.com' } as chrome.tabs.Tab],
+      onActivated: { addListener: () => {}, removeListener: () => {} },
+      onRemoved: { addListener: () => {}, removeListener: () => {} },
+      onReplaced: {
+        addListener: (cb: (addedTabId: number, removedTabId: number) => void) => {
+          replacedListener = cb;
+        },
+        removeListener: () => {
+          replacedListener = null;
+        },
+      },
+    },
+    windows: {
+      onFocusChanged: { addListener: () => {}, removeListener: () => {} },
+    },
+  } as unknown as typeof chrome;
+
+  globalThis.window = {
+    chrome: globalThis.chrome,
+  } as unknown as Window & typeof globalThis;
+
+  try {
+    // Populate session state for tab 1 (the tab that will be replaced)
+    tabSessions.update(1, { messages: [{ id: 1, role: 'user', text: 'hello' }] });
+    assert.equal(tabSessions.has(1), true);
+
+    const { cleanup } = runHook(() => useActiveTabId());
+    const onReplacedCb = replacedListener as ((addedTabId: number, removedTabId: number) => void) | null;
+    assert.ok(onReplacedCb);
+
+    // Prerendered tab swap: tab 1 is replaced by tab 2
+    onReplacedCb(2, 1);
+
+    // tab 1 should be completely removed from tabSessions
+    assert.equal(tabSessions.has(1), false);
+
+    cleanup();
+    assert.equal(replacedListener, null);
+  } finally {
+    globalThis.chrome = origChrome;
+    globalThis.window = origWindow;
     tabSessions.clear();
   }
 });
