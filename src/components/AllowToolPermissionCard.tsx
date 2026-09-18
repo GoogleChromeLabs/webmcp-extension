@@ -138,7 +138,7 @@ export function AllowToolPermissionCard({
           className="tool-permission-card__btn tool-permission-card__btn--allow"
           onClick={onAllow}
         >
-          {consequential ? 'Continue once' : 'Allow'}
+          Allow
         </button>
       </div>
 

@@ -666,8 +666,8 @@ test('a consequential tool gets the warning card and no session-grant button', (
   assert.ok(!html.includes('for this chat'));
   assert.equal(findByClass(AllowToolPermissionCard(props), 'tool-permission-card__btn--always'), null);
 
-  // Both decisions are still available, worded for the stakes.
-  assert.ok(html.includes('Continue once'));
+  // Both decisions are still available.
+  assert.ok(html.includes('>Allow</button>'));
   assert.ok(html.includes('Cancel'));
 });
 
@@ -685,7 +685,6 @@ test('the ordinary card keeps its own wording and is not marked consequential', 
 
   assert.ok(!html.includes('tool-permission-card--consequential'));
   assert.ok(!html.includes('tool-permission-card__warning'));
-  assert.ok(!html.includes('Continue once'));
   assert.ok(html.includes('Allow tool actions'));
   assert.ok(html.includes('aria-describedby="permission-details"'));
   // The session grant is still offered for an ordinary tool.
