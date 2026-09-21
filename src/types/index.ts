@@ -63,15 +63,8 @@ export interface ToolResult {
 
 export interface ActivityEntry {
   id: number;
-  time: string;
-  source: 'assistant' | 'user';
   name: string;
-  args: unknown;
-  start: number;
-  status: 'running' | 'ok' | 'err';
-  durationMs?: number;
-  result?: unknown;
-  error?: string;
+  done: boolean;
 }
 
 export interface ChatMessage {
