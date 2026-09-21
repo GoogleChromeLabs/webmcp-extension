@@ -459,8 +459,6 @@ export function useAgentSession(
               : toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === 0) ||
                 toolsView.current.find((t) => t.name === name);
 
-
-
           if (!targetTool) {
             const errorMsg = `Tool "${name}" is not available on this page.`;
             toolResponses.push({
