@@ -13,6 +13,18 @@ import { SettingsScreen } from '../src/screens/SettingsScreen.js';
 import { AllowToolPermissionCard } from '../src/components/AllowToolPermissionCard.js';
 import { Toolbar } from '../src/components/Toolbar.js';
 import { ChatBubble } from '../src/components/ChatBubble.js';
+import {
+  allowToolForSession,
+  applyToolPermissionDecision,
+  clearSessionToolPermissions,
+  isGrantEligible,
+  isToolAllowedForSession,
+  listSessionToolPermissions,
+  needsToolPermission,
+  originOfUrl,
+  revokeSessionToolPermission,
+} from '../src/services/toolPermissions.js';
+import { useAgentSession, UseAgentSessionReturn } from '../src/hooks/useAgentSession.js';
 import { WebMCPTool } from '../src/types/index.js';
 
 test('Switch toggles properly on click', () => {
@@ -226,6 +238,8 @@ test('Toolbar renders settings gear icon on the left when onSettingsClick is pro
 });
 
 test('Readonly tools vs non-readonly tools distinction follows WebMCP readOnlyHint specification', () => {
+  clearSessionToolPermissions();
+
   const tools: WebMCPTool[] = [
     {
       name: 'get_weather',
@@ -243,11 +257,15 @@ test('Readonly tools vs non-readonly tools distinction follows WebMCP readOnlyHi
     },
   ];
 
-  // Helper matching the logic in useAgentSession
-  const requiresPermissionPrompt = (tool: WebMCPTool, sensitiveActionAlerts: boolean): boolean => {
-    const isReadOnly = tool.readOnlyHint === true;
-    return sensitiveActionAlerts && !isReadOnly;
-  };
+  // The real decision function, not a copy of it: this has to fail if the rule
+  // in production changes.
+  const requiresPermissionPrompt = (tool: WebMCPTool, sensitiveActionAlerts: boolean): boolean =>
+    needsToolPermission({
+      sensitiveActionAlerts,
+      origin: 'https://mail.example',
+      toolName: tool.name,
+      readOnlyHint: tool.readOnlyHint,
+    });
 
   // When sensitiveActionAlerts is TRUE:
   // get_weather is readonly -> NO prompt
@@ -263,3 +281,525 @@ test('Readonly tools vs non-readonly tools distinction follows WebMCP readOnlyHi
   assert.equal(requiresPermissionPrompt(tools[1], false), false);
   assert.equal(requiresPermissionPrompt(tools[2], false), false);
 });
+
+test('session grants are scoped to one tool of one origin', () => {
+  clearSessionToolPermissions();
+
+  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart'), false);
+  assert.equal(allowToolForSession('https://shop.example', 'checkout_cart'), true);
+  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart'), true);
+
+  // Another tool of the same site is still asked about.
+  assert.equal(isToolAllowedForSession('https://shop.example', 'delete_account'), false);
+  // So is the same tool name on another site, and on another scheme or port
+  // of the same host, which are separate origins.
+  assert.equal(isToolAllowedForSession('https://evil.example', 'checkout_cart'), false);
+  assert.equal(isToolAllowedForSession('http://shop.example', 'checkout_cart'), false);
+  assert.equal(isToolAllowedForSession('https://shop.example:8443', 'checkout_cart'), false);
+
+  assert.deepEqual(listSessionToolPermissions(), [
+    { origin: 'https://shop.example', toolName: 'checkout_cart' },
+  ]);
+
+  revokeSessionToolPermission('https://shop.example', 'checkout_cart');
+  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart'), false);
+});
+
+test('a grant cannot be made or matched without an origin', () => {
+  clearSessionToolPermissions();
+
+  assert.equal(allowToolForSession('', 'checkout_cart'), false);
+  assert.equal(isToolAllowedForSession('', 'checkout_cart'), false);
+  assert.equal(listSessionToolPermissions().length, 0);
+
+  // A tool with no name cannot be granted either.
+  assert.equal(allowToolForSession('https://shop.example', ''), false);
+  assert.equal(listSessionToolPermissions().length, 0);
+});
+
+test('keys keep the origin and the tool name apart whatever they contain', () => {
+  clearSessionToolPermissions();
+
+  // A naive `origin + separator + toolName` key would make these two the same.
+  allowToolForSession('https://a.example', '|weird|tool');
+  assert.equal(isToolAllowedForSession('https://a.example|', 'weird|tool'), false);
+  assert.equal(isToolAllowedForSession('https://a.example', '|weird|tool'), true);
+});
+
+test('clearSessionToolPermissions drops every grant', () => {
+  clearSessionToolPermissions();
+
+  allowToolForSession('https://a.example', 'tool_one');
+  allowToolForSession('https://b.example', 'tool_two');
+  assert.equal(listSessionToolPermissions().length, 2);
+
+  clearSessionToolPermissions();
+  assert.equal(listSessionToolPermissions().length, 0);
+  assert.equal(isToolAllowedForSession('https://a.example', 'tool_one'), false);
+});
+
+test('originOfUrl keeps real origins and rejects the ones that cannot be scoped', () => {
+  assert.equal(originOfUrl('https://example.com/cart?a=1#top'), 'https://example.com');
+  assert.equal(originOfUrl('http://example.com:8080/x'), 'http://example.com:8080');
+  assert.equal(originOfUrl('New Tab'), '');
+  assert.equal(originOfUrl(''), '');
+  assert.equal(originOfUrl(undefined), '');
+  // A sandboxed document is opaque: every one of them would share one key.
+  assert.equal(originOfUrl('data:text/html,<p>hi</p>'), '');
+});
+
+test('the permission gate skips the prompt once a tool is granted for the origin', () => {
+  clearSessionToolPermissions();
+
+  // The real gate from production, not a copy: deleting or inverting the check
+  // in `needsToolPermission` has to break this test.
+  const ask = (origin: string, tool: WebMCPTool, sensitiveActionAlerts: boolean): boolean =>
+    needsToolPermission({
+      sensitiveActionAlerts,
+      origin,
+      toolName: tool.name,
+      readOnlyHint: tool.readOnlyHint,
+    });
+
+  const tool: WebMCPTool = { name: 'checkout_cart', description: 'Buys the cart.' };
+
+  assert.equal(ask('https://shop.example', tool, true), true);
+  allowToolForSession('https://shop.example', tool.name);
+  assert.equal(ask('https://shop.example', tool, true), false);
+  // The grant does not leak to another site.
+  assert.equal(ask('https://other.example', tool, true), true);
+  // Nor does it survive the alerts setting being turned back on after a reset.
+  clearSessionToolPermissions();
+  assert.equal(ask('https://shop.example', tool, true), true);
+});
+
+test('a grant for the page never covers a tool inside a cross-origin iframe', () => {
+  clearSessionToolPermissions();
+
+  // `origin` only ever describes the top frame, so a tool belonging to an
+  // embedded third party must keep prompting however the page is granted.
+  const query = (toolFrameId: number) => ({
+    sensitiveActionAlerts: true,
+    origin: 'https://shop.example',
+    toolName: 'submit_form',
+    toolFrameId,
+  });
+
+  allowToolForSession('https://shop.example', 'submit_form');
+
+  // The page's own tool is covered...
+  assert.equal(needsToolPermission(query(0)), false);
+  // ...the identically named tool in an iframe is not.
+  assert.equal(needsToolPermission(query(7)), true);
+
+  // The choice is not even offered for the iframe tool, so a grant that would
+  // not be honoured can never be recorded in the first place.
+  assert.equal(isGrantEligible(query(0)), true);
+  assert.equal(isGrantEligible(query(7)), false);
+});
+
+test('grants are only eligible where they would mean what the button says', () => {
+  const base = { origin: 'https://shop.example', toolName: 'checkout_cart' };
+
+  assert.equal(isGrantEligible(base), true);
+  // No origin to scope it to.
+  assert.equal(isGrantEligible({ ...base, origin: '' }), false);
+  // No tool name to key it on.
+  assert.equal(isGrantEligible({ ...base, toolName: '' }), false);
+  // Not the top frame.
+  assert.equal(isGrantEligible({ ...base, toolFrameId: 1 }), false);
+});
+
+test('the gate stays shut for read-only tools and open when alerts are off', () => {
+  clearSessionToolPermissions();
+
+  const base = {
+    origin: 'https://shop.example',
+    toolName: 'get_weather',
+    sensitiveActionAlerts: true,
+  };
+
+  // Read-only never prompts and never needs a grant.
+  assert.equal(needsToolPermission({ ...base, readOnlyHint: true }), false);
+  // Alerts off never prompts, and must not quietly record a grant either.
+  assert.equal(needsToolPermission({ ...base, sensitiveActionAlerts: false }), false);
+  assert.deepEqual(listSessionToolPermissions(), []);
+});
+
+test('only the always choice earns a standing grant', () => {
+  const query = { origin: 'https://shop.example', toolName: 'checkout_cart' };
+
+  clearSessionToolPermissions();
+  assert.equal(applyToolPermissionDecision('deny', query), false);
+  assert.deepEqual(listSessionToolPermissions(), [], 'deny must not grant');
+
+  clearSessionToolPermissions();
+  assert.equal(applyToolPermissionDecision('allow', query), true);
+  assert.deepEqual(listSessionToolPermissions(), [], 'a one-off allow must not grant');
+
+  clearSessionToolPermissions();
+  assert.equal(applyToolPermissionDecision('allowAlways', query), true);
+  assert.deepEqual(listSessionToolPermissions(), [
+    { origin: 'https://shop.example', toolName: 'checkout_cart' },
+  ]);
+});
+
+test('an always choice records nothing where a grant would not be eligible', () => {
+  // The button is not offered in these cases, but the rule is enforced here too
+  // so that the two can never drift apart.
+  for (const ineligible of [
+    { origin: '', toolName: 'checkout_cart' },
+    { origin: 'https://shop.example', toolName: 'checkout_cart', toolFrameId: 7 },
+    { origin: 'https://shop.example', toolName: 'checkout_cart', consequentialHint: true },
+  ]) {
+    clearSessionToolPermissions();
+    // The call is still allowed to run this once...
+    assert.equal(applyToolPermissionDecision('allowAlways', ineligible), true);
+    // ...but nothing is remembered.
+    assert.deepEqual(listSessionToolPermissions(), [], JSON.stringify(ineligible));
+  }
+});
+
+test('a consequential tool always asks, whatever the settings say', () => {
+  clearSessionToolPermissions();
+
+  const consequential = {
+    origin: 'https://bank.example',
+    toolName: 'transfer_funds',
+    consequentialHint: true,
+  };
+
+  // Alerts on: asks.
+  assert.equal(needsToolPermission({ ...consequential, sensitiveActionAlerts: true }), true);
+  // Alerts off: still asks. This is the prompt the toggle cannot switch off.
+  assert.equal(needsToolPermission({ ...consequential, sensitiveActionAlerts: false }), true);
+  // Even if the page also claims the tool is read-only, which is contradictory:
+  // the more cautious of the two hints wins.
+  assert.equal(
+    needsToolPermission({ ...consequential, sensitiveActionAlerts: false, readOnlyHint: true }),
+    true
+  );
+});
+
+test('a consequential tool can never be granted for the session', () => {
+  clearSessionToolPermissions();
+
+  const consequential = {
+    sensitiveActionAlerts: true,
+    origin: 'https://bank.example',
+    toolName: 'transfer_funds',
+    consequentialHint: true,
+  };
+
+  // The choice is never offered...
+  assert.equal(isGrantEligible(consequential), false);
+  // ...choosing it anyway records nothing...
+  assert.equal(applyToolPermissionDecision('allowAlways', consequential), true);
+  assert.deepEqual(listSessionToolPermissions(), []);
+
+  // ...and a grant that somehow exists for that name is ignored, so a tool that
+  // becomes consequential after being granted starts asking again.
+  allowToolForSession('https://bank.example', 'transfer_funds');
+  assert.equal(needsToolPermission(consequential), true);
+  // The same name without the hint is still covered by that grant.
+  assert.equal(
+    needsToolPermission({ ...consequential, consequentialHint: false }),
+    false
+  );
+});
+
+test('a non-consequential tool keeps the session grant behaviour', () => {
+  clearSessionToolPermissions();
+
+  // Guards against a fix for consequential tools quietly disabling the feature.
+  const ordinary = {
+    sensitiveActionAlerts: true,
+    origin: 'https://shop.example',
+    toolName: 'add_to_cart',
+  };
+
+  assert.equal(isGrantEligible(ordinary), true);
+  assert.equal(isGrantEligible({ ...ordinary, consequentialHint: false }), true);
+  assert.equal(needsToolPermission(ordinary), true);
+  applyToolPermissionDecision('allowAlways', ordinary);
+  assert.equal(needsToolPermission(ordinary), false);
+});
+
+/**
+ * Finds a rendered element by class name in a returned element tree, so a test
+ * can invoke the handler the component actually attached rather than the
+ * callback it passed in — the latter passes even if the `onClick` is removed.
+ */
+function findByClass(
+  node: unknown,
+  className: string
+): { props: Record<string, unknown> } | null {
+  if (!node || typeof node !== 'object') return null;
+  const el = node as { props?: { className?: unknown; children?: unknown } };
+  if (typeof el.props?.className === 'string' && el.props.className.includes(className)) {
+    return el as { props: Record<string, unknown> };
+  }
+  const children = el.props?.children;
+  for (const child of Array.isArray(children) ? children : [children]) {
+    const found = findByClass(child, className);
+    if (found) return found;
+  }
+  return null;
+}
+
+test('AllowToolPermissionCard offers the session choice with the site name and wires it up', () => {
+  let alwaysAllowed = 0;
+
+  const props = {
+    toolName: 'checkout_cart',
+    toolDescription: 'Purchases all items in your cart.',
+    origin: 'https://shop.example',
+    onAllow: () => {},
+    onAlwaysAllow: () => {
+      alwaysAllowed++;
+    },
+    onDeny: () => {},
+  };
+
+  const html = renderToString(React.createElement(AllowToolPermissionCard, props));
+  // The scope is on the button itself, not hidden in a tooltip.
+  assert.ok(html.includes('Allow on shop.example for this chat'));
+  assert.ok(html.includes('tool-permission-card__btn--always'));
+  // The other two choices are still there.
+  assert.ok(html.includes('Don’t allow'));
+  assert.ok(html.includes('>Allow</button>'));
+  // It no longer claims to last forever.
+  assert.ok(!html.includes('Always allow'));
+
+  // Invoke the button's own handler, which proves the component wired it.
+  const button = findByClass(AllowToolPermissionCard(props), 'tool-permission-card__btn--always');
+  assert.ok(button, 'the always-allow button should be rendered');
+  (button!.props.onClick as () => void)();
+  assert.equal(alwaysAllowed, 1);
+});
+
+test('AllowToolPermissionCard hides the session choice when there is nothing to remember it against', () => {
+  const withoutCallback = renderToString(
+    React.createElement(AllowToolPermissionCard, {
+      toolName: 'checkout_cart',
+      origin: 'https://shop.example',
+      onAllow: () => {},
+      onDeny: () => {},
+    })
+  );
+  assert.ok(!withoutCallback.includes('tool-permission-card__btn--always'));
+  assert.ok(!withoutCallback.includes('for this chat'));
+
+  // With a callback but no origin the button still shows, with wording that
+  // does not claim a site.
+  const withoutOrigin = renderToString(
+    React.createElement(AllowToolPermissionCard, {
+      toolName: 'checkout_cart',
+      onAllow: () => {},
+      onAlwaysAllow: () => {},
+      onDeny: () => {},
+    })
+  );
+  assert.ok(withoutOrigin.includes('Allow for this chat'));
+});
+
+test('ChatBubble forwards the session choice to the permission card', () => {
+  let alwaysClicked = false;
+
+  const permissionProps = {
+    toolName: 'checkout_cart',
+    toolDescription: 'Purchases all items in your cart.',
+    origin: 'https://shopping.com',
+    onAllow: () => {},
+    onAlwaysAllow: () => {
+      alwaysClicked = true;
+    },
+    onDeny: () => {},
+  };
+
+  const html = renderToString(
+    React.createElement(ChatBubble, {
+      showTab: true,
+      tabProps: { domain: 'shopping.com', toolsCountLabel: '2 tools' },
+      permissionProps,
+    })
+  );
+  assert.ok(html.includes('Allow on shopping.com for this chat'));
+
+  // Again through the rendered button, so this covers ChatBubble's plumbing.
+  const button = findByClass(
+    AllowToolPermissionCard(permissionProps),
+    'tool-permission-card__btn--always'
+  );
+  (button!.props.onClick as () => void)();
+  assert.equal(alwaysClicked, true);
+});
+
+test('a consequential tool gets the warning card and no session-grant button', () => {
+  const props = {
+    toolName: 'transfer_funds',
+    toolDescription: 'Moves money between accounts.',
+    origin: 'https://bank.example',
+    consequential: true,
+    onAllow: () => {},
+    // Supplied on purpose: the card must refuse to draw the button anyway, so a
+    // caller that forgets the rule cannot reintroduce it.
+    onAlwaysAllow: () => {},
+    onDeny: () => {},
+  };
+
+  const html = renderToString(React.createElement(AllowToolPermissionCard, props));
+
+  // The warning is stated plainly and names what could go wrong.
+  assert.ok(html.includes('This action may be irreversible'));
+  assert.ok(html.includes('may not'));
+  assert.ok(html.includes('reverse'));
+  assert.ok(html.includes('tool-permission-card--consequential'));
+  assert.ok(html.includes('tool-permission-card__warning'));
+  // The user is told why this one keeps asking.
+  assert.ok(html.includes('even if alerts are turned off'));
+  // The warning is announced with the dialog.
+  assert.ok(html.includes('aria-describedby="permission-warning"'));
+
+  // No way to stop being asked.
+  assert.ok(!html.includes('tool-permission-card__btn--always'));
+  assert.ok(!html.includes('for this chat'));
+  assert.equal(findByClass(AllowToolPermissionCard(props), 'tool-permission-card__btn--always'), null);
+
+  // Both decisions are still available.
+  assert.ok(html.includes('>Allow</button>'));
+  assert.ok(html.includes('Cancel'));
+});
+
+test('the ordinary card keeps its own wording and is not marked consequential', () => {
+  const html = renderToString(
+    React.createElement(AllowToolPermissionCard, {
+      toolName: 'add_to_cart',
+      toolDescription: 'Adds an item to the cart.',
+      origin: 'https://shop.example',
+      onAllow: () => {},
+      onAlwaysAllow: () => {},
+      onDeny: () => {},
+    })
+  );
+
+  assert.ok(!html.includes('tool-permission-card--consequential'));
+  assert.ok(!html.includes('tool-permission-card__warning'));
+  assert.ok(html.includes('Allow tool actions'));
+  assert.ok(html.includes('aria-describedby="permission-details"'));
+  // The session grant is still offered for an ordinary tool.
+  assert.ok(html.includes('Allow on shop.example for this chat'));
+});
+
+test('per-tab session grants isolate chats across tabs and only clear the reset tab', () => {
+  clearSessionToolPermissions();
+
+  // Grant checkout_cart on shop.example in tab 1's chat.
+  applyToolPermissionDecision('allowAlways', {
+    sensitiveActionAlerts: true,
+    origin: 'https://shop.example',
+    toolName: 'checkout_cart',
+    tabId: 1,
+  });
+
+  // Tab 1's chat skips the prompt...
+  assert.equal(
+    needsToolPermission({
+      sensitiveActionAlerts: true,
+      origin: 'https://shop.example',
+      toolName: 'checkout_cart',
+      tabId: 1,
+    }),
+    false
+  );
+  // ...while tab 2's separate chat on the same site still prompts.
+  assert.equal(
+    needsToolPermission({
+      sensitiveActionAlerts: true,
+      origin: 'https://shop.example',
+      toolName: 'checkout_cart',
+      tabId: 2,
+    }),
+    true
+  );
+
+  // Resetting tab 2's chat leaves tab 1's grant intact.
+  clearSessionToolPermissions(2);
+  assert.equal(
+    needsToolPermission({
+      sensitiveActionAlerts: true,
+      origin: 'https://shop.example',
+      toolName: 'checkout_cart',
+      tabId: 1,
+    }),
+    false
+  );
+
+  // Resetting tab 1's chat clears tab 1's grant.
+  clearSessionToolPermissions(1);
+  assert.equal(
+    needsToolPermission({
+      sensitiveActionAlerts: true,
+      origin: 'https://shop.example',
+      toolName: 'checkout_cart',
+      tabId: 1,
+    }),
+    true
+  );
+});
+
+/**
+ * Runs the real `useAgentSession` once and hands back what it returned.
+ *
+ * There is no jsdom here, but a server render is enough for this: it executes
+ * the hook body, so `useState`, `useRef` and `useCallback` all behave, and the
+ * callbacks it closes over can be invoked afterwards. Effects do not run, which
+ * suits us — nothing reaches for `chrome`. `fetch` is stubbed because resetting
+ * a chat tells the backend about it, and restored however the test ends.
+ */
+function withAgentSession(run: (session: UseAgentSessionReturn) => void): void {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ({}),
+  })) as unknown as typeof fetch;
+
+  let session: UseAgentSessionReturn | null = null;
+  function Harness() {
+    session = useAgentSession(1, { sensitiveActionAlerts: true, origin: 'https://shop.example' });
+    return null;
+  }
+
+  try {
+    renderToString(React.createElement(Harness));
+    assert.ok(session, 'the hook should have run during the render');
+    run(session!);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+test('starting a new chat forgets every tool granted for the session', () => {
+  clearSessionToolPermissions();
+  allowToolForSession('https://shop.example', 'checkout_cart');
+  allowToolForSession('https://other.example', 'send_message');
+  assert.equal(listSessionToolPermissions().length, 2, 'the grants should be in place first');
+
+  withAgentSession((session) => {
+    session.handleReset();
+  });
+
+  // Permission was given for the conversation the user was having, not for
+  // every one that follows it.
+  assert.deepEqual(listSessionToolPermissions(), []);
+  // And the gate agrees, rather than just the bookkeeping.
+  assert.equal(
+    needsToolPermission({
+      sensitiveActionAlerts: true,
+      origin: 'https://shop.example',
+      toolName: 'checkout_cart',
+    }),
+    true
+  );
+});
+

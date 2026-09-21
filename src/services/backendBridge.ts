@@ -22,6 +22,92 @@ export function getAuthToken(): string {
   return process.env.WEBMCP_AUTH_TOKEN || '';
 }
 
+/**
+ * Extracts a clean, human-readable message from an error string or object.
+ * Upstream API errors often arrive as nested JSON strings with verbose `details`
+ * arrays that should not be dumped verbatim into the chat UI.
+ */
+export function formatErrorMessage(input: unknown): string {
+  const raw =
+    input instanceof Error
+      ? input.message
+      : typeof input === 'string'
+      ? input
+      : String(input ?? 'Unknown error');
+
+  const trimmed = raw.trim();
+  const braceIdx = trimmed.indexOf('{');
+  if (braceIdx === -1) {
+    return trimmed;
+  }
+
+  const prefix = trimmed.slice(0, braceIdx).trim();
+  let candidate = trimmed.slice(braceIdx);
+  let extractedMessage: string | undefined;
+  let extractedCode: number | string | undefined;
+  let extractedStatus: string | undefined;
+
+  for (let depth = 0; depth < 5; depth++) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      break;
+    }
+
+    if (typeof parsed === 'string') {
+      candidate = parsed.trim();
+      continue;
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      break;
+    }
+
+    const record = parsed as Record<string, unknown>;
+    const errField = record.error;
+
+    if (typeof errField === 'string') {
+      extractedMessage = errField;
+      candidate = errField.trim();
+      continue;
+    }
+
+    if (errField && typeof errField === 'object') {
+      const errObj = errField as Record<string, unknown>;
+      if (typeof errObj.code === 'number' || typeof errObj.code === 'string') {
+        extractedCode = errObj.code;
+      }
+      if (typeof errObj.status === 'string') {
+        extractedStatus = errObj.status;
+      }
+      if (typeof errObj.message === 'string') {
+        extractedMessage = errObj.message;
+        candidate = errObj.message.trim();
+        continue;
+      }
+    }
+
+    if (typeof record.message === 'string') {
+      extractedMessage = record.message;
+      candidate = record.message.trim();
+      continue;
+    }
+
+    break;
+  }
+
+  if (!extractedMessage) {
+    return trimmed;
+  }
+
+  const cleanMsg = extractedMessage.trim();
+  const metaParts = [extractedCode, extractedStatus].filter(Boolean);
+  const suffix = metaParts.length > 0 ? ` (${metaParts.join(' ')})` : '';
+  const lead = prefix ? `${prefix.replace(/:$/, '')}: ` : '';
+  return `${lead}${cleanMsg}${suffix}`;
+}
+
 /** The headers every request to the backend server carries. */
 function buildHeaders(data: unknown): Headers {
   const headers = new Headers();
@@ -86,7 +172,7 @@ export async function callBackend<T = unknown>(
   }
 
   if (json.error) {
-    throw new Error(json.error);
+    throw new Error(formatErrorMessage(json.error));
   }
   if (!res.ok) {
     throw new Error(`Request to ${endpoint} failed with HTTP ${res.status}.`);
@@ -124,7 +210,7 @@ export async function streamBackend<T = unknown>(
 
   if (!res.body || !res.headers.get('Content-Type')?.includes('ndjson')) {
     const json = await res.json();
-    if (json.error) throw new Error(json.error);
+    if (json.error) throw new Error(formatErrorMessage(json.error));
     return json as T;
   }
 
@@ -158,7 +244,7 @@ export async function streamBackend<T = unknown>(
       } catch {
         throw new Error(`The backend server sent a line that is not JSON: ${line.slice(0, 100)}`);
       }
-      if (message.error) throw new Error(message.error);
+      if (message.error) throw new Error(formatErrorMessage(message.error));
       if (message.done) {
         const { done: _done, ...payload } = message;
         return payload as T;

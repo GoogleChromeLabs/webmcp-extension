@@ -124,7 +124,13 @@ html, body {
   color: var(--color-error);
   background: var(--color-error-container);
   border-radius: 8px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
   word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
   margin-bottom: 4px;
 }
 
@@ -227,6 +233,7 @@ main {
 
 #chatStream {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0;
   display: flex;
@@ -427,11 +434,14 @@ main {
 .chat-card {
   background: var(--color-surface);
   border-radius: 16px;
-  padding: 16px;
+  padding: 16px 16px 0 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-card__header {
@@ -441,6 +451,22 @@ main {
   width: 100%;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--color-surface-container);
+  flex-shrink: 0;
+}
+
+.chat-card__messages {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.chat-card__messages > * {
+  flex-shrink: 0;
 }
 
 .context-meter {
@@ -513,6 +539,7 @@ main {
   line-height: 18px;
   color: var(--color-on-surface);
   word-break: break-word;
+  flex-shrink: 0;
 }
 
 .ai-response {
@@ -521,6 +548,7 @@ main {
   color: var(--color-on-surface);
   padding: 4px 0;
   word-break: break-word;
+  flex-shrink: 0;
 }
 
 .msg.error {
@@ -530,6 +558,21 @@ main {
   border-radius: 12px;
   font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 18px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  flex-shrink: 0;
+}
+
+.msg-body {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 /* Markdown Elements */
@@ -593,6 +636,7 @@ main {
   background-color: var(--color-surface-container);
   overflow: hidden;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .action-log__header {
@@ -1552,5 +1596,59 @@ main {
   outline-offset: 1px;
 }
 
+/* The lesser-used choice, so it sits below the pair and is drawn more quietly. */
+.tool-permission-card__btn--always {
+  width: 100%;
+  flex: none;
+  min-height: 32px;
+  height: auto;
+  padding: 6px 12px;
+  text-align: center;
+  background-color: transparent;
+  border: 1px solid var(--color-outline);
+  color: var(--color-blue-title);
+  margin-top: -6px;
+}
 
+.tool-permission-card__btn--always:hover {
+  background-color: var(--color-surface-container);
+}
 
+.tool-permission-card__btn--always:active {
+  background-color: var(--color-outline);
+}
+
+/* --------------------------------------------------------------------------
+   Consequential variant: the page says this may not be reversible.
+   Deliberately not styled as a routine confirmation.
+   -------------------------------------------------------------------------- */
+.tool-permission-card--consequential .tool-permission-card__title {
+  color: var(--color-on-error-container);
+}
+
+.tool-permission-card__warning {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background-color: var(--color-error-container);
+  color: var(--color-on-error-container);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+/* The confirm action must not look like the routine blue "Allow". */
+.tool-permission-card--consequential .tool-permission-card__btn--allow {
+  background-color: var(--color-error);
+}
+
+.tool-permission-card--consequential .tool-permission-card__btn--allow:hover {
+  background-color: var(--color-on-error-container);
+}
+
+.tool-permission-card--consequential .tool-permission-card__btn--allow:active {
+  background-color: #6d1611;
+}

@@ -11,6 +11,13 @@ export interface WebMCPTool {
   inputSchema?: string | Record<string, unknown> | null;
   readOnlyHint?: boolean;
   untrustedContentHint?: boolean;
+  /**
+   * The page's declaration that running this tool has real-world consequences
+   * that may not be reversible — paying, booking, sending, deleting. It is an
+   * advisory hint from an untrusted source, so it is only ever used to ask for
+   * *more* confirmation, never less.
+   */
+  consequentialHint?: boolean;
   frameId?: number;
   window?: Window;
 }
@@ -86,7 +93,21 @@ export interface PendingToolPermission {
   toolName: string;
   toolDescription?: string;
   args?: unknown;
+  /** The origin the tool belongs to, absent for a page that has none. */
+  origin?: string;
+  /**
+   * The page marked this tool as doing something that may not be reversible.
+   * The prompt is mandatory and cannot be remembered.
+   */
+  consequential?: boolean;
+  /** Run the tool this once. */
   allow: () => void;
+  /**
+   * Run the tool now and every other time this origin calls it, until the chat
+   * is reset or the panel is closed. Absent when the grant would not mean what
+   * the button says — including for anything consequential.
+   */
+  allowAlways?: () => void;
   deny: () => void;
 }
 
