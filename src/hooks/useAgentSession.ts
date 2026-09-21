@@ -359,33 +359,19 @@ export function useAgentSession(
     };
 
     // Activity logger helpers, scoped to this turn's tab.
-    const logActivity = (source: 'assistant' | 'user', name: string, args: unknown): ActivityEntry => {
+    const logActivity = (name: string): ActivityEntry => {
       const entry: ActivityEntry = {
         id: generateId(),
-        time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-        source,
         name,
-        args,
-        start: performance.now(),
-        status: 'running',
+        done: false,
       };
       internals.turnLogs = [entry, ...internals.turnLogs];
       tabSessions.update(tabId, (previous) => ({ activityLog: [entry, ...previous.activityLog] }));
       return entry;
     };
 
-    const completeActivity = (entry: ActivityEntry, { result, error }: { result?: unknown; error?: string }) => {
-      const durationMs = Math.round(performance.now() - entry.start);
-      const update = (item: ActivityEntry) =>
-        item.id === entry.id
-          ? {
-              ...item,
-              status: (error ? 'err' : 'ok') as 'ok' | 'err',
-              durationMs,
-              result,
-              error,
-            }
-          : item;
+    const completeActivity = (entry: ActivityEntry) => {
+      const update = (item: ActivityEntry) => (item.id === entry.id ? { ...item, done: true } : item);
 
       internals.turnLogs = internals.turnLogs.map(update);
       tabSessions.update(tabId, (previous) => ({ activityLog: previous.activityLog.map(update) }));
@@ -470,7 +456,7 @@ export function useAgentSession(
             continue;
           }
 
-          const entry = logActivity('assistant', name, call.args);
+          const entry = logActivity(name);
 
           const toolName = targetTool.name;
           const origin = currentOrigin();
@@ -535,7 +521,7 @@ export function useAgentSession(
             // Verify that the tab has not navigated to a different origin while awaiting permission.
             const latestOrigin = currentOrigin();
             if (latestOrigin !== origin) {
-              completeActivity(entry, { error: 'Origin changed while waiting for permission' });
+              completeActivity(entry);
               toolResponses.push({
                 functionResponse: {
                   name: call.name,
@@ -546,7 +532,7 @@ export function useAgentSession(
             }
 
             if (!applyToolPermissionDecision(decision, permissionQuery)) {
-              completeActivity(entry, { error: 'User denied permission' });
+              completeActivity(entry);
               toolResponses.push({
                 functionResponse: {
                   name: call.name,
@@ -588,14 +574,14 @@ export function useAgentSession(
 
             // Security Note: This is where you might utilize a prompt injection classifier to
             // detect any prompt injection in the tool output before returning it to the model.
-            completeActivity(entry, { result: res });
+            completeActivity(entry);
             toolResponses.push({
               functionResponse: { name: call.name, response: { result: res } },
             });
           } catch (err: unknown) {
             if (signal.aborted) break;
             const errorMsg = (err as Error)?.message || String(err);
-            completeActivity(entry, { error: errorMsg });
+            completeActivity(entry);
             toolResponses.push({
               functionResponse: { name: call.name, response: { error: errorMsg } },
             });

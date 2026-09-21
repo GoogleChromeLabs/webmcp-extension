@@ -93,23 +93,20 @@ export function ActionLog({
           {/* Activity / Task Trajectory Logs */}
           <div className="action-log__items">
             {displayLogs.length > 0 ? (
-              displayLogs.map((entry) => {
-                const isFinished = entry.status === 'ok' || entry.status === 'err';
-                return (
-                  <div key={entry.id} className="action-log__item">
-                    <div className="action-log__item-icon">
-                      {isFinished ? (
-                        <span className="action-log__item-check">✓</span>
-                      ) : (
-                        <span className="action-log__item-circle" />
-                      )}
-                    </div>
-                    <span className="action-log__item-label">
-                      {formatLogLabel(entry.name)}
-                    </span>
+              displayLogs.map((entry) => (
+                <div key={entry.id} className="action-log__item">
+                  <div className="action-log__item-icon">
+                    {entry.done ? (
+                      <span className="action-log__item-check">✓</span>
+                    ) : (
+                      <span className="action-log__item-circle" />
+                    )}
                   </div>
-                );
-              })
+                  <span className="action-log__item-label">
+                    {formatLogLabel(entry.name)}
+                  </span>
+                </div>
+              ))
             ) : (
               <div className="action-log__item">
                 <div className="action-log__item-icon">

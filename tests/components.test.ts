@@ -112,8 +112,8 @@ test('ActionLog renders initiation, running, and completed states', () => {
     React.createElement(ActionLog, {
       status: 'running',
       activityLogs: [
-        { id: 1, time: '12:00', source: 'assistant', name: 'apply_filters', args: {}, start: 0, status: 'ok' },
-        { id: 2, time: '12:01', source: 'assistant', name: 'search_items', args: {}, start: 0, status: 'running' },
+        { id: 1, name: 'apply_filters', done: true },
+        { id: 2, name: 'search_items', done: false },
       ],
       defaultOpen: true,
     })
@@ -127,7 +127,7 @@ test('ActionLog renders initiation, running, and completed states', () => {
     React.createElement(ActionLog, {
       status: 'completed',
       activityLogs: [
-        { id: 1, time: '12:00', source: 'assistant', name: 'apply_filters', args: {}, start: 0, status: 'ok' },
+        { id: 1, name: 'apply_filters', done: true },
       ],
       defaultOpen: true,
     })
@@ -240,7 +240,7 @@ test('ActionLog renders aria-expanded and aria-controls for accessibility', () =
     React.createElement(ActionLog, {
       status: 'completed',
       activityLogs: [
-        { id: 1, time: '12:00', source: 'assistant', name: 'search_items', args: {}, start: 0, status: 'ok' },
+        { id: 1, name: 'search_items', done: true },
       ],
       defaultOpen: true,
     })
@@ -358,7 +358,7 @@ test('ActionLog renders Waiting for permission state with atom logo and header',
       status: 'permission',
       statusText: 'Waiting for permission',
       activityLogs: [
-        { id: 1, time: '12:00', source: 'assistant', name: 'delete_account', args: {}, start: 0, status: 'running' },
+        { id: 1, name: 'delete_account', done: false },
       ],
       defaultOpen: true,
     })
@@ -403,7 +403,7 @@ test('ContextMeter shows the share of the context in use, with the token counts 
 test('ActionLog can stay in the page while hidden', () => {
   const props = {
     status: 'completed' as const,
-    activityLogs: [{ id: 1, time: '12:00', source: 'assistant' as const, name: 'search_location', args: {}, start: 0, status: 'ok' as const }],
+    activityLogs: [{ id: 1, name: 'search_location', done: true }],
   };
   const hidden = renderToString(React.createElement(ActionLog, { ...props, hidden: true }));
   assert.match(hidden, /^<div class="action-log" hidden="">/);
