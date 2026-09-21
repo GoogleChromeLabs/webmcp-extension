@@ -459,11 +459,10 @@ export function useAgentSession(
               : toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === 0) ||
                 toolsView.current.find((t) => t.name === name);
 
-          const entry = logActivity('assistant', name, call.args);
+
 
           if (!targetTool) {
             const errorMsg = `Tool "${name}" is not available on this page.`;
-            completeActivity(entry, { error: errorMsg });
             toolResponses.push({
               functionResponse: {
                 name: call.name,
@@ -472,6 +471,8 @@ export function useAgentSession(
             });
             continue;
           }
+
+          const entry = logActivity('assistant', name, call.args);
 
           const toolName = targetTool.name;
           const origin = currentOrigin();
