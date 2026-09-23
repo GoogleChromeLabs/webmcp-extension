@@ -32,9 +32,10 @@ async function updateBadge(tabId) {
   chrome.action.setBadgeBackgroundColor({ color: '#0c7a92' });
   const fromOrigins = await getAllFrameOrigins(tab.id);
   const message = { action: 'LIST_TOOLS', fromOrigins };
-  chrome.tabs.sendMessage(tabId, message, { frameId: 0 }).catch(({ message }) => {
-    chrome.runtime.sendMessage({ message });
-  });
+  // Ignore rejections on tabs where content.js cannot run (e.g. chrome://newtab,
+  // chrome://extensions) or has not attached yet; forwarding them via
+  // runtime.sendMessage would surface raw Chrome IPC errors in the side panel.
+  chrome.tabs.sendMessage(tabId, message, { frameId: 0 }).catch(() => {});
 }
 
 chrome.runtime.onMessage.addListener(({ action, tools }, { tab, frameId }, sendResponse) => {

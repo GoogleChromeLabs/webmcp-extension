@@ -25,25 +25,22 @@ export interface TabInfo {
   favicon: string;
 }
 
-/** The host a URL belongs to, falling back to the URL when it has no host. */
+/** The host a URL belongs to, falling back to 'New Tab' for internal browser pages or invalid URLs. */
 export function domainFor(url?: string): string {
   if (!url) return 'New Tab';
   try {
-    return new URL(url).hostname;
+    const { protocol, hostname } = new URL(url);
+    return protocol === 'http:' || protocol === 'https:' ? hostname : 'New Tab';
   } catch {
-    return url;
+    return 'New Tab';
   }
 }
 
 /** The favicon a tab reports, or one derived from its host. */
 export function faviconFor(url?: string, reported?: string): string {
   if (reported) return reported;
-  if (!url) return '';
-  try {
-    return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`;
-  } catch {
-    return '';
-  }
+  const host = domainFor(url);
+  return host !== 'New Tab' ? `https://www.google.com/s2/favicons?domain=${host}&sz=32` : '';
 }
 
 /** A tab's display details, with a fallback favicon when the page has none. */
@@ -98,14 +95,10 @@ export async function requestTabTools(tabId?: number): Promise<void> {
   try {
     const fromOrigins = await getAllFrameOrigins(targetTabId);
     await chromeApi.tabs.sendMessage(targetTabId, { action: 'LIST_TOOLS', fromOrigins }, { frameId: 0 });
-  } catch (err: unknown) {
-    const error = err as { message?: string };
-    if (!error?.message?.includes('Could not establish connection') && !error?.message?.includes('Receiving end does not exist')) {
-      throw err;
-    }
+  } catch {
+    // The tab has no content script (e.g. chrome://, New Tab) or navigated away.
   }
 }
-
 
 /**
  * Executes a tool on the target Chrome tab/iframe.

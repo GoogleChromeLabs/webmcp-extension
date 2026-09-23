@@ -4,7 +4,7 @@
  */
 
 import { EasyLanguageModel } from 'easy-language-model';
-import { ChatTurnRequest, ChatTurnResponse, ToolDeclaration } from '../types/index.js';
+import { ChatTurnRequest, ChatTurnResponse, ToolDeclaration, UserFacingError } from '../types/index.js';
 
 /**
  * Runs a chat turn on the browser's built-in model through the Prompt API,
@@ -473,12 +473,12 @@ async function createSession(
   signal?: AbortSignal
 ): Promise<EasyLanguageModel> {
   if (!isPromptApiSupported()) {
-    throw new Error(
-      'The Prompt API is not available in this browser. See https://developer.chrome.com/docs/ai/get-started, or turn off the on-device model in Settings to use the backend server.'
+    throw new UserFacingError(
+      'The Prompt API is not available in this browser. Turn off the on-device model in Settings to continue.'
     );
   }
   if (tools.length > 0 && !isToolUseSupported()) {
-    throw new Error(
+    throw new UserFacingError(
       'Tool use is not enabled for the Prompt API. Turn on chrome://flags/#prompt-api-tool-use to let the on-device model call WebMCP tools.'
     );
   }
@@ -523,7 +523,9 @@ async function createSession(
   };
 
   if ((await EasyLanguageModel.availability(options)) === 'unavailable') {
-    throw new Error('The on-device model is unavailable on this device.');
+    throw new UserFacingError(
+      'The on-device model is unavailable on this device. Turn off the on-device model in Settings to continue.'
+    );
   }
 
   const session = await EasyLanguageModel.create({

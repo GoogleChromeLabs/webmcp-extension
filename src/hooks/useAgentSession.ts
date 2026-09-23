@@ -29,6 +29,7 @@ import {
   ChatMessage,
   ChatTurnResponse,
   PendingToolPermission,
+  UserFacingError,
   WebMCPTool,
 } from '../types/index.js';
 
@@ -617,7 +618,11 @@ export function useAgentSession(
           return { messages: updated };
         });
       } else if (!messageRendered) {
-        addMessage({ id: generateId(), role: 'error', text: 'The model returned an empty response.' });
+        addMessage({
+          id: generateId(),
+          role: 'error',
+          text: 'I couldn’t generate a response for that request. Please try again.',
+        });
       }
     } catch (err: unknown) {
       if (signal.aborted) return;
@@ -626,7 +631,10 @@ export function useAgentSession(
       addMessage({
         id: generateId(),
         role: 'error',
-        text: 'Something went wrong while processing your request. The error details have been logged.',
+        text:
+          err instanceof UserFacingError
+            ? err.message
+            : 'Something went wrong while processing your request. Please try again.',
       });
       if (internals.chatId) {
         resetChatSession({ chatId: internals.chatId, onDevice: onDeviceModelRef.current });

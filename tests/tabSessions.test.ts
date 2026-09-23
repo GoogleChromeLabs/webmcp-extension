@@ -688,9 +688,13 @@ test('useActiveTabTools preserves tools on status messages and ignores action me
     listener({ action: 'GET_FRAME_ID' }, { tab: { id: 1 }, frameId: 0 });
     assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
 
-    // 3. A status/error message arrives without tools: it should preserve previous tools
+    // 3. A status/error message from a tab's content script preserves previous tools
     listener({ message: 'Could not connect' }, { tab: { id: 1 } });
     assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
+    assert.equal(tabSessions.getState(1).statusMsg, 'Could not connect');
+
+    // 3b. A service-worker error message without sender.tab is ignored
+    listener({ message: 'Could not establish connection. Receiving end does not exist.' }, {});
     assert.equal(tabSessions.getState(1).statusMsg, 'Could not connect');
 
     // 4. When a fresh tools report subsequently arrives, it clears the statusMsg error
@@ -787,7 +791,7 @@ test('useAgentSession logs raw errors to console and displays a generic error me
     assert.equal(state1.messages[1].role, 'error');
     assert.equal(
       state1.messages[1].text,
-      'Something went wrong while processing your request. The error details have been logged.'
+      'Something went wrong while processing your request. Please try again.'
     );
     assert.ok(!state1.messages[1].text.includes('high demand'));
     assert.ok(loggedErrors.length > 0);
@@ -837,5 +841,3 @@ test('a call to a tool the page does not expose is rejected immediately without 
     browser.restore();
   }
 });
-
-

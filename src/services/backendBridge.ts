@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { ChatTurnResponse } from '../types/index.js';
+import { UserFacingError, type ChatTurnResponse } from '../types/index.js';
 
 /**
  * Base URL of the companion server.
@@ -31,8 +31,8 @@ export function formatErrorMessage(input: unknown): string {
     input instanceof Error
       ? input.message
       : typeof input === 'string'
-      ? input
-      : String(input ?? 'Unknown error');
+        ? input
+        : String(input ?? 'Unknown error');
 
   const trimmed = raw.trim();
   const braceIdx = trimmed.indexOf('{');
@@ -156,7 +156,10 @@ export async function streamChat(
     });
   } catch (error) {
     if (options.signal?.aborted) throw error;
-    throw new Error(`Could not reach the WebMCP server at ${SERVER_URL}. Is it running?`);
+    throw new UserFacingError(
+      'Please make sure the service is running, or enable the on-device model in Settings.',
+      { cause: error }
+    );
   }
 
   const contentType = res.headers.get('Content-Type') || '';
@@ -217,7 +220,10 @@ export async function streamChat(
     await reader.cancel().catch(() => {});
     if (options.signal?.aborted) throw error;
     if (reported) throw reported;
-    throw new Error(`Lost the connection to the WebMCP server at ${SERVER_URL}.`);
+    throw new UserFacingError(
+      'Lost the connection to the AI service. Please make sure the service is running, or enable the on-device model in Settings.',
+      { cause: error }
+    );
   }
 
   if (!receivedAnyChunk) {
@@ -226,5 +232,3 @@ export async function streamChat(
 
   return finalResult ?? { text: fullText, functionCalls: [] };
 }
-
-
