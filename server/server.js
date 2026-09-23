@@ -8,9 +8,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { GoogleGenAI } from '@google/genai';
 
-import { streamChatTurn } from './streaming.js';
+import { streamText } from 'ai';
+
+import { describeModel, loadProviders } from './providers.js';
+import { appendTurnMessages, buildTools } from './tools.js';
 import {
   loadDotEnv,
   ensureAuthToken,
@@ -28,22 +30,24 @@ const env = loadDotEnv(envPath);
 const authToken = ensureAuthToken(env, envPath);
 const allowedExtensionId = env.ALLOWED_EXTENSION_ID || process.env.ALLOWED_EXTENSION_ID || null;
 
+/**
+ * Which provider and model answer a turn is settled here, from `.env`, and is
+ * never taken from the side panel. Set `MODEL=openai:gpt-4o`,
+ * `MODEL=anthropic:claude-sonnet-4-5` or `MODEL=google:gemini-3.6-flash`; a
+ * bare model name is read as Google's, so older `.env` files still work.
+ */
+const providerConfig = loadProviders(env);
+const activeModel = describeModel(providerConfig);
+const languageModel = providerConfig.model;
 
-const apiKey = env.GEMINI_API_KEY || env.API_KEY || env.apiKey || process.env.GEMINI_API_KEY || process.env.API_KEY;
-let activeModel = env.MODEL || env.model || 'gemini-3.6-flash';
-
-if (!apiKey) {
-  console.error('⚠️ Warning: No Gemini API Key found in .env or environment variables!');
+if (providerConfig.problem) {
+  console.error(`⚠️  ${providerConfig.problem}`);
+} else {
+  console.log(`🤖 Answering with ${activeModel}`);
 }
 
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-/**
- * Active chat sessions, keyed by chat id. Bounded so a long-running dev server
- * does not grow without limit; Map preserves insertion order, so the first key
- * is always the least recently created session.
- */
-const chats = new Map();
 const MAX_CHAT_SESSIONS = 100;
+const chatSessions = new Map();
 const logs = [];
 const logClients = new Set();
 
@@ -152,7 +156,7 @@ function parseJsonBody(req) {
       chunks.push(chunk);
     });
 
-    req.on('error', (err) => fail(httpError(400, 'Could not read the request body.')));
+    req.on('error', () => fail(httpError(400, 'Could not read the request body.')));
 
     req.on('end', () => {
       if (settled) return;
@@ -333,230 +337,163 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-
-    if (url.pathname === '/api/model') {
-      let requestPayload = null;
-      if (req.method === 'POST') {
-        const { model, chatId } = await parseJsonBody(req);
-        requestPayload = { model, chatId };
-        if (model) {
-          activeModel = model;
-          if (chatId && chats.has(chatId)) {
-            chats.delete(chatId);
-            console.log(`  Set active model to: "${activeModel}" (chat session [${chatId}] reset)`);
-          } else {
-            chats.clear();
-            console.log(`  Set active model to: "${activeModel}" (all chat sessions reset)`);
-          }
-        }
+    if (url.pathname === '/api/chat/reset' && req.method === 'POST') {
+      const { chatId } = await parseJsonBody(req);
+      if (chatId) {
+        chatSessions.delete(chatId);
       } else {
-        console.log(`  Current active model: "${activeModel}"`);
+        chatSessions.clear();
       }
-      const responsePayload = { success: true, model: activeModel };
-      console.log('  Response:', responsePayload);
-      recordServerLog({
-        method: req.method,
-        path: url.pathname,
-        statusCode: 200,
-        startTime,
-        requestPayload,
-        responsePayload,
-      });
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(responsePayload));
+      res.end(JSON.stringify({ success: true }));
       return;
     }
 
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const { message, tools, toolResponses, chatId: inputChatId, stream } = await parseJsonBody(req);
+      const { message, toolResponses, tools, chatId } = await parseJsonBody(req);
 
-      if (!ai) {
-        console.error('  Error: Gemini API Key missing on backend server.');
+      if (!languageModel) {
+        const problem = providerConfig.problem || 'No model is configured on the backend server.';
         recordServerLog({
           method: req.method,
           path: url.pathname,
           statusCode: 400,
           startTime,
-          error: 'Gemini API Key missing on backend server.',
+          error: problem,
         });
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Gemini API Key missing on backend server.' }));
+        res.end(JSON.stringify({ error: problem }));
         return;
       }
 
-      let chatId = inputChatId;
-      let chatSession = chatId ? chats.get(chatId) : null;
-
-      if (!chatSession) {
-        chatId = randomUUID();
-        console.log(`  Initializing new chat session [${chatId}] with model: "${activeModel}"`);
-        chatSession = ai.chats.create({ model: activeModel });
-        if (chats.size >= MAX_CHAT_SESSIONS) {
-          const oldestId = chats.keys().next().value;
-          chats.delete(oldestId);
-          console.log(`  Evicted least recently used chat session [${oldestId}] to stay within the session cap.`);
-        }
-        chats.set(chatId, chatSession);
-      } else {
-        console.log(`  Resuming chat session [${chatId}] with model: "${activeModel}"`);
-        // Re-insert so Map insertion order tracks recent use, not creation
-        // time. Without this an active long conversation is the first thing
-        // evicted, and the client silently gets a fresh session instead.
-        chats.delete(chatId);
-        chats.set(chatId, chatSession);
+      if (message === undefined && (!Array.isArray(toolResponses) || toolResponses.length === 0)) {
+        const problem = 'A chat turn needs either a `message` or `toolResponses`.';
+        recordServerLog({
+          method: req.method,
+          path: url.pathname,
+          statusCode: 400,
+          startTime,
+          error: problem,
+        });
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: problem }));
+        return;
       }
 
-      const functionDeclarations = (tools || []).map((tool) => {
-        let name = tool.name;
-        let parametersJsonSchema = { type: 'object', properties: {} };
-        if (tool.parameters) {
-          parametersJsonSchema = tool.parameters;
-        } else if (tool.inputSchema) {
-          parametersJsonSchema = typeof tool.inputSchema === 'string' ? JSON.parse(tool.inputSchema) : tool.inputSchema;
+      const currentChatId = chatId || randomUUID();
+      let baseHistory = chatSessions.get(currentChatId);
+      if (!baseHistory) {
+        if (chatSessions.size >= MAX_CHAT_SESSIONS) {
+          const oldestKey = chatSessions.keys().next().value;
+          if (oldestKey !== undefined) chatSessions.delete(oldestKey);
         }
-        return {
-          name,
-          description: tool.description || '',
-          parametersJsonSchema,
-        };
+        baseHistory = [];
+      }
+
+      const nextHistory = appendTurnMessages(baseHistory, { message, toolResponses });
+      chatSessions.delete(currentChatId);
+      chatSessions.set(currentChatId, nextHistory);
+
+      if (tools && tools.length > 0) {
+        console.log(`  Tools provided (${tools.length}):`, tools.map((t) => t.name).join(', '));
+      }
+      console.log(`  Answering a turn of ${nextHistory.length} message(s) with "${activeModel}"`);
+
+      const clientGone = new AbortController();
+      res.on('close', () => {
+        if (!res.writableEnded) clientGone.abort();
       });
 
-      const config = {
-        systemInstruction: getSystemInstruction(),
-        ...(functionDeclarations.length > 0 ? { tools: [{ functionDeclarations }] } : {}),
-      };
+      res.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+      res.socket?.setNoDelay(true);
 
-      let sendMessageParams;
+      let fullText = '';
+      try {
+        const result = streamText({
+          model: languageModel,
+          system: getSystemInstruction().join('\n'),
+          messages: nextHistory,
+          tools: buildTools(tools),
+          abortSignal: clientGone.signal,
+        });
 
-      if (toolResponses) {
-        console.log(`  Tool responses received for [${chatId}]:`, JSON.stringify(toolResponses, null, 2));
-        if (tools && tools.length > 0) {
-          console.log(`  [${chatId}] Tools provided (${tools.length}):`, tools.map((t) => t.name).join(', '));
-        }
-        sendMessageParams = { message: toolResponses, config };
-      } else {
-        console.log(`  [${chatId}] User message: "${message}"`);
-        if (tools && tools.length > 0) {
-          console.log(`  [${chatId}] Tools provided (${tools.length}):`, tools.map((t) => t.name).join(', '));
-        }
-        sendMessageParams = { message, config };
-      }
-
-      if (stream) {
-        // Newline-delimited JSON: a `{ text }` line for every piece of text as
-        // it arrives, then one `{ done: true, ... }` line with the same payload
-        // the non-streaming response has. An error after the headers are out
-        // can only be a line of its own.
-        res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-
-        let streamed;
-        try {
-          streamed = await streamChatTurn({ chatSession, sendMessageParams, config, res });
-        } catch (error) {
-          console.error(`  [${chatId}] Streaming error:`, error.message || error);
-          recordServerLog({
-            method: req.method,
-            path: url.pathname,
-            statusCode: 500,
-            startTime,
-            requestPayload: { message, tools, toolResponses, chatId },
-            error: error.message || String(error),
-          });
-          res.end(
-            `${JSON.stringify({
-              error: 'Something went wrong while processing your request. The error details have been logged.',
-            })}\n`
-          );
-          return;
+        for await (const part of result.fullStream) {
+          if (part.type === 'text-delta') {
+            fullText += part.text;
+            res.write(`${JSON.stringify({ text: fullText })}\n`);
+          } else if (part.type === 'error') {
+            throw part.error;
+          }
         }
 
-        if (streamed.stopped) {
-          console.log(`  [${chatId}] Stopped: the side panel closed the connection.`);
-          recordServerLog({
-            method: req.method,
-            path: url.pathname,
-            statusCode: 499,
-            startTime,
-            requestPayload: { message, tools, toolResponses, chatId },
-            error: 'Stopped: the side panel closed the connection.',
-          });
-          res.end();
-          return;
+        const [response, rawToolCalls] = await Promise.all([result.response, result.toolCalls]);
+        const functionCalls = rawToolCalls.map((call) => ({
+          id: call.toolCallId,
+          name: call.toolName,
+          args: call.input ?? {},
+        }));
+
+        if (!clientGone.signal.aborted && chatSessions.get(currentChatId) === nextHistory) {
+          chatSessions.delete(currentChatId);
+          chatSessions.set(currentChatId, [...nextHistory, ...response.messages]);
         }
 
-        const { text, functionCalls, candidates } = streamed;
-        const responsePayload = { chatId, text, functionCalls, candidates };
-        if (functionCalls.length > 0) {
-          console.log(`  [${chatId}] Gemini Function Calls:`, JSON.stringify(functionCalls, null, 2));
-        }
-        if (text) {
-          console.log(`  [${chatId}] Gemini Response Text: "${text}"`);
-        }
+        const finalPayload = {
+          done: true,
+          chatId: currentChatId,
+          text: fullText,
+          functionCalls,
+        };
         recordServerLog({
           method: req.method,
           path: url.pathname,
           statusCode: 200,
           startTime,
-          requestPayload: { message, tools, toolResponses, chatId },
-          responsePayload,
+          requestPayload: { chatId: currentChatId, message, toolResponses, tools },
+          responsePayload: finalPayload,
         });
-        res.end(`${JSON.stringify({ done: true, ...responsePayload })}\n`);
-        return;
+        res.end(`${JSON.stringify(finalPayload)}\n`);
+      } catch (err) {
+        if (chatSessions.get(currentChatId) === nextHistory) {
+          const partial = fullText.trim();
+          if (clientGone.signal.aborted && partial) {
+            chatSessions.set(currentChatId, [
+              ...nextHistory,
+              { role: 'assistant', content: [{ type: 'text', text: partial }] },
+            ]);
+          } else if (baseHistory.length === 0) {
+            chatSessions.delete(currentChatId);
+          } else {
+            chatSessions.set(currentChatId, baseHistory);
+          }
+        }
+        if (clientGone.signal.aborted) {
+          console.log('  Stopped: the side panel closed the connection.');
+          res.end();
+          return;
+        }
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('  Streaming error:', errMsg);
+        recordServerLog({
+          method: req.method,
+          path: url.pathname,
+          statusCode: 500,
+          startTime,
+          requestPayload: { chatId: currentChatId, message, toolResponses, tools },
+          error: errMsg,
+        });
+        res.end(
+          `${JSON.stringify({
+            error: 'Something went wrong while processing your request. The error details have been logged.',
+          })}\n`
+        );
       }
-
-      const result = await chatSession.sendMessage(sendMessageParams);
-
-      const responsePayload = {
-        chatId,
-        text: result.text || '',
-        functionCalls: result.functionCalls || [],
-        candidates: result.candidates || [],
-      };
-
-      if (result.functionCalls && result.functionCalls.length > 0) {
-        console.log(`  [${chatId}] Gemini Function Calls:`, JSON.stringify(result.functionCalls, null, 2));
-      }
-      if (result.text) {
-        console.log(`  [${chatId}] Gemini Response Text: "${result.text}"`);
-      }
-
-      recordServerLog({
-        method: req.method,
-        path: url.pathname,
-        statusCode: 200,
-        startTime,
-        requestPayload: { message, tools, toolResponses, chatId },
-        responsePayload
-      });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(responsePayload));
       return;
     }
-
-    if (url.pathname === '/api/reset' && req.method === 'POST') {
-      const { chatId } = await parseJsonBody(req);
-      if (chatId && chats.has(chatId)) {
-        chats.delete(chatId);
-        console.log(`  Chat session [${chatId}] reset.`);
-      } else {
-        chats.clear();
-        console.log('  All chat sessions reset.');
-      }
-      const responsePayload = { success: true, message: 'Chat session reset.' };
-      recordServerLog({
-        method: req.method,
-        path: url.pathname,
-        statusCode: 200,
-        startTime,
-        requestPayload: { chatId },
-        responsePayload,
-      });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(responsePayload));
-      return;
-    }
-
-
 
     console.warn(`  404 Not Found: ${url.pathname}`);
     res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -589,7 +526,9 @@ const server = http.createServer(async (req, res) => {
       startTime,
       error: detail,
     });
-    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    if (!res.headersSent) {
+      res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    }
     res.end(JSON.stringify({ error: clientMessage }));
   }
 });
@@ -601,7 +540,7 @@ const server = http.createServer(async (req, res) => {
 const HOST = process.env.HOST || env.HOST || '127.0.0.1';
 const PORT = process.env.PORT || env.PORT || 3000;
 server.listen(PORT, HOST, () => {
-  console.log(`🚀 Backend Gemini server listening on http://${HOST}:${PORT}`);
+  console.log(`🚀 Backend model server listening on http://${HOST}:${PORT}`);
   console.log(
     `📊 Log dashboard: http://${HOST}:${PORT}/logs?token=${encodeURIComponent(authToken)}`
   );

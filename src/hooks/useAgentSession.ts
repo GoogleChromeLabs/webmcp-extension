@@ -5,7 +5,6 @@
 
 import {
   Dispatch,
-  MutableRefObject,
   SetStateAction,
   useCallback,
   useEffect,
@@ -44,9 +43,6 @@ export interface UseAgentSessionOptions {
    */
   origin?: string;
 }
-
-/** Re-exported for callers of this hook; defined with the permission rules. */
-export type { PendingToolPermission, ToolPermissionDecision };
 
 export interface UseAgentSessionReturn {
   userPrompt: string;
@@ -125,7 +121,7 @@ export function applySpotlighting(result: unknown, tool?: WebMCPTool, fence?: st
  * keeping whatever tools arrived by then.
  */
 export async function waitForToolsToSettle(
-  toolsRef: MutableRefObject<WebMCPTool[]>,
+  toolsRef: { readonly current: WebMCPTool[] },
   {
     requestTools,
     signal,
@@ -169,14 +165,12 @@ const generateId = (): number => ++nextId;
  * list captured when it started — and follows the page if a tool opens one in
  * a new tab.
  */
-function toolsViewFor(getTabId: () => number): MutableRefObject<WebMCPTool[]> {
+function toolsViewFor(getTabId: () => number): { readonly current: WebMCPTool[] } {
   return {
     get current(): WebMCPTool[] {
       return tabSessions.getState(getTabId()).tools;
     },
-    // Tools only ever come from the page's own reports.
-    set current(_tools: WebMCPTool[]) {},
-  } as MutableRefObject<WebMCPTool[]>;
+  };
 }
 
 /**
@@ -190,12 +184,9 @@ function toolsViewFor(getTabId: () => number): MutableRefObject<WebMCPTool[]> {
  * in the background and writes to its own tab.
  */
 export function useAgentSession(
-  tabIdOrTools: number | null | WebMCPTool[] | MutableRefObject<WebMCPTool[]>,
+  activeTabId: number | null,
   options?: UseAgentSessionOptions
 ): UseAgentSessionReturn {
-  const activeTabId =
-    typeof tabIdOrTools === 'number' ? tabIdOrTools : tabIdOrTools === null ? null : 1;
-
   // The third argument is the snapshot for a render outside a browser, which
   // is the same one: the store is plain state, not anything the DOM holds.
   const readSession = () => tabSessions.getState(activeTabId);
@@ -216,10 +207,9 @@ export function useAgentSession(
     // front, since they all move to the new backend together.
     if (onDeviceModelRef.current !== next) {
       for (const tabId of tabSessions.tabIds()) {
-        const internals = tabSessions.getInternals(tabId);
-        resetChatSession({ chatId: internals.chatId, onDevice: onDeviceModelRef.current });
-        internals.chatId = undefined;
+        tabSessions.resetChat(tabId, { onDevice: true });
       }
+      resetChatSession({ onDevice: onDeviceModelRef.current });
       clearSessionToolPermissions();
     }
     onDeviceModelRef.current = next;
@@ -282,26 +272,8 @@ export function useAgentSession(
   const handleReset = useCallback(() => {
     // A new chat asks again: permission was given for the conversation the
     // user was having, not for every one that follows it.
-    clearSessionToolPermissions(activeTabId ?? undefined);
     if (activeTabId == null) return;
-    const internals = tabSessions.getInternals(activeTabId);
-    if (internals.abortController) {
-      internals.abortController.abort();
-      internals.abortController = null;
-    }
-    if (internals.chatId) {
-      resetChatSession({ chatId: internals.chatId, onDevice: onDeviceModelRef.current });
-      internals.chatId = undefined;
-    }
-    internals.turnLogs = [];
-    tabSessions.update(activeTabId, {
-      userPrompt: '',
-      messages: [],
-      activityLog: [],
-      streamingText: '',
-      pendingPermission: null,
-      busy: false,
-    });
+    tabSessions.resetChat(activeTabId, { onDevice: onDeviceModelRef.current });
   }, [activeTabId]);
 
   // Main prompt sending logic via backend
@@ -381,7 +353,7 @@ export function useAgentSession(
       tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
 
     internals.turnLogs = [];
-    if (onDeviceModelRef.current && !internals.chatId) {
+    if (!internals.chatId) {
       internals.chatId = crypto.randomUUID();
     }
     tabSessions.update(tabId, (previous) => ({
@@ -389,7 +361,7 @@ export function useAgentSession(
       userPrompt: '',
       pendingPermission: null,
       activityLog: [],
-      messages: [...previous.messages, { id: generateId(), role: 'user', text: textToSend, meta: 'you' }],
+      messages: [...previous.messages, { id: generateId(), role: 'user', text: textToSend }],
     }));
 
     try {
@@ -424,6 +396,7 @@ export function useAgentSession(
         turnCount++;
         if (currentResult.text?.trim()) {
           const logs = [...internals.turnLogs];
+          internals.turnLogs = [];
           addMessage({
             id: generateId(),
             role: 'ai',
@@ -449,6 +422,7 @@ export function useAgentSession(
             const errorMsg = `Tool "${name}" is not available on this page.`;
             toolResponses.push({
               functionResponse: {
+                id: call.id,
                 name: call.name,
                 response: { error: errorMsg },
               },
@@ -503,7 +477,6 @@ export function useAgentSession(
                 pendingPermission: {
                   toolName,
                   toolDescription: targetTool?.description,
-                  args: call.args,
                   origin: origin || undefined,
                   consequential: targetTool?.consequentialHint === true,
                   allow: settle('allow'),
@@ -524,6 +497,7 @@ export function useAgentSession(
               completeActivity(entry);
               toolResponses.push({
                 functionResponse: {
+                  id: call.id,
                   name: call.name,
                   response: { error: 'Page origin changed before tool execution was approved.' },
                 },
@@ -535,6 +509,7 @@ export function useAgentSession(
               completeActivity(entry);
               toolResponses.push({
                 functionResponse: {
+                  id: call.id,
                   name: call.name,
                   response: { error: 'User denied permission to execute this tool.' },
                 },
@@ -559,7 +534,7 @@ export function useAgentSession(
               if (movedInfo) {
                 tabSessions.update(turnTabId, (prev) => ({
                   domain: movedInfo.domain || prev.domain,
-                  origin: originOfUrl(movedInfo.url || '') || prev.origin,
+                  origin: movedInfo.url ? originOfUrl(movedInfo.url) : prev.origin,
                   favicon: movedInfo.favicon || prev.favicon,
                 }));
               }
@@ -569,21 +544,21 @@ export function useAgentSession(
             const res = applySpotlighting(
               limitedRes,
               targetTool,
-              getSpotlighting({ onDevice: onDeviceModelRef.current })
+              getSpotlighting(onDeviceModelRef.current)
             );
 
             // Security Note: This is where you might utilize a prompt injection classifier to
             // detect any prompt injection in the tool output before returning it to the model.
             completeActivity(entry);
             toolResponses.push({
-              functionResponse: { name: call.name, response: { result: res } },
+              functionResponse: { id: call.id, name: call.name, response: { result: res } },
             });
           } catch (err: unknown) {
             if (signal.aborted) break;
             const errorMsg = (err as Error)?.message || String(err);
             completeActivity(entry);
             toolResponses.push({
-              functionResponse: { name: call.name, response: { error: errorMsg } },
+              functionResponse: { id: call.id, name: call.name, response: { error: errorMsg } },
             });
           }
         }
@@ -626,7 +601,22 @@ export function useAgentSession(
           activityLogs: logs,
           onDevice: onDeviceModelRef.current,
         });
-      } else if (!messageRendered && (!currentResult.functionCalls || currentResult.functionCalls.length === 0)) {
+      } else if (messageRendered && internals.turnLogs.length > 0) {
+        const trailingLogs = [...internals.turnLogs];
+        tabSessions.update(tabId, (previous) => {
+          const updated = [...previous.messages];
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].role === 'ai') {
+              updated[i] = {
+                ...updated[i],
+                activityLogs: [...trailingLogs, ...(updated[i].activityLogs ?? [])],
+              };
+              break;
+            }
+          }
+          return { messages: updated };
+        });
+      } else if (!messageRendered) {
         addMessage({ id: generateId(), role: 'error', text: 'The model returned an empty response.' });
       }
     } catch (err: unknown) {
@@ -638,7 +628,10 @@ export function useAgentSession(
         role: 'error',
         text: 'Something went wrong while processing your request. The error details have been logged.',
       });
-      internals.chatId = undefined;
+      if (internals.chatId) {
+        resetChatSession({ chatId: internals.chatId, onDevice: onDeviceModelRef.current });
+        internals.chatId = undefined;
+      }
     } finally {
       if (!signal.aborted) {
         tabSessions.update(tabId, { pendingPermission: null, busy: false });
@@ -663,5 +656,3 @@ export function useAgentSession(
     handleReset,
   };
 }
-
-export default useAgentSession;

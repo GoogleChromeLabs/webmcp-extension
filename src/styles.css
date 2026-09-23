@@ -22,7 +22,6 @@
 
   --color-surface: #ffffff;
   --color-surface-container: #f0f4f9;
-  --color-surface-container-low: #f7f9fc;
   --color-surface-variant: #e1e3e1;
 
   --color-on-surface: #1b1c1d;
@@ -41,7 +40,6 @@
   --font-body: 'Google Sans Text', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-headline: 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-flex: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-symbols: 'Google Symbols', sans-serif;
   --font-mono: 'Cascadia Code', ui-monospace, 'SF Mono', Consolas, monospace;
 
@@ -84,8 +82,7 @@ html, body {
   outline-offset: 1px;
 }
 
-.cdds-symbol,
-.agent-symbol {
+.cdds-symbol {
   font-family: var(--font-symbols);
   font-weight: normal;
   font-style: normal;
@@ -882,11 +879,6 @@ main {
   opacity: 1;
 }
 
-.actions-chip--disabled {
-  background-color: var(--color-error-container);
-  color: var(--color-on-error-container);
-}
-
 /* Chat Input Field Container */
 .chat-bubble__input-field {
   display: flex;
@@ -917,15 +909,6 @@ main {
   width: 100%;
   height: 20px;
   position: relative;
-}
-
-.text-input__cursor {
-  width: 1px;
-  height: 14px;
-  background-color: var(--color-primary);
-  border-radius: 999px;
-  display: flex;
-  align-self: center;
 }
 
 .text-input__field {

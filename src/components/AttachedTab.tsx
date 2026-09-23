@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
 import { ActionsChip } from './ActionsChip.js';
 import { Favicon } from './Favicon.js';
 

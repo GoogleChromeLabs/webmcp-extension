@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
 import { ShieldIcon, SymbolIcon } from './Icons.js';
 
 export interface AllowToolPermissionCardProps {

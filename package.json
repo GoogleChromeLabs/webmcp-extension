@@ -27,7 +27,10 @@
     "server": "node server/server.js"
   },
   "dependencies": {
-    "@google/genai": "^1.38.0",
+    "@ai-sdk/anthropic": "^4.0.56",
+    "@ai-sdk/google": "^4.0.74",
+    "@ai-sdk/openai": "^4.0.69",
+    "ai": "^7.0.105",
     "easy-language-model": "^0.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

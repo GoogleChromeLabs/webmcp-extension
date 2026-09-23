@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
 import { TextInput, TextInputProps } from './TextInput.js';
 import { Toolbar, ToolbarProps } from './Toolbar.js';
 import { AttachedTab, AttachedTabProps } from './AttachedTab.js';
@@ -14,7 +13,6 @@ import {
 
 export interface ChatBubbleProps {
   showTab?: boolean;
-  tab?: boolean;
   tabProps?: AttachedTabProps;
   textProps?: TextInputProps;
   toolbarProps?: ToolbarProps;
@@ -29,22 +27,20 @@ export interface ChatBubbleProps {
  */
 export function ChatBubble({
   showTab = false,
-  tab = false,
   tabProps = {},
   textProps = {},
   toolbarProps = {},
   permissionProps = null,
   className = '',
 }: ChatBubbleProps) {
-  const isTab = showTab || tab;
   const classNames = ['chat-bubble'];
-  if (isTab) classNames.push('chat-bubble--with-tab');
+  if (showTab) classNames.push('chat-bubble--with-tab');
   if (permissionProps) classNames.push('chat-bubble--permission');
   if (className) classNames.push(className);
 
   return (
     <div className={classNames.join(' ')}>
-      {isTab && <AttachedTab {...tabProps} />}
+      {showTab && <AttachedTab {...tabProps} />}
       {permissionProps ? (
         <AllowToolPermissionCard {...permissionProps} />
       ) : (

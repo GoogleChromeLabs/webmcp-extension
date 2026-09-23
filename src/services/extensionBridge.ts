@@ -9,7 +9,7 @@ interface GlobalWindowWithChrome {
   chrome?: typeof chrome;
 }
 
-function getChrome(): typeof chrome | undefined {
+export function getChrome(): typeof chrome | undefined {
   const win = (typeof window !== 'undefined'
     ? window
     : typeof globalThis !== 'undefined'
@@ -25,35 +25,35 @@ export interface TabInfo {
   favicon: string;
 }
 
-/** A tab's display details, with a fallback favicon when the page has none. */
-function describeTab(tab: chrome.tabs.Tab): TabInfo {
-  let favicon = tab.favIconUrl || '';
-  let domain = 'New Tab';
-
-  if (tab.url) {
-    try {
-      const u = new URL(tab.url);
-      domain = u.hostname;
-      if (!favicon) {
-        favicon = `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`;
-      }
-    } catch {
-      domain = tab.url;
-    }
+/** The host a URL belongs to, falling back to the URL when it has no host. */
+export function domainFor(url?: string): string {
+  if (!url) return 'New Tab';
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
   }
-
-  return { tabId: tab.id, url: tab.url, domain, favicon };
 }
 
-/**
- * Queries active chrome tab details (URL, favicon, domain).
- */
-export async function getActiveTabInfo(): Promise<TabInfo | null> {
-  const chromeApi = getChrome();
-  if (!chromeApi?.tabs) return null;
-  const [tab] = await chromeApi.tabs.query({ active: true, currentWindow: true });
-  if (!tab) return null;
-  return describeTab(tab);
+/** The favicon a tab reports, or one derived from its host. */
+export function faviconFor(url?: string, reported?: string): string {
+  if (reported) return reported;
+  if (!url) return '';
+  try {
+    return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`;
+  } catch {
+    return '';
+  }
+}
+
+/** A tab's display details, with a fallback favicon when the page has none. */
+function describeTab(tab: chrome.tabs.Tab): TabInfo {
+  return {
+    tabId: tab.id,
+    url: tab.url,
+    domain: domainFor(tab.url),
+    favicon: faviconFor(tab.url, tab.favIconUrl),
+  };
 }
 
 /**
@@ -174,13 +174,13 @@ export async function executeTabTool(
     // A navigation was triggered. The result will be on the next document,
     // which may live in a new tab if the tool opened one.
     await raceWithTimeout(contentScriptReadyPromise, 2000);
+    if (targetTabId !== currentTabId) {
+      options.onTabChanged?.(targetTabId);
+      void requestTabTools(targetTabId).catch(() => {});
+    }
     await raceWithTimeout(toolsPromise, 2000);
 
     await waitForPageLoad(targetTabId);
-
-    // The flow has moved to a tab the tool opened, so the caller's turn should
-    // go on with that page rather than the one it started from.
-    if (targetTabId !== currentTabId) options.onTabChanged?.(targetTabId);
 
     return await chromeApi.tabs.sendMessage(
       targetTabId,

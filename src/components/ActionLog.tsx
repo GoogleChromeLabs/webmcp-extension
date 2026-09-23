@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useId } from 'react';
+import { useState, useMemo, useId } from 'react';
 import { ArrowDownIcon, ArrowUpIcon, AtomLogo } from './Icons.js';
 import { ActivityEntry } from '../types/index.js';
 
 export interface ActionLogProps {
-  status: 'initiation' | 'running' | 'completed' | 'error' | 'permission';
+  status: 'initiation' | 'running' | 'completed' | 'permission';
   statusText?: string;
   activityLogs?: ActivityEntry[];
   defaultOpen?: boolean;
@@ -49,16 +49,11 @@ export function ActionLog({
       headerLabel = 'Waiting for permission';
     } else if (status === 'completed') {
       headerLabel = 'Show thinking';
-    } else if (status === 'error') {
-      headerLabel = 'Error occurred';
     }
   }
 
   // Determine status icon on left of header
   const renderStatusIcon = () => {
-    if (status === 'permission' || statusText === 'Waiting for permission') {
-      return <AtomLogo size={16} color="#0b57d0" />;
-    }
     if (status === 'initiation' || status === 'running') {
       return <span className="action-log__dots" aria-hidden="true">• •</span>;
     }

@@ -3,10 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { ChangeEvent, FocusEvent, KeyboardEvent } from 'react';
+import { ChangeEvent, FocusEvent, KeyboardEvent } from 'react';
 
 export interface TextInputProps {
-  active?: boolean;
   value?: string;
   placeholder?: string;
   onChange?: (e: ChangeEvent<HTMLInputElement>) => void;
@@ -55,6 +54,4 @@ export function TextInput({
     </div>
   );
 }
-
-export default TextInput;
 

@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
 import { AutomationIcon, CloseIcon, SymbolIcon } from './Icons.js';
 
 export interface WebMCPToolsDialogueProps {

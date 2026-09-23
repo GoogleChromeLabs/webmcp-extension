@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { CSSProperties } from 'react';
+import { CSSProperties } from 'react';
 
 export interface SymbolIconProps {
   name: string;
@@ -83,21 +83,14 @@ export function AtomLogo({ size = 18, color = '#012c6f', className = '' }: LogoP
 
 export type IconProp = Omit<SymbolIconProps, 'name'>;
 
-export const MicIcon = (p: IconProp) => <SymbolIcon name="mic" fill={1} size={20} {...p} />;
-export const SendIcon = (p: IconProp) => <SymbolIcon name="send" fill={1} size={20} {...p} />;
-export const StopIcon = (p: IconProp) => <SymbolIcon name="stop" fill={1} size={20} {...p} />;
-export const AttachFileIcon = (p: IconProp) => <SymbolIcon name="attach_file" size={20} {...p} />;
 export const AutomationIcon = (p: IconProp) => <SymbolIcon name="automation" size={16} {...p} />;
 export const CloseIcon = (p: IconProp) => <SymbolIcon name="close" size={20} {...p} />;
 export const EditSquareIcon = (p: IconProp) => <SymbolIcon name="edit_square" size={20} {...p} />;
 export const SettingsIcon = (p: IconProp) => <SymbolIcon name="settings" size={20} {...p} />;
-export const MoreVertIcon = (p: IconProp) => <SymbolIcon name="more_vert" size={20} {...p} />;
 export const ArrowDownIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_down" size={16} {...p} />;
 export const ArrowUpIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_up" size={16} {...p} />;
 export const ShieldIcon = (p: IconProp) => <SymbolIcon name="shield" size={20} {...p} />;
 export const DeviceIcon = (p: IconProp) => <SymbolIcon name="devices" size={20} {...p} />;
-export const KeyboardArrowDownIcon = ArrowDownIcon;
-export const KeyboardArrowUpIcon = ArrowUpIcon;
 
 export function PlayArrowIcon({ size = 14, color = 'currentColor', className = '' }: LogoProps) {
   return (
@@ -138,5 +131,3 @@ export function SquareStopIcon({ size = 12, color = 'currentColor', className = 
     </svg>
   );
 }
-
-export default SymbolIcon;

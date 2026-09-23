@@ -94,7 +94,7 @@ export function timingSafeEqualStrings(a, b) {
  * @param {Record<string, any>} headers
  * @returns {string | null}
  */
-export function extractRequestToken(headers = {}) {
+function extractRequestToken(headers = {}) {
   const direct = headers['x-webmcp-auth'];
   if (typeof direct === 'string' && direct.length > 0) return direct;
 
@@ -112,7 +112,7 @@ export function extractRequestToken(headers = {}) {
  * @param {string} origin
  * @returns {boolean}
  */
-export function isLoopbackOrigin(origin) {
+function isLoopbackOrigin(origin) {
   try {
     const { hostname } = new URL(origin);
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
@@ -178,7 +178,7 @@ export function validateAuthToken(headers, expectedToken) {
 /* -------------------------------------------------------------------------- */
 
 export const LOGS_SESSION_COOKIE = 'webmcp_logs_session';
-export const LOGS_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const LOGS_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 /** @type {Map<string, number>} sessionId -> expiry timestamp (ms) */
 const logsSessions = new Map();
