@@ -157,8 +157,7 @@ export async function streamChat(
   } catch (error) {
     if (options.signal?.aborted) throw error;
     throw new UserFacingError(
-      'Please make sure the service is running, or enable the on-device model in Settings.',
-      { cause: error }
+      'Please make sure the service is running, or enable the on-device model in Settings.'
     );
   }
 
@@ -221,8 +220,7 @@ export async function streamChat(
     if (options.signal?.aborted) throw error;
     if (reported) throw reported;
     throw new UserFacingError(
-      'Lost the connection to the AI service. Please make sure the service is running, or enable the on-device model in Settings.',
-      { cause: error }
+      'Lost the connection to the AI service. Please make sure the service is running, or enable the on-device model in Settings.'
     );
   }
 
