@@ -295,6 +295,95 @@ async function startSmokeServer(authToken: string): Promise<{
   </head>
   <body>
     <h1>WebMCP Smoke Test Page</h1>
+    <script type="module">
+      window.__executedTools = [];
+      document.documentElement.dataset.executedTools = '[]';
+      const recordCall = (name, inputArgs) => {
+        const parsed = typeof inputArgs === 'string' ? JSON.parse(inputArgs) : inputArgs;
+        window.__executedTools.push({ name, args: parsed });
+        document.documentElement.dataset.executedTools = JSON.stringify(window.__executedTools);
+        return parsed;
+      };
+
+      await document.modelContext.registerTool({
+        name: 'get_flights',
+        description: 'Search available flights for a route',
+        inputSchema: {
+          type: 'object',
+          properties: { destination: { type: 'string' } },
+        },
+        annotations: {
+          readOnlyHint: true,
+          untrustedContentHint: false,
+          consequentialHint: false,
+        },
+        execute: async (inputArgs) => {
+          const parsed = recordCall('get_flights', inputArgs);
+          return JSON.stringify({
+            flights: [{ code: 'WM101', destination: parsed?.destination || 'Tokyo', price: '$650' }],
+          });
+        },
+      });
+
+      await document.modelContext.registerTool({
+        name: 'book_flight',
+        description: 'Reserve a passenger seat on a flight',
+        inputSchema: {
+          type: 'object',
+          properties: { flightCode: { type: 'string' } },
+        },
+        annotations: {
+          readOnlyHint: false,
+          untrustedContentHint: false,
+          consequentialHint: false,
+        },
+        execute: async (inputArgs) => {
+          const parsed = recordCall('book_flight', inputArgs);
+          return JSON.stringify({
+            status: 'confirmed',
+            confirmationCode: 'CONF-WM101',
+            flightCode: parsed?.flightCode || 'WM101',
+          });
+        },
+      });
+
+      await document.modelContext.registerTool({
+        name: 'delete_account',
+        description: 'Permanently delete loyalty account and points',
+        inputSchema: {
+          type: 'object',
+          properties: { confirm: { type: 'boolean' } },
+        },
+        annotations: {
+          readOnlyHint: false,
+          untrustedContentHint: false,
+          consequentialHint: true,
+        },
+        execute: async (inputArgs) => {
+          recordCall('delete_account', inputArgs);
+          return JSON.stringify({ deleted: true });
+        },
+      });
+
+      for (let idx = 0; idx < 7; idx++) {
+        await document.modelContext.registerTool({
+          name: 'extra_travel_tool_' + (idx + 1),
+          description: 'Travel helper action #' + (idx + 1) + ' for itinerary management',
+          inputSchema: { type: 'object', properties: {} },
+          annotations: {
+            readOnlyHint: true,
+            untrustedContentHint: false,
+            consequentialHint: false,
+          },
+          execute: async (inputArgs) => {
+            recordCall('extra_travel_tool_' + (idx + 1), inputArgs);
+            return JSON.stringify({ ok: true });
+          },
+        });
+      }
+
+      document.documentElement.dataset.toolsRegistered = 'true';
+    </script>
   </body>
 </html>`;
 
@@ -406,13 +495,6 @@ async function buildStagedExtension(serverUrl: string, authToken: string): Promi
   const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webmcp-smoke-ext-'));
   fs.cpSync(extSourceDir, extDir, { recursive: true });
 
-  // Remove minimum_chrome_version in the staged runtime copy so the extension
-  // loads on any headless Chrome/Chromium version in CI while originalManifest
-  // is still verified directly by our test assertions.
-  const stagedManifest = { ...originalManifest };
-  delete stagedManifest.minimum_chrome_version;
-  fs.writeFileSync(path.join(extDir, 'manifest.json'), JSON.stringify(stagedManifest, null, 2));
-
   await esbuild.build({
     entryPoints: [path.join(projectRoot, 'src/index.tsx')],
     bundle: true,
@@ -457,6 +539,7 @@ async function launchChromeWithExtension(extDir: string): Promise<{
       '--disable-sync',
       '--disable-component-update',
       '--disable-default-apps',
+      '--enable-features=WebMCP',
       '--disable-features=DialMediaRouteProvider,MediaRouter,OptimizationHints,Translate',
       '--no-first-run',
       '--no-default-browser-check',
@@ -635,13 +718,15 @@ test(
       flatten: true,
     })) as { sessionId: string };
 
-    // Wait for /test-page navigation to finish before injecting content script world fixtures
+    // Wait for /test-page navigation and native document.modelContext.registerTool(...) calls to finish
     await waitForCondition(async () => {
       return await cdp.evaluate<boolean>(
         pageSessionId,
-        `location.href.endsWith('/test-page') && document.readyState === 'complete'`
+        `location.href.endsWith('/test-page') &&
+         document.readyState === 'complete' &&
+         document.documentElement.dataset.toolsRegistered === 'true'`
       );
-    }, 'Target test page to finish loading');
+    }, 'Target test page to finish loading and registering 10 native WebMCP tools');
 
     // Open the extension side panel UI (sidebar.html)
     const sidebarUrl = `chrome-extension://${extensionId}/sidebar.html`;
@@ -674,9 +759,17 @@ test(
       sidebarSessionId
     );
 
-    // Keep the test web page as the active tab in the window so chrome.tabs.query({ active: true, currentWindow: true })
-    // inside the sidebar resolves to the test page tab.
-    await cdp.send('Target.activateTarget', { targetId: pageTargetId });
+    // Activate the test web page tab so chrome.tabs.query({ active: true, currentWindow: true })
+    // inside the sidebar and background.js resolves to /test-page and triggers LIST_TOOLS.
+    await cdp.evaluate(
+      sidebarSessionId,
+      `(async () => {
+        const tabs = await chrome.tabs.query({});
+        const tab = tabs.find(t => t.url && t.url.includes('/test-page'));
+        if (!tab?.id) throw new Error('No test-page tab found');
+        await chrome.tabs.update(tab.id, { active: true });
+      })()`
+    );
 
     // Wait for React to mount ConsentScreen on first boot
     await waitForCondition(async () => {
@@ -701,122 +794,6 @@ test(
         `localStorage.getItem('agentConsent') === 'true' && Boolean(document.querySelector('#welcomeCard'))`
       );
     }, 'ConsentScreen dismissal to persist agentConsent and render #welcomeCard');
-
-    // Install the WebMCP `document.modelContext` mock into the content script's ISOLATED world
-    // on the active test page tab (since JS expando properties on `document` in MAIN world are
-    // isolated from content.js's ISOLATED world unless native WebIDL is enabled), then notify LIST_TOOLS.
-    await cdp.evaluate(
-      sidebarSessionId,
-      `(async () => {
-        const tabs = await chrome.tabs.query({});
-        const tab = tabs.find(t => t.url && t.url.includes('/test-page'));
-        if (!tab?.id || !tab.url) throw new Error('No test-page tab found in ' + JSON.stringify(tabs));
-        await chrome.tabs.update(tab.id, { active: true });
-        const [{ result: hasContentScript }] = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => typeof listTools === 'function',
-        });
-        if (!hasContentScript) {
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ['content.js'],
-          });
-        }
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => {
-            window.__executedTools = [];
-            document.documentElement.dataset.executedTools = '[]';
-            const toolsList = [
-              {
-                name: 'get_flights',
-                description: 'Search available flights for a route',
-                inputSchema: JSON.stringify({
-                  type: 'object',
-                  properties: { destination: { type: 'string' } },
-                }),
-                annotations: {
-                  readOnlyHint: true,
-                  untrustedContentHint: false,
-                  consequentialHint: false,
-                },
-                window,
-              },
-              {
-                name: 'book_flight',
-                description: 'Reserve a passenger seat on a flight',
-                inputSchema: JSON.stringify({
-                  type: 'object',
-                  properties: { flightCode: { type: 'string' } },
-                }),
-                annotations: {
-                  readOnlyHint: false,
-                  untrustedContentHint: false,
-                  consequentialHint: false,
-                },
-                window,
-              },
-              {
-                name: 'delete_account',
-                description: 'Permanently delete loyalty account and points',
-                inputSchema: JSON.stringify({
-                  type: 'object',
-                  properties: { confirm: { type: 'boolean' } },
-                }),
-                annotations: {
-                  readOnlyHint: false,
-                  untrustedContentHint: false,
-                  consequentialHint: true,
-                },
-                window,
-              },
-              ...Array.from({ length: 7 }, (_, idx) => ({
-                name: 'extra_travel_tool_' + (idx + 1),
-                description: 'Travel helper action #' + (idx + 1) + ' for itinerary management',
-                inputSchema: JSON.stringify({ type: 'object', properties: {} }),
-                annotations: { readOnlyHint: true, untrustedContentHint: false },
-                window,
-              })),
-            ];
-
-            Object.defineProperty(document, 'modelContext', {
-              configurable: true,
-              writable: true,
-              value: {
-                ontoolchange: null,
-                getTools: async () => toolsList,
-                executeTool: async (tool, inputArgs) => {
-                  const parsed = typeof inputArgs === 'string' ? JSON.parse(inputArgs) : inputArgs;
-                  window.__executedTools.push({ name: tool?.name, args: parsed });
-                  document.documentElement.dataset.executedTools = JSON.stringify(window.__executedTools);
-                  if (tool?.name === 'get_flights') {
-                    return JSON.stringify({
-                      flights: [{ code: 'WM101', destination: parsed?.destination || 'Tokyo', price: '$650' }],
-                    });
-                  }
-                  if (tool?.name === 'book_flight') {
-                    return JSON.stringify({
-                      status: 'confirmed',
-                      confirmationCode: 'CONF-WM101',
-                      flightCode: parsed?.flightCode || 'WM101',
-                    });
-                  }
-                  if (tool?.name === 'delete_account') {
-                    return JSON.stringify({ deleted: true });
-                  }
-                  return JSON.stringify({ ok: true });
-                },
-                addEventListener: () => {},
-              },
-            });
-          },
-        });
-        await chrome.tabs.sendMessage(tab.id, {
-          action: 'LIST_TOOLS',
-          fromOrigins: [new URL(tab.url).origin],
-        }, { frameId: 0 });
-      })()`
-    );
 
     // Wait for the active tab's 10 WebMCP tools from /test-page to be discovered and displayed on AttachedTab
     await waitForCondition(async () => {
