@@ -9,7 +9,7 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
   if (!document.modelContext) {
     chrome.runtime.sendMessage({
       message:
-        'Turn on the "WebMCP for testing" flag in chrome://flags and restart Chrome to use tools exposed by this website.',
+        'Turn on the "WebMCP for testing" flag in about://flags and restart browser to use tools exposed by this website.',
     });
     return;
   }

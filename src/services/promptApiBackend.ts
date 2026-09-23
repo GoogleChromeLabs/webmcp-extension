@@ -479,7 +479,7 @@ async function createSession(
   }
   if (tools.length > 0 && !isToolUseSupported()) {
     throw new UserFacingError(
-      'Tool use is not enabled for the Prompt API. Turn on chrome://flags/#prompt-api-tool-use to let the on-device model call WebMCP tools.'
+      'Tool use is not enabled for the Prompt API. Turn on about://flags/#prompt-api-tool-use to let the on-device model call WebMCP tools.'
     );
   }
 
