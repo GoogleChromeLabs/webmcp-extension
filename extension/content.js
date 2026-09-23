@@ -6,11 +6,15 @@
 console.debug(`[WebMCP] Content script injected in ${window.location.href}`);
 
 chrome.runtime.onMessage.addListener((message, _, reply) => {
+  if (!document.modelContext) {
+    chrome.runtime.sendMessage({
+      message:
+        'Turn on the "WebMCP for testing" flag in about://flags and restart browser to use tools exposed by this website.',
+    });
+    return;
+  }
   const { action, name, inputArgs, fromOrigins } = message;
   try {
-    if (!document.modelContext) {
-      throw new Error('Error: You must run Chrome with the "WebMCP for testing" flag enabled.');
-    }
     if (action == 'LIST_TOOLS') {
       debouncedListTools(fromOrigins);
       document.modelContext.ontoolchange = debouncedListTools.bind(null, fromOrigins);
@@ -77,7 +81,7 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
       reply(document.querySelector('script[type="application/ld+json"]')?.textContent);
     }
   } catch (error) {
-    chrome.runtime.sendMessage({ message: toMessage(error) });
+    console.debug('[WebMCP] Content script error:', error);
   }
 });
 

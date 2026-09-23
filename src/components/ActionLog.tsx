@@ -21,7 +21,11 @@ export interface ActionLogProps {
  */
 export function formatLogLabel(name: string): string {
   if (!name) return 'Thinking...';
-  const clean = name.replace(/[_-]+/g, ' ').trim();
+  const clean = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase();
   return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
 

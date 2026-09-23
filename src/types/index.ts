@@ -90,4 +90,13 @@ export interface PendingToolPermission {
   deny: () => void;
 }
 
-
+/**
+ * An error whose `message` is safe and written to be shown directly to the user
+ * in the chat UI, unlike raw backend or browser exceptions.
+ */
+export class UserFacingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UserFacingError';
+  }
+}

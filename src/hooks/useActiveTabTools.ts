@@ -49,8 +49,8 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
   const readSession = () => tabSessions.getState(activeTabId);
   const session = useSyncExternalStore(tabSessions.subscribe, readSession, readSession);
 
-  // Reports that name no tab belong to the tab in front, and the listener
-  // below is installed once, so it reads the id from here.
+  // Kept in a ref so the stable refreshTab and onUpdated callbacks can check
+  // whether a tab is currently in front without re-subscribing on tab switch.
   const activeTabIdRef = useRef<number | null>(activeTabId);
   useEffect(() => {
     activeTabIdRef.current = activeTabId;
@@ -75,13 +75,11 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
       });
     }
 
-    try {
-      await requestTabTools(tabId);
-    } catch (err: unknown) {
-      if (tabId === activeTabIdRef.current || tabSessions.hasConversation(tabId)) {
-        tabSessions.update(tabId, { statusMsg: String(err) });
-      }
-    }
+    // `requestTabTools` swallows Chrome IPC rejections on tabs without a content
+    // script (e.g. chrome://newtab), and page-level status notices (such as a
+    // missing WebMCP flag) are reported asynchronously by content.js through the
+    // runtime.onMessage listener below rather than by rejecting LIST_TOOLS.
+    await requestTabTools(tabId);
   }, []);
 
   // One listener for the whole panel, filing every page's reports under its
@@ -96,9 +94,9 @@ export function useActiveTabTools(activeTabId: number | null): UseActiveTabTools
       if (sender?.frameId && sender.frameId !== 0) return;
       if (tools === undefined && message === undefined && !url) return;
 
-      // A report with no tab comes from the service worker, which only speaks
-      // for the tab in front.
-      const tabId = sender?.tab?.id ?? activeTabIdRef.current;
+      // Only accept reports from a tab's content script (`sender.tab`), never
+      // from service worker or extension-page messages where `sender.tab` is absent.
+      const tabId = sender?.tab?.id;
       if (tabId == null) return;
 
       const pageUrl = url || sender?.tab?.url || '';
