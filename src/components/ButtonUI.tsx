@@ -50,6 +50,3 @@ export function ButtonUI({
     </button>
   );
 }
-
-export default ButtonUI;
-

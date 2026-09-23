@@ -8,12 +8,6 @@ declare module '*.css' {
   export default content;
 }
 
-declare module '*.woff2' {
-  const content: string;
-  export default content;
-}
-
-
 declare module '../../extension/utils.js' {
   export function getAllFrameOrigins(tabId: number): Promise<string[]>;
 }

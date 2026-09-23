@@ -34,6 +34,3 @@ export function Favicon({ customSrc, className = '' }: FaviconProps) {
     </div>
   );
 }
-
-export default Favicon;
-

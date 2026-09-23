@@ -49,12 +49,16 @@ jobs:
       - name: Set up Chrome for Testing for MV3 extension smoke tests
         run: |
           CFT_URL=$(node -e '
-            fetch("https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json")
-              .then(r => r.json())
-              .then(d => console.log(d.channels.Stable.downloads.chrome.find(x => x.platform === "linux64").url));
+            const res = await fetch("https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json");
+            if (!res.ok) throw new Error(`Failed to fetch Chrome for Testing metadata: HTTP ${res.status}`);
+            const data = await res.json();
+            const url = data.channels?.Stable?.downloads?.chrome?.find(x => x.platform === "linux64")?.url;
+            if (!url) throw new Error("No linux64 Chrome for Testing download URL found");
+            console.log(url);
           ')
-          curl -fsSL "$CFT_URL" -o /tmp/chrome-linux64.zip
+          curl --retry 3 --retry-all-errors -fsSL "$CFT_URL" -o /tmp/chrome-linux64.zip
           unzip -q /tmp/chrome-linux64.zip -d /tmp
+          rm -f /tmp/chrome-linux64.zip
           /tmp/chrome-linux64/chrome --version
           echo "CHROME_BIN=/tmp/chrome-linux64/chrome" >> "$GITHUB_ENV"
 

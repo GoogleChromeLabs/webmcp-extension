@@ -55,6 +55,3 @@ export function AttachedTab({
     </div>
   );
 }
-
-export default AttachedTab;
-

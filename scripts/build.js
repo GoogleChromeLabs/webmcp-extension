@@ -35,15 +35,12 @@ function copyStaticAssets() {
 
 copyStaticAssets();
 
-
-
 const buildOptions = {
   entryPoints: [path.join(rootDir, 'src/index.tsx')],
   bundle: true,
   format: 'esm',
   jsx: 'automatic',
   loader: { '.woff2': 'file' },
-  external: ['node:fs', 'node:path', 'node:os'],
   outfile: path.join(distDir, 'sidebar.js'),
   define: {
     'process.env.WEBMCP_AUTH_TOKEN': JSON.stringify(authToken),

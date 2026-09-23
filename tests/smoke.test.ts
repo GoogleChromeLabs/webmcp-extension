@@ -11,10 +11,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn, execFileSync, ChildProcess } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import esbuild from 'esbuild';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dirname;
 const rootDir = path.resolve(__dirname, '../..');
 // When running from dist/tests/smoke.test.js, rootDir is the workspace root.
 const projectRoot = fs.existsSync(path.join(rootDir, 'extension/manifest.json'))
@@ -28,21 +27,27 @@ function findChromeBinary(): string {
       return val;
     }
   }
+  // Prefer Chromium / Chrome for Testing before branded Google Chrome builds,
+  // since Chrome 137+ disables Extensions.loadUnpacked on branded Google Chrome.
   const candidates = [
-    'chrome',
-    'google-chrome-stable',
-    'google-chrome',
     'chromium',
     'chromium-browser',
+    'chrome',
+    '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    'google-chrome-stable',
+    'google-chrome',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ];
   for (const candidate of candidates) {
+    if (path.isAbsolute(candidate)) {
+      if (fs.existsSync(candidate)) return candidate;
+      continue;
+    }
     try {
       const resolved = execFileSync('which', [candidate], { encoding: 'utf8' }).trim();
       if (resolved) return resolved;
-    } catch {
-      if (fs.existsSync(candidate)) return candidate;
-    }
+    } catch {}
   }
   throw new Error('Could not find a Chrome or Chromium binary to run extension smoke tests.');
 }
@@ -85,15 +90,16 @@ class CdpClient {
         }
       }
     });
-    const rejectAllPending = (reason: string) => {
-      for (const [id, entry] of this.pending.entries()) {
-        clearTimeout(entry.timer);
-        entry.reject(new Error(reason));
-        this.pending.delete(id);
-      }
-    };
-    this.ws.addEventListener('close', () => rejectAllPending('CDP WebSocket closed'));
-    this.ws.addEventListener('error', () => rejectAllPending('CDP WebSocket error'));
+    this.ws.addEventListener('close', () => this.rejectAllPending('CDP WebSocket closed'));
+    this.ws.addEventListener('error', () => this.rejectAllPending('CDP WebSocket error'));
+  }
+
+  private rejectAllPending(reason: string): void {
+    for (const entry of this.pending.values()) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error(reason));
+    }
+    this.pending.clear();
   }
 
   static async connect(wsUrl: string): Promise<CdpClient> {
@@ -152,11 +158,7 @@ class CdpClient {
   }
 
   close(): void {
-    for (const [id, entry] of this.pending.entries()) {
-      clearTimeout(entry.timer);
-      entry.reject(new Error('CDP client closed'));
-      this.pending.delete(id);
-    }
+    this.rejectAllPending('CDP client closed');
     try {
       this.ws.close();
     } catch {}
@@ -189,6 +191,10 @@ async function submitPromptInSidebar(
   sidebarSessionId: string,
   promptText: string
 ): Promise<void> {
+  await waitForCondition(
+    () => cdp.evaluate<boolean>(sidebarSessionId, `Boolean(document.querySelector('input.text-input__field'))`),
+    'Composer text input to be present'
+  );
   await cdp.evaluate(
     sidebarSessionId,
     `(() => {
@@ -198,13 +204,54 @@ async function submitPromptInSidebar(
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`
   );
-  await waitForCondition(async () => {
-    return await cdp.evaluate<boolean>(
-      sidebarSessionId,
-      `Boolean(document.querySelector('button[aria-label="send"]'))`
-    );
-  }, 'Toolbar button to switch to aria-label="send"');
+  await waitForCondition(
+    () => cdp.evaluate<boolean>(sidebarSessionId, `Boolean(document.querySelector('button[aria-label="send"]'))`),
+    'Toolbar button to switch to aria-label="send"'
+  );
   await cdp.evaluate(sidebarSessionId, `document.querySelector('button[aria-label="send"]')?.click()`);
+}
+
+interface PermissionCardSnapshot {
+  title: string;
+  toolName: string;
+  hasAllow: boolean;
+  hasDeny: boolean;
+  denyText: string;
+  alwaysAllowText: string | null;
+  hasAlwaysAllow: boolean;
+  isConsequential: boolean;
+  warningText: string;
+  inputHidden: boolean;
+  actionLogWaiting: boolean;
+}
+
+async function readPermissionCard(
+  cdp: CdpClient,
+  sidebarSessionId: string,
+  description: string
+): Promise<PermissionCardSnapshot> {
+  return waitForCondition(async () => {
+    return await cdp.evaluate<PermissionCardSnapshot | null>(
+      sidebarSessionId,
+      `(() => {
+        const card = document.querySelector('.tool-permission-card');
+        if (!card) return null;
+        return {
+          title: card.querySelector('.tool-permission-card__title')?.textContent?.trim() || '',
+          toolName: card.querySelector('.tool-permission-card__tool-name')?.textContent?.trim() || '',
+          hasAllow: Boolean(card.querySelector('.tool-permission-card__btn--allow')),
+          hasDeny: Boolean(card.querySelector('.tool-permission-card__btn--deny')),
+          denyText: card.querySelector('.tool-permission-card__btn--deny')?.textContent?.trim() || '',
+          alwaysAllowText: card.querySelector('.tool-permission-card__btn--always')?.textContent?.trim() || null,
+          hasAlwaysAllow: Boolean(card.querySelector('.tool-permission-card__btn--always')),
+          isConsequential: card.classList.contains('tool-permission-card--consequential'),
+          warningText: card.querySelector('#permission-warning')?.textContent?.trim() || '',
+          inputHidden: !document.querySelector('input.text-input__field'),
+          actionLogWaiting: document.body.innerText.includes('Waiting for permission'),
+        };
+      })()`
+    );
+  }, description);
 }
 
 interface TargetInfo {
@@ -230,7 +277,6 @@ interface ChatTurnReply {
  *    network calls.
  */
 async function startSmokeServer(authToken: string): Promise<{
-  port: number;
   baseUrl: string;
   chatRequests: Array<Record<string, unknown>>;
   resetRequests: Array<Record<string, unknown>>;
@@ -297,10 +343,12 @@ async function startSmokeServer(authToken: string): Promise<{
 
         res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
         const streamParts = nextReply.textChunks || (nextReply.text ? [nextReply.text] : []);
+        let streamedText = '';
         for (const chunk of streamParts) {
-          res.write(JSON.stringify({ text: chunk }) + '\n');
+          streamedText += chunk;
+          res.write(JSON.stringify({ text: streamedText }) + '\n');
         }
-        const finalText = nextReply.text ?? streamParts.join('');
+        const finalText = nextReply.text ?? streamedText;
         res.write(
           JSON.stringify({
             done: true,
@@ -327,7 +375,6 @@ async function startSmokeServer(authToken: string): Promise<{
   const port = typeof address === 'object' && address ? address.port : 0;
 
   return {
-    port,
     baseUrl: `http://127.0.0.1:${port}`,
     chatRequests,
     resetRequests,
@@ -372,7 +419,6 @@ async function buildStagedExtension(serverUrl: string, authToken: string): Promi
     format: 'esm',
     jsx: 'automatic',
     loader: { '.woff2': 'file' },
-    external: ['node:fs', 'node:path', 'node:os'],
     outfile: path.join(extDir, 'sidebar.js'),
     define: {
       'process.env.WEBMCP_AUTH_TOKEN': JSON.stringify(authToken),
@@ -384,7 +430,7 @@ async function buildStagedExtension(serverUrl: string, authToken: string): Promi
     extDir,
     originalManifest,
     cleanup: () => {
-      fs.rmSync(extDir, { recursive: true, force: true });
+      fs.rmSync(extDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     },
   };
 }
@@ -438,19 +484,21 @@ async function launchChromeWithExtension(extDir: string): Promise<{
     cdp?.close();
     child.stdout?.destroy();
     child.stderr?.destroy();
-    try {
-      child.kill('SIGKILL');
-    } catch {}
-    child.unref();
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 300);
-      child.once('exit', () => {
-        clearTimeout(timer);
-        resolve();
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      child.unref();
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 1000);
+        child.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
       });
-    });
+    }
     try {
-      fs.rmSync(userDataDir, { recursive: true, force: true });
+      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     } catch {}
   };
 
@@ -458,11 +506,25 @@ async function launchChromeWithExtension(extDir: string): Promise<{
     const wsUrl = await new Promise<string>((resolve, reject) => {
       let stderrLog = '';
       let settled = false;
+      const onStderrData = (chunk: Buffer) => {
+        stderrLog += chunk.toString('utf8');
+        const match = stderrLog.match(/DevTools listening on (ws:\/\/[^\s]+)/);
+        if (match) {
+          finish(() => resolve(match[1]));
+        }
+      };
+      const onEarlyExit = (code: number | null) => {
+        finish(() =>
+          reject(new Error(`Chrome exited prematurely with code ${code}. Stderr:\n${stderrLog}`))
+        );
+      };
       const finish = (fn: () => void) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
         clearInterval(portFilePoller);
+        child.stderr?.off('data', onStderrData);
+        child.off('exit', onEarlyExit);
         fn();
       };
 
@@ -491,27 +553,15 @@ async function launchChromeWithExtension(extDir: string): Promise<{
         } catch {}
       }, 100);
 
-      child.stderr?.on('data', (chunk: Buffer) => {
-        stderrLog += chunk.toString('utf8');
-        const match = stderrLog.match(/DevTools listening on (ws:\/\/[^\s]+)/);
-        if (match) {
-          finish(() => resolve(match[1]));
-        }
-      });
-
-      child.on('exit', (code) => {
-        finish(() =>
-          reject(new Error(`Chrome exited prematurely with code ${code}. Stderr:\n${stderrLog}`))
-        );
-      });
+      child.stderr?.on('data', onStderrData);
+      child.on('exit', onEarlyExit);
     });
 
-    const activeCdp = await CdpClient.connect(wsUrl);
-    cdp = activeCdp;
+    cdp = await CdpClient.connect(wsUrl);
 
     // Load the unpacked extension once via CDP Extensions.loadUnpacked (avoiding any
     // double-load race with --load-extension that can reload and invalidate content.js).
-    const loaded = (await activeCdp.send('Extensions.loadUnpacked', { path: extDir })) as {
+    const loaded = (await cdp.send('Extensions.loadUnpacked', { path: extDir })) as {
       id?: string;
     };
     assert.ok(loaded.id, 'Extensions.loadUnpacked should return an extension ID');
@@ -520,7 +570,7 @@ async function launchChromeWithExtension(extDir: string): Promise<{
     // Wait for the extension service worker (background.js) target to be registered
     // before opening web pages so content_scripts are guaranteed to be ready.
     await waitForCondition(async () => {
-      const { targetInfos } = (await activeCdp.send('Target.getTargets')) as {
+      const { targetInfos } = (await cdp!.send('Target.getTargets')) as {
         targetInfos: TargetInfo[];
       };
       return targetInfos.some(
@@ -528,48 +578,50 @@ async function launchChromeWithExtension(extDir: string): Promise<{
       );
     }, 'Extension background.js service worker target to start');
 
-    return { cdp: activeCdp, extensionId, close };
+    return { cdp, extensionId, close };
   } catch (err) {
     await close();
     throw err;
   }
 }
 
-test('Extension E2E Smoke Suite: loads MV3 bundle, renders consent & tools popovers, executes WebMCP tool calls, handles permissions, and scrolls', async () => {
-  const authToken = `smoke-test-${randomUUID()}`;
-  const server = await startSmokeServer(authToken);
-  let staged: Awaited<ReturnType<typeof buildStagedExtension>> | null = null;
-  let browser: Awaited<ReturnType<typeof launchChromeWithExtension>> | null = null;
+test(
+  'Extension E2E Smoke Suite: loads MV3 bundle, renders consent & tools popovers, executes WebMCP tool calls, handles permissions, and scrolls',
+  { timeout: 60_000 },
+  async () => {
+    const authToken = `smoke-test-${randomUUID()}`;
+    const server = await startSmokeServer(authToken);
+    let staged: Awaited<ReturnType<typeof buildStagedExtension>> | null = null;
+    let browser: Awaited<ReturnType<typeof launchChromeWithExtension>> | null = null;
 
-  try {
-    const activeStaged = await buildStagedExtension(server.baseUrl, authToken);
-    staged = activeStaged;
-    const activeBrowser = await launchChromeWithExtension(activeStaged.extDir);
-    browser = activeBrowser;
-    const { cdp, extensionId } = activeBrowser;
+    try {
+      staged = await buildStagedExtension(server.baseUrl, authToken);
+      browser = await launchChromeWithExtension(staged.extDir);
+      const { cdp, extensionId } = browser;
 
-    // =========================================================================
-    // 1. STATIC & RUNTIME EXTENSION LOADING ("Does it load?")
-    // =========================================================================
-    assert.equal(activeStaged.originalManifest.manifest_version, 3);
-    assert.equal(activeStaged.originalManifest.minimum_chrome_version, '150.0.7861.0');
-    for (const requiredAsset of [
-      'manifest.json',
-      'background.js',
-      'content.js',
-      'utils.js',
-      'sidebar.html',
-      'sidebar.js',
-      'sidebar.css',
-      'icons/icon16.png',
-      'icons/icon48.png',
-      'icons/icon128.png',
-    ]) {
-      assert.ok(
-        fs.existsSync(path.join(activeStaged.extDir, requiredAsset)),
-        `Expected bundled extension asset ${requiredAsset} to exist`
-      );
-    }
+      // =========================================================================
+      // 1. STATIC & RUNTIME EXTENSION LOADING ("Does it load?")
+      // =========================================================================
+      assert.equal(staged.originalManifest.manifest_version, 3);
+      assert.equal(staged.originalManifest.minimum_chrome_version, '150.0.7861.0');
+      for (const requiredAsset of [
+        'manifest.json',
+        'background.js',
+        'content.js',
+        'utils.js',
+        'sidebar.html',
+        'sidebar.js',
+        'sidebar.css',
+        'icons/icon16.png',
+        'icons/icon32.png',
+        'icons/icon48.png',
+        'icons/icon128.png',
+      ]) {
+        assert.ok(
+          fs.existsSync(path.join(staged.extDir, requiredAsset)),
+          `Expected bundled extension asset ${requiredAsset} to exist`
+        );
+      }
 
     await cdp.send('Target.setDiscoverTargets', { discover: true });
 
@@ -655,121 +707,115 @@ test('Extension E2E Smoke Suite: loads MV3 bundle, renders consent & tools popov
     // isolated from content.js's ISOLATED world unless native WebIDL is enabled), then notify LIST_TOOLS.
     await cdp.evaluate(
       sidebarSessionId,
-      `new Promise((resolve, reject) => {
-        chrome.tabs.query({}, async (tabs) => {
-          const tab = tabs.find(t => t.url && t.url.includes('/test-page'));
-          if (!tab?.id || !tab.url) return reject(new Error('No test-page tab found in ' + JSON.stringify(tabs)));
-          try {
-            await chrome.tabs.update(tab.id, { active: true });
-            const [{ result: hasContentScript }] = await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              func: () => typeof listTools === 'function',
-            });
-            if (!hasContentScript) {
-              await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                files: ['utils.js', 'content.js'],
-              });
-            }
-            await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              func: () => {
-                window.__executedTools = [];
-                document.documentElement.dataset.executedTools = '[]';
-                const toolsList = [
-                  {
-                    name: 'get_flights',
-                    description: 'Search available flights for a route',
-                    inputSchema: JSON.stringify({
-                      type: 'object',
-                      properties: { destination: { type: 'string' } },
-                    }),
-                    annotations: {
-                      readOnlyHint: true,
-                      untrustedContentHint: false,
-                      consequentialHint: false,
-                    },
-                    window,
-                  },
-                  {
-                    name: 'book_flight',
-                    description: 'Reserve a passenger seat on a flight',
-                    inputSchema: JSON.stringify({
-                      type: 'object',
-                      properties: { flightCode: { type: 'string' } },
-                    }),
-                    annotations: {
-                      readOnlyHint: false,
-                      untrustedContentHint: false,
-                      consequentialHint: false,
-                    },
-                    window,
-                  },
-                  {
-                    name: 'delete_account',
-                    description: 'Permanently delete loyalty account and points',
-                    inputSchema: JSON.stringify({
-                      type: 'object',
-                      properties: { confirm: { type: 'boolean' } },
-                    }),
-                    annotations: {
-                      readOnlyHint: false,
-                      untrustedContentHint: false,
-                      consequentialHint: true,
-                    },
-                    window,
-                  },
-                  ...Array.from({ length: 7 }, (_, idx) => ({
-                    name: 'extra_travel_tool_' + (idx + 1),
-                    description: 'Travel helper action #' + (idx + 1) + ' for itinerary management',
-                    inputSchema: JSON.stringify({ type: 'object', properties: {} }),
-                    annotations: { readOnlyHint: true, untrustedContentHint: false },
-                    window,
-                  })),
-                ];
+      `(async () => {
+        const tabs = await chrome.tabs.query({});
+        const tab = tabs.find(t => t.url && t.url.includes('/test-page'));
+        if (!tab?.id || !tab.url) throw new Error('No test-page tab found in ' + JSON.stringify(tabs));
+        await chrome.tabs.update(tab.id, { active: true });
+        const [{ result: hasContentScript }] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => typeof listTools === 'function',
+        });
+        if (!hasContentScript) {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content.js'],
+          });
+        }
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            window.__executedTools = [];
+            document.documentElement.dataset.executedTools = '[]';
+            const toolsList = [
+              {
+                name: 'get_flights',
+                description: 'Search available flights for a route',
+                inputSchema: JSON.stringify({
+                  type: 'object',
+                  properties: { destination: { type: 'string' } },
+                }),
+                annotations: {
+                  readOnlyHint: true,
+                  untrustedContentHint: false,
+                  consequentialHint: false,
+                },
+                window,
+              },
+              {
+                name: 'book_flight',
+                description: 'Reserve a passenger seat on a flight',
+                inputSchema: JSON.stringify({
+                  type: 'object',
+                  properties: { flightCode: { type: 'string' } },
+                }),
+                annotations: {
+                  readOnlyHint: false,
+                  untrustedContentHint: false,
+                  consequentialHint: false,
+                },
+                window,
+              },
+              {
+                name: 'delete_account',
+                description: 'Permanently delete loyalty account and points',
+                inputSchema: JSON.stringify({
+                  type: 'object',
+                  properties: { confirm: { type: 'boolean' } },
+                }),
+                annotations: {
+                  readOnlyHint: false,
+                  untrustedContentHint: false,
+                  consequentialHint: true,
+                },
+                window,
+              },
+              ...Array.from({ length: 7 }, (_, idx) => ({
+                name: 'extra_travel_tool_' + (idx + 1),
+                description: 'Travel helper action #' + (idx + 1) + ' for itinerary management',
+                inputSchema: JSON.stringify({ type: 'object', properties: {} }),
+                annotations: { readOnlyHint: true, untrustedContentHint: false },
+                window,
+              })),
+            ];
 
-                Object.defineProperty(document, 'modelContext', {
-                  configurable: true,
-                  writable: true,
-                  value: {
-                    ontoolchange: null,
-                    getTools: async () => toolsList,
-                    executeTool: async (tool, inputArgs) => {
-                      const parsed = typeof inputArgs === 'string' ? JSON.parse(inputArgs) : inputArgs;
-                      window.__executedTools.push({ name: tool?.name, args: parsed });
-                      document.documentElement.dataset.executedTools = JSON.stringify(window.__executedTools);
-                      if (tool?.name === 'get_flights') {
-                        return JSON.stringify({
-                          flights: [{ code: 'WM101', destination: parsed?.destination || 'Tokyo', price: '$650' }],
-                        });
-                      }
-                      if (tool?.name === 'book_flight') {
-                        return JSON.stringify({
-                          status: 'confirmed',
-                          confirmationCode: 'CONF-WM101',
-                          flightCode: parsed?.flightCode || 'WM101',
-                        });
-                      }
-                      if (tool?.name === 'delete_account') {
-                        return JSON.stringify({ deleted: true });
-                      }
-                      return JSON.stringify({ ok: true });
-                    },
-                    addEventListener: () => {},
-                  },
-                });
+            Object.defineProperty(document, 'modelContext', {
+              configurable: true,
+              writable: true,
+              value: {
+                ontoolchange: null,
+                getTools: async () => toolsList,
+                executeTool: async (tool, inputArgs) => {
+                  const parsed = typeof inputArgs === 'string' ? JSON.parse(inputArgs) : inputArgs;
+                  window.__executedTools.push({ name: tool?.name, args: parsed });
+                  document.documentElement.dataset.executedTools = JSON.stringify(window.__executedTools);
+                  if (tool?.name === 'get_flights') {
+                    return JSON.stringify({
+                      flights: [{ code: 'WM101', destination: parsed?.destination || 'Tokyo', price: '$650' }],
+                    });
+                  }
+                  if (tool?.name === 'book_flight') {
+                    return JSON.stringify({
+                      status: 'confirmed',
+                      confirmationCode: 'CONF-WM101',
+                      flightCode: parsed?.flightCode || 'WM101',
+                    });
+                  }
+                  if (tool?.name === 'delete_account') {
+                    return JSON.stringify({ deleted: true });
+                  }
+                  return JSON.stringify({ ok: true });
+                },
+                addEventListener: () => {},
               },
             });
-            await chrome.tabs.sendMessage(tab.id, {
-              action: 'LIST_TOOLS',
-              fromOrigins: [new URL(tab.url).origin],
-            }, { frameId: 0 });
-            resolve(true);
-          } catch (err) {
-            reject(err);
-          }
+          },
         });
-      })`
+        await chrome.tabs.sendMessage(tab.id, {
+          action: 'LIST_TOOLS',
+          fromOrigins: [new URL(tab.url).origin],
+        }, { frameId: 0 });
+      })()`
     );
 
     // Wait for the active tab's 10 WebMCP tools from /test-page to be discovered and displayed on AttachedTab
@@ -787,13 +833,11 @@ test('Extension E2E Smoke Suite: loads MV3 bundle, renders consent & tools popov
     const badgeText = await waitForCondition(async () => {
       const text = await cdp.evaluate<string>(
         sidebarSessionId,
-        `new Promise(resolve => {
-          chrome.tabs.query({}, (tabs) => {
-            const tab = tabs.find(t => t.url && t.url.includes('/test-page'));
-            if (!tab?.id) return resolve('');
-            chrome.action.getBadgeText({ tabId: tab.id }, resolve);
-          });
-        })`
+        `(async () => {
+          const tabs = await chrome.tabs.query({});
+          const tab = tabs.find(t => t.url && t.url.includes('/test-page'));
+          return tab?.id ? await chrome.action.getBadgeText({ tabId: tab.id }) : '';
+        })()`
       );
       return text === '10' ? text : null;
     }, 'background.js to set chrome.action badge text to "10"');
@@ -1007,34 +1051,11 @@ test('Extension E2E Smoke Suite: loads MV3 bundle, renders consent & tools popov
 
     await submitPromptInSidebar(cdp, sidebarSessionId, 'Book flight WM101');
 
-    const writePermissionPopup = await waitForCondition(async () => {
-      return await cdp.evaluate<{
-        title: string;
-        toolName: string;
-        hasAllow: boolean;
-        hasDeny: boolean;
-        alwaysAllowText: string | null;
-        isConsequential: boolean;
-        inputHidden: boolean;
-        actionLogWaiting: boolean;
-      } | null>(
-        sidebarSessionId,
-        `(() => {
-          const card = document.querySelector('.tool-permission-card');
-          if (!card) return null;
-          return {
-            title: card.querySelector('.tool-permission-card__title')?.textContent?.trim() || '',
-            toolName: card.querySelector('.tool-permission-card__tool-name')?.textContent?.trim() || '',
-            hasAllow: Boolean(card.querySelector('.tool-permission-card__btn--allow')),
-            hasDeny: Boolean(card.querySelector('.tool-permission-card__btn--deny')),
-            alwaysAllowText: card.querySelector('.tool-permission-card__btn--always')?.textContent?.trim() || null,
-            isConsequential: card.classList.contains('tool-permission-card--consequential'),
-            inputHidden: !document.querySelector('input.text-input__field'),
-            actionLogWaiting: document.body.innerText.includes('Waiting for permission'),
-          };
-        })()`
-      );
-    }, 'AllowToolPermissionCard to appear for write tool book_flight');
+    const writePermissionPopup = await readPermissionCard(
+      cdp,
+      sidebarSessionId,
+      'AllowToolPermissionCard to appear for write tool book_flight'
+    );
 
     assert.equal(writePermissionPopup.title, 'Allow tool actions');
     assert.equal(writePermissionPopup.toolName, 'book_flight');
@@ -1086,30 +1107,11 @@ test('Extension E2E Smoke Suite: loads MV3 bundle, renders consent & tools popov
 
     await submitPromptInSidebar(cdp, sidebarSessionId, 'Delete my account');
 
-    const consequentialPopup = await waitForCondition(async () => {
-      return await cdp.evaluate<{
-        title: string;
-        toolName: string;
-        isConsequential: boolean;
-        warningText: string;
-        denyText: string;
-        hasAlwaysAllow: boolean;
-      } | null>(
-        sidebarSessionId,
-        `(() => {
-          const card = document.querySelector('.tool-permission-card');
-          if (!card) return null;
-          return {
-            title: card.querySelector('.tool-permission-card__title')?.textContent?.trim() || '',
-            toolName: card.querySelector('.tool-permission-card__tool-name')?.textContent?.trim() || '',
-            isConsequential: card.classList.contains('tool-permission-card--consequential'),
-            warningText: card.querySelector('#permission-warning')?.textContent?.trim() || '',
-            denyText: card.querySelector('.tool-permission-card__btn--deny')?.textContent?.trim() || '',
-            hasAlwaysAllow: Boolean(card.querySelector('.tool-permission-card__btn--always')),
-          };
-        })()`
-      );
-    }, 'Consequential AllowToolPermissionCard to appear for delete_account');
+    const consequentialPopup = await readPermissionCard(
+      cdp,
+      sidebarSessionId,
+      'Consequential AllowToolPermissionCard to appear for delete_account'
+    );
 
     assert.equal(consequentialPopup.title, 'This action may be irreversible');
     assert.equal(consequentialPopup.toolName, 'delete_account');

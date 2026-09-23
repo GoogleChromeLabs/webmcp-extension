@@ -65,5 +65,3 @@ export function Switch({
     </button>
   );
 }
-
-export default Switch;
