@@ -14,7 +14,7 @@
   },
   "homepage": "https://github.com/GoogleChromeLabs/webmcp-extension#readme",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -23,6 +23,7 @@
     "watch": "node scripts/build.js --watch",
     "dev": "npm run watch",
     "test": "rm -rf dist/tests && npx esbuild tests/*.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/*.test.js; status=$?; rm -rf dist/tests; exit $status",
+    "test:smoke": "rm -rf dist/tests && npx esbuild tests/smoke.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/smoke.test.js; status=$?; rm -rf dist/tests; exit $status",
     "clean": "rm -rf dist",
     "server": "node server/server.js"
   },

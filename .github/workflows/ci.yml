@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
 
@@ -40,9 +40,22 @@ jobs:
       # would catch a syntax error in the server or the build script.
       - run: npm run check:syntax
 
-      - run: npm test
-
       # The build generates a throwaway auth token into .env when one is
-      # missing, so this only proves the bundle compiles. Nothing here is a
-      # real credential and nothing is uploaded.
+      # missing, so this proves the extension bundle compiles cleanly before
+      # running unit and Chrome MV3 smoke tests. Nothing here is a real
+      # credential and nothing is uploaded.
       - run: npm run build
+
+      - name: Set up Chrome for Testing for MV3 extension smoke tests
+        run: |
+          CFT_URL=$(node -e '
+            fetch("https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json")
+              .then(r => r.json())
+              .then(d => console.log(d.channels.Stable.downloads.chrome.find(x => x.platform === "linux64").url));
+          ')
+          curl -fsSL "$CFT_URL" -o /tmp/chrome-linux64.zip
+          unzip -q /tmp/chrome-linux64.zip -d /tmp
+          /tmp/chrome-linux64/chrome --version
+          echo "CHROME_BIN=/tmp/chrome-linux64/chrome" >> "$GITHUB_ENV"
+
+      - run: npm test
