@@ -11,7 +11,7 @@ own agent.
 
 ## What it does
 
-- **Finds tools on the page.** Reads `document.modelContext.getTools()` and listens for `ontoolchange`, in the top page and in same-origin and cross-origin iframes. Tools that appear during a conversation (for example after a navigation) are picked up before the next model turn.
+- **Finds tools on the page.** Reads `document.modelContext.getTools()` and listens for `ontoolchange`, in the top page and in same-origin and cross-origin iframes. Tools that appear during a conversation (for example after a navigation) are picked up before the next model turn. A cross-origin iframe's tools only show up if the page embeds it with `allow="tools"` and the iframe registers them with `exposedTo` set to the page's origin.
 - **Chats with a model that can call those tools.** The side panel sends your prompt to a model. When the model calls a tool, the side panel asks for permission if needed, runs the tool on the page and sends the result back.
 - **Two backends:**
   - **Local server** (default): a small Node.js server that talks to Google, OpenAI, Anthropic or Ollama through the [AI SDK](https://ai-sdk.dev). API keys stay on the local server.
@@ -207,7 +207,6 @@ webmcp-extension/
 │   ├── background.ts  # Service worker: tab tracking, tool count badge
 │   ├── content.ts     # Content script: talks to document.modelContext on the page
 │   ├── frameOrigins.ts # Lists the origins of a tab's frames
-│   ├── globals.d.ts   # Types for document.modelContext
 │   └── sidepanel/     # React side panel
 │       ├── index.html
 │       ├── index.tsx

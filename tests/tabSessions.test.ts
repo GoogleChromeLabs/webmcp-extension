@@ -688,9 +688,6 @@ test('useActiveTabTools preserves tools on status messages and ignores action me
     assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
 
     // 2. An internal frame message with action arrives: it should be ignored and NOT wipe tools
-    listener({ action: 'INJECT_GET_FRAME_ID' }, { tab: { id: 1 }, frameId: 0 });
-    assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
-
     listener({ action: 'GET_FRAME_ID' }, { tab: { id: 1 }, frameId: 0 });
     assert.deepEqual(tabSessions.getState(1).tools, [BOOK_TOOL]);
 

@@ -16,7 +16,7 @@ const WEBMCP_DISABLED_MESSAGE =
 interface ContentMessage {
   action?: string;
   name?: string;
-  inputArgs?: unknown;
+  inputArgs?: Record<string, unknown>;
   fromOrigins?: string[];
 }
 
@@ -63,7 +63,11 @@ chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, reply) =
  * result is then the JSON-LD the iframe loads, not the return value, so the
  * iframe's load is awaited and the result read from there.
  */
-async function executeTool(modelContext: ModelContext, name: string, inputArgs: unknown): Promise<unknown> {
+async function executeTool(
+  modelContext: WebMCP.ModelContext,
+  name: string,
+  inputArgs: Record<string, unknown> | undefined
+): Promise<unknown> {
   // The tool name comes from the page, so it is compared as a value rather
   // than interpolated into a selector; there is then nothing to escape.
   const formTarget = [...document.forms].find((form) => form.getAttribute('toolname') === name)?.target;
@@ -86,7 +90,8 @@ async function executeTool(modelContext: ModelContext, name: string, inputArgs: 
   } catch (error) {
     // TODO: Remove this when executeTool doesn't accept JSON stringified inputArgs anymore in Chrome Stable.
     if (!toMessage(error).startsWith('Failed to parse input')) throw error;
-    result = await modelContext.executeTool(tool, JSON.stringify(inputArgs));
+    // Older Chrome builds take the input as a JSON string, which the spec types do not allow.
+    result = await modelContext.executeTool(tool, JSON.stringify(inputArgs) as unknown as object);
   }
 
   if (result === null && targetFrame) {
@@ -112,12 +117,12 @@ function toMessage(error: unknown): string {
 
 let listToolsTimeout: ReturnType<typeof setTimeout> | undefined;
 
-function debouncedListTools(modelContext: ModelContext, fromOrigins: string[]): void {
+function debouncedListTools(modelContext: WebMCP.ModelContext, fromOrigins: string[]): void {
   clearTimeout(listToolsTimeout);
   listToolsTimeout = setTimeout(() => listTools(modelContext, fromOrigins), 100);
 }
 
-async function listTools(modelContext: ModelContext, fromOrigins: string[]): Promise<void> {
+async function listTools(modelContext: WebMCP.ModelContext, fromOrigins: string[]): Promise<void> {
   const tools = [];
   for (const tool of await modelContext.getTools({ fromOrigins })) {
     const frameId = tool.window === window ? 0 : await getFrameId(tool.window);
@@ -137,11 +142,10 @@ async function listTools(modelContext: ModelContext, fromOrigins: string[]): Pro
 
 /**
  * Asks a child frame for its extension frame id, which the side panel needs
- * to run the frame's tools. The service worker first injects a listener into
- * every frame that answers with the id Chrome gave it.
+ * to run the frame's tools. The copy of this script in that frame answers with
+ * the id Chrome gave it (see the `GET_FRAME_ID` listener below).
  */
 async function getFrameId(targetWindow: Window): Promise<number | null> {
-  await chrome.runtime.sendMessage({ action: 'INJECT_GET_FRAME_ID' });
   const frameId = new Promise<number | null>((resolve) => {
     const listener = ({ source, data }: MessageEvent) => {
       // `data` is attacker-controlled: any frame can post anything, including
@@ -161,6 +165,24 @@ async function getFrameId(targetWindow: Window): Promise<number | null> {
   targetWindow.postMessage({ action: 'GET_FRAME_ID' }, '*');
   return frameId;
 }
+
+// Answers a parent frame's `getFrameId`. This script runs in every frame (the
+// manifest sets `all_frames`, and the service worker injects it into tabs that
+// were open before install), so every frame can answer for itself.
+window.addEventListener('message', async ({ data, source, origin }) => {
+  // Any frame can post anything here, so `data` may not be an object, and
+  // `source` is null when the sending context has already gone away.
+  if (data?.action !== 'GET_FRAME_ID' || !source) return;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const frameId: number | undefined = await chrome.runtime.sendMessage({ action: 'GET_FRAME_ID' });
+    if (frameId != null) {
+      (source as Window).postMessage({ action: 'GET_FRAME_ID_RESPONSE', frameId }, origin);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  console.debug('[WebMCP] failed to get frameId after 10 attempts');
+});
 
 type ToolEvent = Event & { toolName?: string };
 

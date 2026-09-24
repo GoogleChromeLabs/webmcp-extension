@@ -52,16 +52,6 @@ interface RuntimeMessage {
 
 chrome.runtime.onMessage.addListener(
   ({ action, tools }: RuntimeMessage, { tab, frameId }, sendResponse) => {
-    if (action === 'INJECT_GET_FRAME_ID') {
-      // `tab` is undefined for messages from the side panel, which has no tab.
-      if (!tab?.id) {
-        sendResponse();
-        return;
-      }
-      void injectFrameIdListener(tab.id, () => sendResponse());
-      // Keeps the message channel open until `sendResponse` is called.
-      return true;
-    }
     if (action === 'GET_FRAME_ID') {
       sendResponse(frameId);
       return;
@@ -72,40 +62,3 @@ chrome.runtime.onMessage.addListener(
     }
   }
 );
-
-/** Injects the frame-id listener into every frame of the tab, then calls `done`. */
-async function injectFrameIdListener(tabId: number, done: () => void): Promise<void> {
-  try {
-    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: listenForFrameIdRequests });
-  } catch {
-    // The tab navigated away or cannot be scripted; the caller times out.
-  } finally {
-    done();
-  }
-}
-
-/**
- * Answers a parent frame asking for this frame's id. Injected into the page
- * with `chrome.scripting.executeScript`, so it is serialized and must not use
- * anything from outside its own body.
- */
-function listenForFrameIdRequests(): void {
-  // This function is re-injected on every INJECT_GET_FRAME_ID request;
-  // only register the listener once per document.
-  if (window.webmcpFrameIdListenerInstalled) return;
-  window.webmcpFrameIdListenerInstalled = true;
-  window.addEventListener('message', async ({ data, source, origin }) => {
-    // Any frame can post anything here, so `data` may not be an object, and
-    // `source` is null when the sending context has already gone away.
-    if (data?.action !== 'GET_FRAME_ID' || !source) return;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const frameId: number | undefined = await chrome.runtime.sendMessage({ action: 'GET_FRAME_ID' });
-      if (frameId != null) {
-        (source as Window).postMessage({ action: 'GET_FRAME_ID_RESPONSE', frameId }, origin);
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    console.debug('[WebMCP] failed to get frameId after 10 attempts');
-  });
-}

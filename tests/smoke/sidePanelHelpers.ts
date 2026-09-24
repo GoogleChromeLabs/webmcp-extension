@@ -4,7 +4,7 @@
  */
 
 import assert from 'node:assert/strict';
-import type { Page } from 'puppeteer-core';
+import type { Frame, Page } from 'puppeteer-core';
 import { TEST_PAGE_TOOL_COUNT } from './smokeServer.js';
 
 /** A tool call the test page recorded when its `execute` ran. */
@@ -100,7 +100,7 @@ export async function waitForSidebarText(sidebar: Page, text: string): Promise<v
 }
 
 /** Reads the tool calls the test page has executed so far, in order. */
-export async function readExecutedTools(page: Page): Promise<ExecutedToolCall[]> {
+export async function readExecutedTools(page: Page | Frame): Promise<ExecutedToolCall[]> {
   return page.evaluate(() => window.__executedTools ?? []);
 }
 

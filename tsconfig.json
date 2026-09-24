@@ -21,7 +21,8 @@
     ],
     "types": [
       "chrome",
-      "node"
+      "node",
+      "webmcp-types"
     ],
     "checkJs": true
   },

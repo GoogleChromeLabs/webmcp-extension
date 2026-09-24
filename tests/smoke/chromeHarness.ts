@@ -182,10 +182,21 @@ async function launchChromeWithExtension(
   }
 }
 
+/**
+ * Pages a smoke session can open, with the path of the frame that registers
+ * their tools and how many tools that frame registers.
+ */
+const TEST_PAGES = {
+  '/test-page': { toolFramePath: '/test-page', toolCount: TEST_PAGE_TOOL_COUNT },
+  '/frame-host': { toolFramePath: '/frame-tool', toolCount: 1 },
+} as const;
+
+export type TestPagePath = keyof typeof TEST_PAGES;
+
 export interface SmokeSessionContext {
   server: SmokeServer;
   browser: Browser;
-  /** The `/test-page` tab exposing the WebMCP tools. */
+  /** The tab exposing the WebMCP tools (`/test-page` unless another page was asked for). */
   page: Page;
   /** The extension's `sidepanel/index.html`, sized like the side panel. */
   sidebar: Page;
@@ -196,14 +207,18 @@ export interface SmokeSessionContext {
  * Boots a complete end-to-end smoke environment:
  * - Local companion server + `/test-page` registering every tool in TEST_PAGE_TOOLS
  * - Temporary bundled extension + headless Chrome with `--enable-features=WebMCP`
- * - Opens `/test-page` and `sidepanel/index.html` (sized to 360x520) and makes the test
- *   page the active tab, as it is when a user opens the side panel on it
+ * - Opens `testPage` (`/test-page` by default) and `sidepanel/index.html` (sized
+ *   to 360x520) and makes the test page the active tab, as it is when a user
+ *   opens the side panel on it
  * - Optionally dismisses the initial ConsentScreen and waits for every tool to attach
  */
 export async function createSmokeSession(options?: {
   dismissConsent?: boolean;
+  testPage?: TestPagePath;
 }): Promise<SmokeSessionContext> {
   const dismissConsent = options?.dismissConsent ?? true;
+  const testPage = options?.testPage ?? '/test-page';
+  const { toolFramePath, toolCount } = TEST_PAGES[testPage];
   const authToken = `smoke-test-${randomUUID()}`;
   const server = await startSmokeServer(authToken);
   let staged: StagedExtension | null = null;
@@ -229,8 +244,9 @@ export async function createSmokeSession(options?: {
     // Puppeteer waits default to 30s; fail sooner so a broken step is quick to spot.
     const page = await browser.newPage();
     page.setDefaultTimeout(WAIT_TIMEOUT_MS);
-    await page.goto(`${server.baseUrl}/test-page`);
-    await page.waitForFunction(() => window.__toolsRegistered === true);
+    await page.goto(`${server.baseUrl}${testPage}`);
+    const toolFrame = await page.waitForFrame((frame) => new URL(frame.url()).pathname === toolFramePath);
+    await toolFrame.waitForFunction(() => window.__toolsRegistered === true);
 
     const sidebar = await browser.newPage();
     sidebar.setDefaultTimeout(WAIT_TIMEOUT_MS);
@@ -247,7 +263,7 @@ export async function createSmokeSession(options?: {
 
     if (dismissConsent) {
       await dismissConsentScreen(sidebar);
-      await waitForAttachedTabTools(sidebar, TEST_PAGE_TOOL_COUNT);
+      await waitForAttachedTabTools(sidebar, toolCount);
     }
 
     return { server, browser, page, sidebar, close };
