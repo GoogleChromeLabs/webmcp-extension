@@ -153,7 +153,7 @@ through `openai` with `OPENAI_BASE_URL`.
 ## How the server is protected
 
 - Every `/api/*` request must come from a `chrome-extension://` origin and carry the shared `WEBMCP_AUTH_TOKEN`. The token is compared in constant time, and a server with no token rejects every request.
-- The token is built into `sidebar.js`. It keeps web pages and other local programs away from the server, but anyone with the built extension can read it, so treat it as an access key, not a secret.
+- The token is built into the side panel bundle (`dist/sidepanel/index.js`). It keeps web pages and other local programs away from the server, but anyone with the built extension can read it, so treat it as an access key, not a secret.
 - The server keeps chat history in memory (up to 100 chats). The side panel sends only the new prompt or tool results each turn. If the server restarts mid-chat, it answers `409` and the side panel asks you to start a new chat.
 - The server never runs tools itself. Each model turn stops at the tool call, and the side panel asks for permission and runs the tool on the page.
 
@@ -200,28 +200,31 @@ CHROME_BIN=$(npx @puppeteer/browsers install chrome@stable --format "{{path}}") 
 ```
 webmcp-extension/
 ├── .env               # API key, MODEL, WEBMCP_AUTH_TOKEN
-├── scripts/           # Build scripts (bundle the side panel, inject the auth token)
-├── shared/            # Code used by both the server and the side panel
-│   └── systemPrompt.js # The system prompt both backends give the model
-├── server/            # Node.js model server
+├── public/            # Copied into dist/ as is
+│   ├── manifest.json  # Manifest V3
+│   └── icons/
+├── src/               # The extension (TypeScript, bundled by esbuild)
+│   ├── background.ts  # Service worker: tab tracking, tool count badge
+│   ├── content.ts     # Content script: talks to document.modelContext on the page
+│   ├── frameOrigins.ts # Lists the origins of a tab's frames
+│   ├── globals.d.ts   # Types for document.modelContext
+│   └── sidepanel/     # React side panel
+│       ├── index.html
+│       ├── index.tsx
+│       ├── App.tsx
+│       ├── components/ # UI parts (chat bubbles, permission card, switches, ...)
+│       ├── screens/   # Consent and settings screens
+│       ├── services/  # Server, on-device model and extension bridges; permissions; tool results
+│       └── hooks/     # Active tab, its tools, and the agent loop
+├── server/            # Node.js model server (plain JS with JSDoc types, no build step)
 │   ├── server.js      # Chat API and log dashboard (port 3000)
 │   ├── providers.js   # Reads MODEL and the provider keys
 │   ├── tools.js       # Page tools as model tools, and the chat history each turn adds to
 │   ├── security.js    # .env loading, origin, CORS and token checks
 │   └── logs.html      # Log dashboard page
-├── extension/         # Manifest V3 files
-│   ├── manifest.json
-│   ├── sidebar.html   # Side panel page
-│   ├── background.js  # Service worker: tab tracking, tool count badge
-│   ├── content.js     # Talks to document.modelContext on the page
-│   └── utils.js       # Lists the origins of a tab's frames
-├── src/               # React side panel
-│   ├── components/    # UI parts (chat bubbles, permission card, switches, ...)
-│   ├── screens/       # Consent and settings screens
-│   ├── services/      # Server, on-device model and extension bridges; permissions; tool results
-│   ├── hooks/         # Active tab, its tools, and the agent loop
-│   ├── App.tsx
-│   └── index.tsx
+├── shared/            # Code used by both the server and the side panel
+│   └── systemPrompt.js # The system prompt both backends give the model
+├── scripts/           # Build: bundles src/, copies public/, injects the auth token
 └── tests/             # Unit tests, and smoke tests in tests/smoke/
 ```
 

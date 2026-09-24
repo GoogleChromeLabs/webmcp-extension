@@ -51,9 +51,9 @@ export const SELECTORS = {
 } as const;
 
 /**
- * `waitForFunction` options for sidebar.html.
+ * `waitForFunction` options for the side panel page.
  *
- * sidebar.html runs in a background tab, because the test page has to be the
+ * The side panel page runs in a background tab, because the test page has to be the
  * active tab for the side panel to follow it. Background tabs never fire
  * `requestAnimationFrame`, which is what `waitForFunction` polls with by
  * default, so it would never resolve there. Poll on a timer instead.

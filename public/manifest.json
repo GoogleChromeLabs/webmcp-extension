@@ -32,7 +32,7 @@
     "type": "module"
   },
   "side_panel": {
-    "default_path": "sidebar.html",
+    "default_path": "sidepanel/index.html",
     "default_title": "WebMCP Extension"
   },
   "content_scripts": [

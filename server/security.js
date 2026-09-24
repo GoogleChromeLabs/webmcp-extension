@@ -8,8 +8,12 @@ import crypto, { randomUUID } from 'node:crypto';
 
 /**
  * Loads key-value pairs from a plain .env file.
+ *
+ * @param {string} filePath
+ * @returns {Record<string, string>}
  */
 export function loadDotEnv(filePath) {
+  /** @type {Record<string, string>} */
   const envVars = {};
   if (!fs.existsSync(filePath)) return envVars;
   try {
@@ -32,7 +36,7 @@ export function loadDotEnv(filePath) {
       }
     }
   } catch (e) {
-    console.warn('Could not load .env file:', e.message);
+    console.warn('Could not load .env file:', e instanceof Error ? e.message : String(e));
   }
   return envVars;
 }
@@ -75,7 +79,7 @@ export function ensureAuthToken(env, envPath) {
       env.WEBMCP_AUTH_TOKEN = token;
       console.log('🔐 Generated and saved new WEBMCP_AUTH_TOKEN in .env');
     } catch (e) {
-      console.warn('Could not persist WEBMCP_AUTH_TOKEN in .env:', e.message);
+      console.warn('Could not persist WEBMCP_AUTH_TOKEN in .env:', e instanceof Error ? e.message : String(e));
     }
   }
 

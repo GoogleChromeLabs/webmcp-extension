@@ -6,6 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { ToolCallPart } from 'ai';
 import { appendTurnMessages, buildTools, hasPendingToolCalls } from '../server/tools.js';
 
 test('buildTools declares the page tools, and leaves them without an execute', () => {
@@ -68,7 +69,7 @@ test('buildTools handles null, non-array inputs, and non-object schemas graceful
 });
 
 test('hasPendingToolCalls is true only while the last assistant message waits on a tool call', () => {
-  const call = { type: 'tool-call', toolCallId: 'c1', toolName: 'search', input: {} };
+  const call: ToolCallPart = { type: 'tool-call', toolCallId: 'c1', toolName: 'search', input: {} };
   assert.equal(hasPendingToolCalls([]), false);
   assert.equal(hasPendingToolCalls([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]), false);
   assert.equal(hasPendingToolCalls([{ role: 'assistant', content: [call] }]), true);

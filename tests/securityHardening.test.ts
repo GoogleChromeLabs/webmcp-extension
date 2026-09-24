@@ -18,7 +18,7 @@ import {
 } from '../server/security.js';
 import {
   streamChat,
-} from '../src/services/backendBridge.js';
+} from '../src/sidepanel/services/backendBridge.js';
 
 test('security - isAllowedOrigin rejects untrusted web origins for /api endpoints', () => {
   assert.equal(isAllowedOrigin('https://evil.com', '/api/chat'), false);
@@ -217,7 +217,7 @@ test('security - log dashboard renders payloads without innerHTML or inline hand
 
   // The server substitutes this placeholder with a per-response nonce.
   assert.ok(
-    dashboard.includes('<script nonce="__CSP_NONCE__">'),
+    /<script [^>]*nonce="__CSP_NONCE__">/.test(dashboard),
     'logs.html script tag must carry the CSP nonce placeholder'
   );
 });

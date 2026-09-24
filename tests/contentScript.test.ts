@@ -5,23 +5,20 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import vm from 'node:vm';
 
-// `extension/content.js` is a declaratively injected content script, not an ES
-// module: the manifest lists it under `content_scripts[].js` and the build
-// copies `extension/` verbatim, so it cannot use `import` and therefore cannot
-// export anything for a test to call. It also touches `window`, `document` and
-// `chrome` at the top level, so it cannot simply be imported either.
-//
-// Running the real file in a `node:vm` sandbox is what lets us assert on the
-// actual shipped code rather than on a copy of it. That matters most for the
-// annotation hints: if the projection below ever stops forwarding
-// `consequentialHint`, every downstream consequential-action guard silently
-// turns into a no-op, because the side panel would simply never see the hint.
+import { buildContentScript } from './contentScriptSource.js';
 
-const CONTENT_SCRIPT_PATH = path.resolve(process.cwd(), 'extension/content.js');
+// `src/content.ts` is a content script, not a module the tests can import: it
+// touches `window`, `document` and `chrome` at the top level and exports
+// nothing. It is built with the release esbuild options and run in a
+// `node:vm` sandbox instead, so the tests assert on the actual shipped code.
+// That matters most for the annotation hints: if the projection below ever
+// stops forwarding `consequentialHint`, every downstream consequential-action
+// guard silently turns into a no-op, because the side panel would simply never
+// see the hint.
+
+const CONTENT_SCRIPT = buildContentScript();
 
 interface SentMessage {
   tools?: unknown[];
@@ -43,7 +40,6 @@ interface FakeTool {
  * list of messages it sent back to the extension.
  */
 function loadContentScript(tools: FakeTool[], href: string) {
-  const source = fs.readFileSync(CONTENT_SCRIPT_PATH, 'utf8');
 
   const sent: SentMessage[] = [];
   let listener: ((message: unknown, sender: unknown, reply: unknown) => unknown) | undefined;
@@ -88,7 +84,7 @@ function loadContentScript(tools: FakeTool[], href: string) {
   sandbox.globalThis = sandbox;
 
   vm.createContext(sandbox);
-  vm.runInContext(source, sandbox, { filename: CONTENT_SCRIPT_PATH });
+  vm.runInContext(CONTENT_SCRIPT, sandbox, { filename: 'content.js' });
 
   assert.ok(listener, 'content script should register a chrome.runtime.onMessage listener');
   return { sent, listener: listener! };

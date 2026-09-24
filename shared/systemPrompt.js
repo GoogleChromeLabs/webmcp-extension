@@ -6,7 +6,7 @@
 /**
  * The system prompt both backends give the model: the Node server
  * (`server/server.js`) and the on-device Prompt API backend
- * (`src/services/promptApiBackend.ts`, bundled by esbuild).
+ * (`src/sidepanel/services/promptApiBackend.ts`, bundled by esbuild).
  *
  * The only difference between the two is how untrusted tool results are
  * spotlighted, so the caller passes in the sentences that describe it. Only

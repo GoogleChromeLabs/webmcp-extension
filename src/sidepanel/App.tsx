@@ -20,6 +20,15 @@ import { useActiveTabTools } from './hooks/useActiveTabTools.js';
 import { useAgentSession } from './hooks/useAgentSession.js';
 import { ContextUsage, isPromptApiSupported, prepareOnDeviceModel } from './services/promptApiBackend.js';
 
+/** Starts the on-device model download; a failure only means it starts later, with the first message. */
+async function startOnDeviceModelDownload(): Promise<void> {
+  try {
+    await prepareOnDeviceModel();
+  } catch (error) {
+    console.warn('[WebMCP] Could not start downloading the on-device model:', error);
+  }
+}
+
 export function App() {
   // Navigation & View State
   const [showConsent, setShowConsent] = useState(
@@ -89,9 +98,7 @@ export function App() {
     // Choosing on-device is a click, which a model download needs, so the
     // download can start now rather than with the first message.
     if (next) {
-      prepareOnDeviceModel().catch((error) => {
-        console.warn('[WebMCP] Could not start downloading the on-device model:', error);
-      });
+      void startOnDeviceModelDownload();
     }
   };
 

@@ -11,8 +11,9 @@ import {
   getTabInfo,
   requestTabTools,
   executeTabTool,
-} from '../src/services/extensionBridge.js';
-import { waitForToolsToSettle } from '../src/services/toolResults.js';
+} from '../src/sidepanel/services/extensionBridge.js';
+import { waitForToolsToSettle } from '../src/sidepanel/services/toolResults.js';
+import { buildContentScript } from './contentScriptSource.js';
 
 function setupTestChrome() {
   const listeners: Array<(message: unknown, sender: unknown) => void> = [];
@@ -76,7 +77,7 @@ test('extensionBridge - requestTabTools dispatches LIST_TOOLS message to active 
 
 
 test('backendBridge - streamChat supports AbortSignal cancellation', async () => {
-  const { streamChat } = await import('../src/services/backendBridge.js');
+  const { streamChat } = await import('../src/sidepanel/services/backendBridge.js');
   const controller = new AbortController();
   controller.abort();
 
@@ -89,7 +90,7 @@ test('backendBridge - streamChat supports AbortSignal cancellation', async () =>
 });
 
 test('backendBridge - formatErrorMessage unwraps nested JSON error strings and strips debug details', async () => {
-  const { formatErrorMessage } = await import('../src/services/backendBridge.js');
+  const { formatErrorMessage } = await import('../src/sidepanel/services/backendBridge.js');
 
   // Plain strings remain unchanged
   assert.equal(formatErrorMessage('Backend server error'), 'Backend server error');
@@ -216,9 +217,7 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
   } as unknown as Document;
 
   try {
-    const fs = await import('node:fs');
-    const contentScript = fs.readFileSync(new URL('../../extension/content.js', import.meta.url), 'utf-8');
-    new Function(contentScript)();
+    new Function(buildContentScript())();
     assert.ok(messageListener, 'Content script should register an onMessage listener');
 
     // 1. Object-first path succeeds directly without fallback
@@ -349,7 +348,7 @@ function ndjsonStreamResponse(chunks: unknown[]): Response {
 }
 
 test('backendBridge - streamChat reports text as it arrives and resolves with the turn response', async () => {
-  const { streamChat } = await import('../src/services/backendBridge.js');
+  const { streamChat } = await import('../src/sidepanel/services/backendBridge.js');
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; body: unknown; headers: Headers }> = [];
   try {

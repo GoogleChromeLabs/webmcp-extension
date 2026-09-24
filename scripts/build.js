@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import esbuild from 'esbuild';
 import { loadDotEnv, getEnv, ensureAuthToken } from '../server/security.js';
-import { createSidebarBuildOptions } from './sidebarBuildConfig.js';
+import { copyStaticFiles, createBuildOptions, staticFiles } from './buildConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -27,13 +27,9 @@ if (!isWatch) {
 }
 fs.mkdirSync(distDir, { recursive: true });
 
-// Only the extension shell is copied verbatim. Everything under src/ is
-// bundled by esbuild below, including the fonts referenced from styles.css,
-// so copying it here would ship the sources and a second copy of the fonts.
-const extensionDir = path.join(rootDir, 'extension');
-fs.cpSync(extensionDir, distDir, { recursive: true });
+copyStaticFiles(rootDir, distDir);
 
-const buildOptions = createSidebarBuildOptions({
+const buildOptions = createBuildOptions({
   rootDir,
   outDir: distDir,
   authToken,
@@ -41,15 +37,17 @@ const buildOptions = createSidebarBuildOptions({
 });
 
 if (isWatch) {
-  const ctx = await esbuild.context(buildOptions);
-  await ctx.watch();
-  // esbuild only watches what it bundles, so the extension shell
-  // (manifest, background.js, content.js, ...) is copied again on change.
-  fs.watch(extensionDir, { recursive: true }, () => {
-    fs.cpSync(extensionDir, distDir, { recursive: true });
-  });
+  for (const options of buildOptions) {
+    const ctx = await esbuild.context(options);
+    await ctx.watch();
+  }
+  // esbuild only watches what it bundles, so the static files (manifest,
+  // icons, the side panel page) are copied again when they change.
+  for (const [source] of staticFiles(rootDir, distDir)) {
+    fs.watch(source, { recursive: true }, () => copyStaticFiles(rootDir, distDir));
+  }
   console.log('👀 Watching for changes with WebMCP auth token injected...');
 } else {
-  await esbuild.build(buildOptions);
+  await Promise.all(buildOptions.map((options) => esbuild.build(options)));
   console.log('⚡ Build complete with WebMCP auth token injected.');
 }

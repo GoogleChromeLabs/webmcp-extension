@@ -15,10 +15,10 @@ import {
   resetOnDeviceChat,
   sendOnDeviceChat,
   setOnDeviceModelUi,
-} from '../src/services/promptApiBackend.js';
-import { endAllChats, endChat, getSpotlighting, sendChatTurn } from '../src/services/chatBridge.js';
-import { applySpotlighting } from '../src/services/toolResults.js';
-import { buildToolDecls } from '../src/services/toolEncoder.js';
+} from '../src/sidepanel/services/promptApiBackend.js';
+import { endAllChats, endChat, getSpotlighting, sendChatTurn } from '../src/sidepanel/services/chatBridge.js';
+import { applySpotlighting } from '../src/sidepanel/services/toolResults.js';
+import { buildToolDecls } from '../src/sidepanel/services/toolEncoder.js';
 
 Object.defineProperty(globalThis, 'navigator', {
   value: { language: 'en-US', languages: ['en-US'], userActivation: { isActive: true } },

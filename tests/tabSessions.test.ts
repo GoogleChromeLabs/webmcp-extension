@@ -8,13 +8,13 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
-import { useAgentSession, UseAgentSessionOptions, UseAgentSessionReturn } from '../src/hooks/useAgentSession.js';
-import { useActiveTabTools } from '../src/hooks/useActiveTabTools.js';
-import { useActiveTabId } from '../src/hooks/useActiveTabId.js';
-import { requestTabTools, executeTabTool, getTabInfo } from '../src/services/extensionBridge.js';
-import { tabSessions } from '../src/services/tabSessionStore.js';
-import { clearSessionToolPermissions } from '../src/services/toolPermissions.js';
-import { WebMCPTool } from '../src/types/index.js';
+import { useAgentSession, UseAgentSessionOptions, UseAgentSessionReturn } from '../src/sidepanel/hooks/useAgentSession.js';
+import { useActiveTabTools } from '../src/sidepanel/hooks/useActiveTabTools.js';
+import { useActiveTabId } from '../src/sidepanel/hooks/useActiveTabId.js';
+import { requestTabTools, executeTabTool, getTabInfo } from '../src/sidepanel/services/extensionBridge.js';
+import { tabSessions } from '../src/sidepanel/services/tabSessionStore.js';
+import { clearSessionToolPermissions } from '../src/sidepanel/services/toolPermissions.js';
+import { WebMCPTool } from '../src/sidepanel/types/index.js';
 
 const BOOK_TOOL: WebMCPTool = {
   name: 'book_table',

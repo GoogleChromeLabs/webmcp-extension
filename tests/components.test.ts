@@ -8,23 +8,23 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
-import { ButtonUI } from '../src/components/ButtonUI.js';
-import { IPHPopover } from '../src/components/IPHPopover.js';
-import { WebMCPToolsDialogue } from '../src/components/WebMCPToolsDialogue.js';
-import { MarkdownText } from '../src/components/MarkdownText.js';
-import { ActionLog, formatLogLabel } from '../src/components/ActionLog.js';
-import { AttachedTab } from '../src/components/AttachedTab.js';
-import { ActionsChip } from '../src/components/ActionsChip.js';
-import { TextInput } from '../src/components/TextInput.js';
-import { Toolbar } from '../src/components/Toolbar.js';
-import { ChatBubble } from '../src/components/ChatBubble.js';
-import { ConsentScreen } from '../src/screens/ConsentScreen.js';
-import { Favicon } from '../src/components/Favicon.js';
-import { Switch } from '../src/components/Switch.js';
-import { SettingsScreen } from '../src/screens/SettingsScreen.js';
-import { AllowToolPermissionCard } from '../src/components/AllowToolPermissionCard.js';
-import { OnDeviceModelStatus, getCompactingFraction } from '../src/components/OnDeviceModelStatus.js';
-import { ContextMeter } from '../src/components/ContextMeter.js';
+import { ButtonUI } from '../src/sidepanel/components/ButtonUI.js';
+import { IPHPopover } from '../src/sidepanel/components/IPHPopover.js';
+import { WebMCPToolsDialogue } from '../src/sidepanel/components/WebMCPToolsDialogue.js';
+import { MarkdownText } from '../src/sidepanel/components/MarkdownText.js';
+import { ActionLog, formatLogLabel } from '../src/sidepanel/components/ActionLog.js';
+import { AttachedTab } from '../src/sidepanel/components/AttachedTab.js';
+import { ActionsChip } from '../src/sidepanel/components/ActionsChip.js';
+import { TextInput } from '../src/sidepanel/components/TextInput.js';
+import { Toolbar } from '../src/sidepanel/components/Toolbar.js';
+import { ChatBubble } from '../src/sidepanel/components/ChatBubble.js';
+import { ConsentScreen } from '../src/sidepanel/screens/ConsentScreen.js';
+import { Favicon } from '../src/sidepanel/components/Favicon.js';
+import { Switch } from '../src/sidepanel/components/Switch.js';
+import { SettingsScreen } from '../src/sidepanel/screens/SettingsScreen.js';
+import { AllowToolPermissionCard } from '../src/sidepanel/components/AllowToolPermissionCard.js';
+import { OnDeviceModelStatus, getCompactingFraction } from '../src/sidepanel/components/OnDeviceModelStatus.js';
+import { ContextMeter } from '../src/sidepanel/components/ContextMeter.js';
 
 test('ButtonUI renders Play Arrow and Square Stop buttons with distinct accessible labels and icons', () => {
   const playHtml = renderToString(

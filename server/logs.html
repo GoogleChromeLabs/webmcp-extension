@@ -224,7 +224,7 @@
     <span id="logCounter">0 entries recorded</span>
   </div>
 
-  <script nonce="__CSP_NONCE__">
+  <script type="module" nonce="__CSP_NONCE__">
     let logs = [];
     const expandedIds = new Set();
 
@@ -412,9 +412,7 @@
       };
     }
 
-    loadInitialLogs().then(authorized => {
-      if (authorized) connectSSE();
-    });
+    if (await loadInitialLogs()) connectSSE();
   </script>
 </body>
 </html>

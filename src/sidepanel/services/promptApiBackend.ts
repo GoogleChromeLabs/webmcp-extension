@@ -4,7 +4,7 @@
  */
 
 import { EasyLanguageModel } from 'easy-language-model';
-import { buildSystemInstruction } from '../../shared/systemPrompt.js';
+import { buildSystemInstruction } from '../../../shared/systemPrompt.js';
 import { ChatTurnRequest, ChatTurnResponse, ToolDeclaration, UserFacingError } from '../types/index.js';
 
 /**
@@ -605,30 +605,33 @@ function compactIfOverflowed(state: OnDeviceSession): void {
   if (!state.overflowed) return;
   state.overflowed = false;
 
-  const { session } = state;
   ui.onCompacting?.('Compacting the conversation…');
-  state.compacting = session
+  // Not awaited: the turn that overflowed is already answered. The next turn
+  // waits on `state.compacting` instead.
+  state.compacting = compact(state);
+}
+
+async function compact(state: OnDeviceSession): Promise<void> {
+  const { session } = state;
+  try {
     // The wrapper keeps the options of its first compact() for good, so the
     // status is looked up at call time, like the download progress.
-    .compact({ onStatus: (status) => ui.onCompacting?.(status) })
-    .then((stats) => {
-      console.info(
-        `[WebMCP] Compacted the on-device conversation: ${stats.before.contextUsage} → ${stats.after.contextUsage} tokens (${stats.percent}% smaller).`
-      );
-    })
-    .catch((error) => {
-      // A reset while compacting destroys the session under it, which is no
-      // failure. Otherwise the wrapper has rebuilt the session from the full
-      // history, so the conversation goes on uncompacted.
-      if (current === state) console.warn('[WebMCP] Could not compact the on-device conversation:', error);
-    })
-    .finally(() => {
-      state.compacting = null;
-      ui.onCompacting?.(null);
-      if (current === state) reportContextUsage();
-      // Reset while compacting: the session compact() made is nobody's.
-      if (current !== state) session.destroy();
-    });
+    const stats = await session.compact({ onStatus: (status) => ui.onCompacting?.(status) });
+    console.info(
+      `[WebMCP] Compacted the on-device conversation: ${stats.before.contextUsage} → ${stats.after.contextUsage} tokens (${stats.percent}% smaller).`
+    );
+  } catch (error) {
+    // A reset while compacting destroys the session under it, which is no
+    // failure. Otherwise the wrapper has rebuilt the session from the full
+    // history, so the conversation goes on uncompacted.
+    if (current === state) console.warn('[WebMCP] Could not compact the on-device conversation:', error);
+  } finally {
+    state.compacting = null;
+    ui.onCompacting?.(null);
+    if (current === state) reportContextUsage();
+    // Reset while compacting: the session compact() made is nobody's.
+    if (current !== state) session.destroy();
+  }
 }
 
 /** Streams a turn's input in the background, reporting through `turn.next`. */

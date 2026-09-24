@@ -8,11 +8,11 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
-import { Switch } from '../src/components/Switch.js';
-import { SettingsScreen } from '../src/screens/SettingsScreen.js';
-import { AllowToolPermissionCard } from '../src/components/AllowToolPermissionCard.js';
-import { Toolbar } from '../src/components/Toolbar.js';
-import { ChatBubble } from '../src/components/ChatBubble.js';
+import { Switch } from '../src/sidepanel/components/Switch.js';
+import { SettingsScreen } from '../src/sidepanel/screens/SettingsScreen.js';
+import { AllowToolPermissionCard } from '../src/sidepanel/components/AllowToolPermissionCard.js';
+import { Toolbar } from '../src/sidepanel/components/Toolbar.js';
+import { ChatBubble } from '../src/sidepanel/components/ChatBubble.js';
 import {
   allowToolForSession,
   applyToolPermissionDecision,
@@ -21,9 +21,9 @@ import {
   isToolAllowedForSession,
   needsToolPermission,
   originOfUrl,
-} from '../src/services/toolPermissions.js';
-import { useAgentSession, UseAgentSessionReturn } from '../src/hooks/useAgentSession.js';
-import { WebMCPTool } from '../src/types/index.js';
+} from '../src/sidepanel/services/toolPermissions.js';
+import { useAgentSession, UseAgentSessionReturn } from '../src/sidepanel/hooks/useAgentSession.js';
+import { WebMCPTool } from '../src/sidepanel/types/index.js';
 
 /** The tab whose chat owns the grants in the tests that need only one. */
 const TAB = 1;

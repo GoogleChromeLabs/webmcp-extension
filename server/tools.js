@@ -5,6 +5,25 @@
 
 import { jsonSchema, tool } from 'ai';
 
+/** @typedef {import('ai').ModelMessage} ModelMessage */
+/** @typedef {import('ai').ToolCallPart} ToolCallPart */
+/** @typedef {import('ai').ToolResultPart} ToolResultPart */
+
+/**
+ * A page tool as the side panel declares it (`ToolDeclaration` in
+ * src/sidepanel/types/index.ts). It comes from the request body, so nothing
+ * about it is trusted.
+ *
+ * @typedef {{ name?: unknown, description?: string, parameters?: unknown }} ToolDeclaration
+ */
+
+/**
+ * One tool's outcome as the side panel reports it.
+ *
+ * @typedef {{ result?: unknown, error?: unknown }} ToolOutcome
+ * @typedef {{ functionResponse?: { id?: string, name?: string, response?: ToolOutcome } }} ToolResponse
+ */
+
 /**
  * Declares the page's tools for the model.
  *
@@ -22,24 +41,33 @@ import { jsonSchema, tool } from 'ai';
  * panel to be permitted and run there. That is the SDK's default behaviour and
  * nothing here has to enforce it.
  */
+/**
+ * @param {ToolDeclaration[]} [toolList]
+ * @returns {import('ai').ToolSet}
+ */
 export function buildTools(toolList = []) {
   if (!Array.isArray(toolList)) return {};
+  /** @type {import('ai').ToolSet} */
   const tools = {};
   for (const declared of toolList) {
-    if (!declared?.name) continue;
+    if (!declared?.name || typeof declared.name !== 'string') continue;
     // The side panel already sends an object schema (see buildToolDecls in
-    // src/services/toolEncoder.ts). This only guards the shape, since the
+    // src/sidepanel/services/toolEncoder.ts). This only guards the shape, since the
     // request body could come from anything holding the auth token.
     const { parameters } = declared;
     const isObject = parameters && typeof parameters === 'object' && !Array.isArray(parameters);
     tools[declared.name] = tool({
       description: declared.description || '',
-      inputSchema: jsonSchema({ type: 'object', properties: {}, ...(isObject ? parameters : {}) }),
+      inputSchema: jsonSchema({ type: 'object', properties: {}, ...(isObject ? /** @type {object} */ (parameters) : {}) }),
     });
   }
   return tools;
 }
 
+/**
+ * @param {ToolOutcome | null | undefined} response
+ * @returns {ToolResultPart['output']}
+ */
 function toToolResultOutput(response) {
   if (!response) {
     return { type: 'error-text', value: 'No response was produced for this call.' };
@@ -50,10 +78,15 @@ function toToolResultOutput(response) {
   const result = response.result ?? '';
   return typeof result === 'string'
     ? { type: 'text', value: result }
-    : { type: 'json', value: result };
+    : { type: 'json', value: /** @type {import('ai').JSONValue} */ (result) };
 }
 
-/** The tool calls the last assistant message is still waiting on. */
+/**
+ * The tool calls the last assistant message is still waiting on.
+ *
+ * @param {ModelMessage[]} history
+ * @returns {ToolCallPart[]}
+ */
 function pendingToolCalls(history) {
   const last = history.at(-1);
   return last?.role === 'assistant' && Array.isArray(last.content)
@@ -65,6 +98,10 @@ function pendingToolCalls(history) {
  * Whether the conversation is waiting on tool results. When it is not, tool
  * results have nothing to answer: the server was restarted, or the chat was
  * evicted, and providers reject a tool result without its call.
+ */
+/**
+ * @param {ModelMessage[]} [history]
+ * @returns {boolean}
  */
 export function hasPendingToolCalls(history = []) {
   return pendingToolCalls(history).length > 0;
@@ -78,9 +115,19 @@ export function hasPendingToolCalls(history = []) {
  * Tool results are only appended when `hasPendingToolCalls(history)`; the
  * caller checks that first.
  */
+/**
+ * @param {ModelMessage[]} [history]
+ * @param {{ message?: unknown, toolResponses?: ToolResponse[] }} [turn]
+ * @returns {ModelMessage[]}
+ */
 export function appendTurnMessages(history = [], { message, toolResponses } = {}) {
   const callParts = pendingToolCalls(history);
 
+  /**
+   * @param {ToolCallPart} callPart
+   * @param {ToolOutcome | null | undefined} response
+   * @returns {ToolResultPart}
+   */
   const toCallResult = (callPart, response) => ({
     type: 'tool-result',
     toolCallId: callPart.toolCallId,
@@ -90,7 +137,9 @@ export function appendTurnMessages(history = [], { message, toolResponses } = {}
   });
 
   if (Array.isArray(toolResponses) && toolResponses.length > 0) {
+    /** @type {Set<number>} */
     const used = new Set();
+    /** @param {ToolCallPart} callPart */
     const takeResponse = (callPart) => {
       let idx = toolResponses.findIndex(
         (r, i) => !used.has(i) && r?.functionResponse?.id && r.functionResponse.id === callPart.toolCallId
@@ -112,6 +161,7 @@ export function appendTurnMessages(history = [], { message, toolResponses } = {}
     return [...history, { role: 'tool', content }];
   }
 
+  /** @type {ModelMessage[]} */
   const settled =
     callParts.length > 0
       ? [

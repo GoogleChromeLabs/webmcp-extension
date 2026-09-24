@@ -6,8 +6,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { ModelMessage } from 'ai';
 import { appendTurnMessages } from '../server/tools.js';
-import { endAllChats, endChat, sendChatTurn } from '../src/services/chatBridge.js';
+import { endAllChats, endChat, sendChatTurn } from '../src/sidepanel/services/chatBridge.js';
 
 function stubServer(replies: Array<Record<string, unknown> | Error>) {
   const original = globalThis.fetch;
@@ -88,7 +89,7 @@ test('endChat ends one server chat, endAllChats ends them all', async () => {
 });
 
 test('appendTurnMessages pairs tool results by toolCallId and preserves providerOptions', () => {
-  const history = [
+  const history: ModelMessage[] = [
     { role: 'user', content: [{ type: 'text', text: 'What is in my cart?' }] },
     {
       role: 'assistant',
@@ -126,7 +127,7 @@ test('appendTurnMessages pairs tool results by toolCallId and preserves provider
 });
 
 test('appendTurnMessages records failed tool calls, JSON object results, and empty results', () => {
-  const history = [
+  const history: ModelMessage[] = [
     { role: 'user', content: [{ type: 'text', text: 'Go' }] },
     {
       role: 'assistant',
@@ -153,7 +154,7 @@ test('appendTurnMessages records failed tool calls, JSON object results, and emp
 });
 
 test('appendTurnMessages settles unanswered tool calls before appending a new user message', () => {
-  const history = [
+  const history: ModelMessage[] = [
     { role: 'user', content: [{ type: 'text', text: 'First' }] },
     {
       role: 'assistant',
@@ -175,7 +176,7 @@ test('appendTurnMessages settles unanswered tool calls before appending a new us
 });
 
 test('appendTurnMessages does not reuse an ID-matched response for a second call to the same tool', () => {
-  const history = [
+  const history: ModelMessage[] = [
     { role: 'user', content: [{ type: 'text', text: 'Book two rooms' }] },
     {
       role: 'assistant',

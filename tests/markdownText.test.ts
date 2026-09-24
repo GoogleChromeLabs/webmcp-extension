@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { MarkdownText } from '../src/components/MarkdownText.js';
+import { MarkdownText } from '../src/sidepanel/components/MarkdownText.js';
 
 test('parseInline parses bold, italic, code, and markdown links', () => {
   const text = '**Bold** *Italic* `code` [Link](https://example.com)';

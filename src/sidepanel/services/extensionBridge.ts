@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { getAllFrameOrigins } from '../../extension/utils.js';
+import { getAllFrameOrigins } from '../../frameOrigins.js';
 
 interface GlobalWindowWithChrome {
   chrome?: typeof chrome;
@@ -178,14 +178,16 @@ export async function executeTabTool(
   }
 }
 
-function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | void> {
-  let timerId: ReturnType<typeof setTimeout>;
+async function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | void> {
+  let timerId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<void>((resolve) => {
     timerId = setTimeout(resolve, ms);
   });
-  return Promise.race([promise, timeoutPromise]).finally(() => {
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
     clearTimeout(timerId);
-  });
+  }
 }
 
 function waitForPageLoad(tabId: number): Promise<void> {
@@ -208,10 +210,15 @@ function waitForPageLoad(tabId: number): Promise<void> {
 
     // The tab may already be done loading, or gone; don't wait on the
     // timeout for those.
-    if (typeof chromeApi.tabs.get === 'function') {
-      chromeApi.tabs.get(tabId).then((tab) => {
-        if (tab?.status === 'complete') done();
-      }).catch(done);
-    }
+    if (typeof chromeApi.tabs.get === 'function') void finishIfLoaded(chromeApi, tabId, done);
   });
+}
+
+async function finishIfLoaded(chromeApi: typeof chrome, tabId: number, done: () => void): Promise<void> {
+  try {
+    const tab = await chromeApi.tabs.get(tabId);
+    if (tab?.status === 'complete') done();
+  } catch {
+    done();
+  }
 }

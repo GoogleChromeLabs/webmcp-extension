@@ -5,7 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyTokenLimit, MAX_TOOL_RESPONSE_CHARS } from '../src/services/toolResults.js';
+import { applyTokenLimit, MAX_TOOL_RESPONSE_CHARS } from '../src/sidepanel/services/toolResults.js';
 
 test('applyTokenLimit leaves responses under the maximum character limit untouched', () => {
   const shortString = 'Short tool response with normal size data.';

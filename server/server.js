@@ -49,8 +49,16 @@ if (providerConfig.problem) {
 }
 
 const MAX_CHAT_SESSIONS = 100;
+/**
+ * Each chat's conversation. Map order is insertion order, so the first key is
+ * the least recently used chat, the one to evict.
+ *
+ * @type {Map<string, import('ai').ModelMessage[]>}
+ */
 const chatSessions = new Map();
+/** @type {Array<Record<string, unknown>>} */
 const logs = [];
+/** @type {Set<http.ServerResponse>} Open log dashboard streams. */
 const logClients = new Set();
 
 // Log entries contain full prompts and scraped page content. The dashboard is
@@ -60,9 +68,15 @@ const redactLogBodies = /^(1|true|yes)$/i.test(getEnv(env, 'WEBMCP_LOG_REDACT_BO
 
 const REDACTED_NOTICE = '[redacted: WEBMCP_LOG_REDACT_BODIES is enabled]';
 
+/**
+ * Keeps a request in the log buffer and sends it to open dashboards.
+ *
+ * @param {{ startTime?: number, [key: string]: unknown }} logEntry
+ */
 function recordServerLog(logEntry) {
   const { startTime, ...rest } = logEntry;
   const durationMs = startTime ? Math.round(performance.now() - startTime) : 0;
+  /** @type {Record<string, unknown>} */
   const entry = {
     id: randomUUID(),
     timestamp: new Date().toISOString(),
@@ -96,7 +110,7 @@ function recordServerLog(logEntry) {
 
 /**
  * Untrusted tool results reach this server Base64-encoded by the side panel
- * (see applySpotlighting in src/services/toolResults.ts).
+ * (see applySpotlighting in src/sidepanel/services/toolResults.ts).
  */
 const SPOTLIGHTING = {
   format: 'Base64-encoded',
@@ -106,19 +120,39 @@ const SPOTLIGHTING = {
 /** Largest accepted JSON request body, in bytes. */
 const MAX_BODY_BYTES = 1024 * 1024;
 
-/** Builds an Error the request handler can turn into a specific status code. */
+/**
+ * Builds an Error the request handler can turn into a specific status code.
+ *
+ * @param {number} statusCode
+ * @param {string} message
+ */
 function httpError(statusCode, message) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
+  return Object.assign(new Error(message), { statusCode });
 }
 
+/**
+ * The body of a chat request. It comes from the network, so every field is
+ * checked before use.
+ *
+ * @typedef {object} ChatRequestBody
+ * @property {string} [chatId]
+ * @property {unknown} [message]
+ * @property {import('./tools.js').ToolResponse[]} [toolResponses]
+ * @property {import('./tools.js').ToolDeclaration[]} [tools]
+ */
+
+/**
+ * @param {http.IncomingMessage} req
+ * @returns {Promise<ChatRequestBody>}
+ */
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
+    /** @type {Buffer[]} */
     const chunks = [];
     let size = 0;
     let settled = false;
 
+    /** @param {Error} err */
     const fail = (err) => {
       if (settled) return;
       settled = true;
@@ -128,7 +162,7 @@ function parseJsonBody(req) {
       reject(err);
     };
 
-    req.on('data', (chunk) => {
+    req.on('data', (/** @type {Buffer} */ chunk) => {
       if (settled) return;
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
@@ -154,7 +188,7 @@ function parseJsonBody(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   const origin = req.headers.origin;
   const isAllowed = isAllowedOrigin(origin, url.pathname, allowedExtensionId);
 
@@ -499,13 +533,13 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
   } catch (error) {
-    const detail = error?.message || String(error);
+    const detail = (error instanceof Error && error.message) || String(error);
     // Only errors this file created with httpError() carry a status code, and
     // it is validated here because an out-of-range value would make writeHead
     // throw inside the catch, which would take the process down.
-    const tagged = error?.statusCode;
+    const tagged = /** @type {{ statusCode?: unknown } | null} */ (error)?.statusCode;
     const statusCode =
-      Number.isInteger(tagged) && tagged >= 400 && tagged <= 499 ? tagged : 500;
+      typeof tagged === 'number' && Number.isInteger(tagged) && tagged >= 400 && tagged <= 499 ? tagged : 500;
 
     // A 4xx is the caller's own malformed request, so echoing the reason is
     // useful and safe. A 5xx stays generic: it can carry upstream API text or
@@ -539,7 +573,7 @@ const server = http.createServer(async (req, res) => {
 // side panel disagree about the port with nothing to signal it.
 const HOST = getEnv(env, 'HOST') || '127.0.0.1';
 const PORT = getEnv(env, 'PORT') || '3000';
-server.listen(PORT, HOST, () => {
+server.listen(Number(PORT), HOST, () => {
   console.log(`🚀 Backend model server listening on http://${HOST}:${PORT}`);
   console.log(
     `📊 Log dashboard: http://${HOST}:${PORT}/logs?token=${encodeURIComponent(authToken)}`
