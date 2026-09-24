@@ -20,9 +20,9 @@ export const NAMED_TOOLS = {
 
 /**
  * How many generic read-only tools the test page adds on top of the named ones.
- * They are never called: they exist so the page exposes enough tools for the
- * WebMCPToolsDialogue list to overflow and scroll, and for the tool count on
- * the chip and action badge to be a two-digit number.
+ * They are never called. They exist so the WebMCPToolsDialogue list (max-height
+ * 220px, about 24px per row) overflows and scrolls: at least 9 tools are needed.
+ * 10 also makes the chip and badge count two digits.
  */
 const EXTRA_TOOL_COUNT = 7;
 
