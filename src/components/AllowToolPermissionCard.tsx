@@ -154,5 +154,3 @@ export function AllowToolPermissionCard({
     </div>
   );
 }
-
-export default AllowToolPermissionCard;

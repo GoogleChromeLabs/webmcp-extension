@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import esbuild from 'esbuild';
 import { loadDotEnv, ensureAuthToken } from '../server/security.js';
+import { createSidebarBuildOptions } from './sidebarBuildConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -35,21 +36,12 @@ function copyStaticAssets() {
 
 copyStaticAssets();
 
-
-
-const buildOptions = {
-  entryPoints: [path.join(rootDir, 'src/index.tsx')],
-  bundle: true,
-  format: 'esm',
-  jsx: 'automatic',
-  loader: { '.woff2': 'file' },
-  external: ['node:fs', 'node:path', 'node:os'],
-  outfile: path.join(distDir, 'sidebar.js'),
-  define: {
-    'process.env.WEBMCP_AUTH_TOKEN': JSON.stringify(authToken),
-    'process.env.WEBMCP_SERVER_URL': JSON.stringify(serverUrl),
-  },
-};
+const buildOptions = createSidebarBuildOptions({
+  rootDir,
+  outDir: distDir,
+  authToken,
+  serverUrl,
+});
 
 if (isWatch) {
   const ctx = await esbuild.context(buildOptions);

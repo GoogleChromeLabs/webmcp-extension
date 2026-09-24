@@ -1,8 +1,8 @@
-# WebMCP - Example Chrome Extension
+# WebMCP - Example Agentic Chrome Extension
 
 An example AI agent built as a Chrome extension. It chats with you in the side
-panel and gets things done on the current page by calling the page's WebMCP
-tools. Use it to try WebMCP on your own site, or as a starting point for your
+panel and gets things done on the page by calling the page's WebMCP
+tools. Use it to try out WebMCP on your own site, or as a starting point for your
 own agent.
 
 > **Disclaimer**: This is not an officially supported Google product. This project is not eligible for the [Google Open Source Software Vulnerability Rewards Program](https://bughunters.google.com/open-source-security).
@@ -11,11 +11,11 @@ own agent.
 
 ## What it does
 
-- **Finds tools on the page.** Reads `document.modelContext.getTools()` and listens for `ontoolchange`, in the top page and in cross-origin iframes. Tools that appear during a conversation (for example after a navigation) are picked up before the next model turn.
+- **Finds tools on the page.** Reads `document.modelContext.getTools()` and listens for `ontoolchange`, in the top page and in same-origin and cross-origin iframes. Tools that appear during a conversation (for example after a navigation) are picked up before the next model turn.
 - **Chats with a model that can call those tools.** The side panel sends your prompt to a model. When the model calls a tool, the side panel asks for permission if needed, runs the tool on the page and sends the result back.
-- **Two model backends:**
-  - **Local server** (default): a small Node.js server that talks to Google, OpenAI, Anthropic or Ollama through the [AI SDK](https://ai-sdk.dev). API keys stay on the server.
-  - **On-device model**: runs in the browser through the [Prompt API](https://developer.mozilla.org/docs/Web/API/Prompt_API). No server and no API key, and page data stays on your device.
+- **Two backends:**
+  - **Local server** (default): a small Node.js server that talks to Google, OpenAI, Anthropic or Ollama through the [AI SDK](https://ai-sdk.dev). API keys stay on the local server.
+  - **On-device model**: runs in the browser through the [Prompt API](https://developer.mozilla.org/docs/Web/API/Prompt_API). No server and no API key, and page data stays on your device. It requires `chrome://flags/#prompt-api-tool-use` to be enabled.
 - **Streams replies** as they are written, on both backends.
 - **One conversation per tab.** Each tab has its own chat and permission prompts. Switching tabs switches chats, and closing a tab ends its chat.
 - **Log dashboard** for looking at every request the server handles. See [Log dashboard](#log-dashboard).
@@ -32,11 +32,10 @@ depending on the annotations they set.
 
 | Annotation | What the extension does |
 |---|---|
+| `readOnlyHint: false` | The tool is treated as one that changes something. The user is asked first, with **Allow**, **Don't allow**, or **Allow on _site_ for this chat**. The prompt can be turned off in **Settings → Permissions → Sensitive action alerts**. |
 | `readOnlyHint: true` | The tool runs without asking. |
-| `readOnlyHint` missing or `false` | The tool is treated as one that changes something. The user is asked first, with **Allow**, **Don't allow**, or **Allow on _site_ for this chat**. The prompt can be turned off in **Settings → Permissions → Sensitive action alerts**. |
 | `consequentialHint: true` | The action may not be reversible (a payment, order, message or deletion). The user is **always** asked, even if alerts are off, even if the tool also says it is read-only, and there is no "allow for this chat" option. |
-| `untrustedContentHint` missing or `true` | The tool's result is treated as untrusted page data. Before the model sees it, it is Base64-encoded (local server) or wrapped in a random marker (on-device model), and the model is told to use it only as facts, never as instructions. This is called *spotlighting*. |
-| `untrustedContentHint: false` | The result is sent to the model as it is. |
+| `untrustedContentHint: true` | The tool's result is treated as untrusted page data. Before the model sees it, it is Base64-encoded (local server) or wrapped in a random marker (on-device model), and the model is told to use it only as facts, never as instructions. This is called *spotlighting*. |
 
 Some rules apply to every tool, whatever its annotations:
 
@@ -47,12 +46,11 @@ Some rules apply to every tool, whatever its annotations:
 > These are *hints* from the page, not guarantees. A page can mark a harmful tool
 > as read-only, or mark its own output as trusted. Spotlighting also lowers the
 > risk of prompt injection but does not remove it, and how well it works depends
-> on the model (Base64 was tested with Gemini; it is unproven with GPT and Claude).
+> on the model.
 
-**Building your own agent?** Trusting page hints is fine for a test tool like
-this one, but a real agent needs a stronger trust boundary: for example, its own
+**Building your own agent?** A production-ready agent may need a different trust boundary. For example, its own
 checks on what a tool may do, or limits that do not depend on what the page
-says. We would like to hear how you approach this. Please share your ideas and
+WebMCP tools provide. We would like to hear how you approach this. Please share your ideas and
 feedback in [GitHub issues](https://github.com/GoogleChromeLabs/webmcp-extension/issues).
 
 ---

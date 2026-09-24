@@ -9,7 +9,7 @@ import { isToolUntrusted, buildToolDecls } from '../src/services/toolEncoder.js'
 import { applySpotlighting } from '../src/hooks/useAgentSession.js';
 import { WebMCPTool } from '../src/types/index.js';
 
-test('isToolUntrusted defaults to true and respects untrustedContentHint', () => {
+test('isToolUntrusted defaults to false per the WebMCP spec and respects untrustedContentHint', () => {
   const untrustedTool: WebMCPTool = {
     name: 'getPageContent',
     untrustedContentHint: true,
@@ -27,8 +27,15 @@ test('isToolUntrusted defaults to true and respects untrustedContentHint', () =>
 
   assert.equal(isToolUntrusted(untrustedTool), true);
   assert.equal(isToolUntrusted(trustedTool), false);
-  assert.equal(isToolUntrusted(defaultTool), true);
-  assert.equal(isToolUntrusted(undefined), true);
+  assert.equal(isToolUntrusted(defaultTool), false);
+  assert.equal(isToolUntrusted(undefined), false);
+});
+
+test('applySpotlighting returns raw data when untrustedContentHint is missing', () => {
+  const defaultTool: WebMCPTool = { name: 'unspecifiedTool', frameId: 0 };
+  const rawData = { result: 42 };
+  assert.deepEqual(applySpotlighting(rawData, defaultTool), rawData);
+  assert.deepEqual(applySpotlighting(rawData, undefined), rawData);
 });
 
 test('applySpotlighting returns raw base64 encoded string for untrusted content', () => {
