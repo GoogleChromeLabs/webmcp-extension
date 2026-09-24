@@ -39,10 +39,12 @@ export function buildToolDecls(toolsList: WebMCPTool[] = []): ToolDeclaration[] 
 
 /**
  * Checks whether a tool's output is marked as untrusted web content.
+ *
+ * Follows the WebMCP spec, where the untrusted content hint is initially
+ * false: only a tool that sets `untrustedContentHint: true` is spotlighted.
  */
 export function isToolUntrusted(tool?: WebMCPTool): boolean {
-  if (!tool) return true; // Default to untrusted for web content
-  return tool.untrustedContentHint !== false;
+  return tool?.untrustedContentHint === true;
 }
 
 /**
