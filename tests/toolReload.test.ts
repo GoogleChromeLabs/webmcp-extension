@@ -99,7 +99,7 @@ test('executeTabTool recovers and fetches cross-document result when tool trigge
   } as typeof chrome;
 
   try {
-    const result = await executeTabTool('navigate_to_checkout', '{}', 0);
+    const result = await executeTabTool('navigate_to_checkout', {}, 0, 10);
     assert.deepEqual(result, { navigated: true, page: 'confirmation' });
     assert.equal(sentMessages.length, 2);
     assert.equal((sentMessages[0].message as { action: string }).action, 'EXECUTE_TOOL');

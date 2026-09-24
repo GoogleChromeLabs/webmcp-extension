@@ -7,35 +7,20 @@ import { ActionsChip } from './ActionsChip.js';
 import { Favicon } from './Favicon.js';
 
 export interface AttachedTabProps {
-  domain?: string;
+  domain: string;
   faviconUrl?: string;
-  toolsCountLabel?: string;
-  hasTools?: boolean;
-  isOpen?: boolean;
+  toolsCountLabel: string;
+  hasTools: boolean;
   onToggleExpand?: () => void;
-  className?: string;
 }
 
 /**
  * AttachedTab Component
  * Displays the active tab domain, favicon, and interactive WebMCP tools badge.
  */
-export function AttachedTab({
-  domain = 'Active Tab',
-  faviconUrl,
-  toolsCountLabel = '0 tools',
-  hasTools = true,
-  isOpen = false,
-  onToggleExpand,
-  className = '',
-}: AttachedTabProps) {
-
-  const classNames = ['attached-tab'];
-  if (isOpen) classNames.push('attached-tab--open');
-  if (className) classNames.push(className);
-
+export function AttachedTab({ domain, faviconUrl, toolsCountLabel, hasTools, onToggleExpand }: AttachedTabProps) {
   return (
-    <div className={classNames.join(' ')}>
+    <div className="attached-tab">
       <div className="attached-tab__main-row">
         <div className="attached-tab__left-group">
           <div className="attached-tab__left">
@@ -44,11 +29,7 @@ export function AttachedTab({
           </div>
 
           {hasTools && (
-            <ActionsChip
-              state={isOpen ? 'Hover' : 'Closed'}
-              label={toolsCountLabel}
-              onClick={onToggleExpand}
-            />
+            <ActionsChip label={toolsCountLabel} onClick={onToggleExpand} />
           )}
         </div>
       </div>

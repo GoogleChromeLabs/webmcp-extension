@@ -102,5 +102,3 @@ export function ConsentScreen({ onGotIt, onClose }: ConsentScreenProps) {
     </div>
   );
 }
-
-export default ConsentScreen;

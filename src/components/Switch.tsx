@@ -17,7 +17,6 @@ export interface SwitchProps {
   'aria-label'?: string;
   'aria-describedby'?: string;
   id?: string;
-  className?: string;
 }
 
 /**
@@ -30,7 +29,6 @@ export function Switch({
   'aria-label': ariaLabel,
   'aria-describedby': ariaDescribedBy,
   id,
-  className = '',
 }: SwitchProps) {
   const handleClick = () => {
     if (!disabled) {
@@ -58,7 +56,7 @@ export function Switch({
       id={id}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      className={`cdds-switch ${checked ? 'cdds-switch--checked' : ''} ${className}`}
+      className={checked ? 'cdds-switch cdds-switch--checked' : 'cdds-switch'}
     >
       <span className="cdds-switch__track" aria-hidden="true" />
       <span className="cdds-switch__thumb" aria-hidden="true" />

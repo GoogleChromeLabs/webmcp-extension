@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { resetChatSession } from './chatBridge.js';
+import { endChat } from './chatBridge.js';
 import { clearSessionToolPermissions } from './toolPermissions.js';
 import {
   ActivityEntry,
@@ -100,10 +100,6 @@ class TabSessionStore {
     return this.states.get(tabId) ?? EMPTY_TAB_SESSION;
   };
 
-  has(tabId: number): boolean {
-    return this.states.has(tabId) || this.internals.has(tabId);
-  }
-
   /** Whether `tabId` holds an active turn or existing conversation worth following in the background. */
   hasConversation(tabId: number): boolean {
     const state = this.states.get(tabId);
@@ -163,7 +159,7 @@ class TabSessionStore {
       internals.abortController?.abort();
       internals.abortController = null;
       if (internals.chatId) {
-        resetChatSession({ chatId: internals.chatId, onDevice: options.onDevice });
+        endChat(internals.chatId, options);
         internals.chatId = undefined;
       }
       internals.turnLogs = [];
@@ -188,26 +184,12 @@ class TabSessionStore {
     const internals = this.internals.get(tabId);
     if (internals) {
       internals.abortController?.abort();
-      if (internals.chatId) {
-        resetChatSession({ chatId: internals.chatId, onDevice: options.onDevice });
-      }
+      if (internals.chatId) endChat(internals.chatId, options);
     }
     clearSessionToolPermissions(tabId);
     const existed = this.states.delete(tabId);
     this.internals.delete(tabId);
     if (existed) this.emit();
-  }
-
-  /** Drops everything in memory, for tests and for a panel that is closing. */
-  clear(): void {
-    for (const internals of this.internals.values()) {
-      internals.abortController?.abort();
-    }
-    resetChatSession({ onDevice: true });
-    clearSessionToolPermissions();
-    this.states.clear();
-    this.internals.clear();
-    this.emit();
   }
 
   private emit(): void {

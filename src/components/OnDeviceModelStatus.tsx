@@ -99,5 +99,3 @@ export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps
     </div>
   );
 }
-
-export default OnDeviceModelStatus;

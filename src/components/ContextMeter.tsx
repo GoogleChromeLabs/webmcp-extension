@@ -41,5 +41,3 @@ export function ContextMeter({ used, window }: ContextUsage) {
     </div>
   );
 }
-
-export default ContextMeter;

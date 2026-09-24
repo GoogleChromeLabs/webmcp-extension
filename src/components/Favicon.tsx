@@ -11,19 +11,18 @@ const GENERIC_FAVICON =
 
 export interface FaviconProps {
   customSrc?: string;
-  className?: string;
 }
 
 /**
  * Favicon Component
  * Dynamically displays active tab favicon or falls back to generic web globe icon.
  */
-export function Favicon({ customSrc, className = '' }: FaviconProps) {
+export function Favicon({ customSrc }: FaviconProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const src = customSrc && customSrc !== failedSrc ? customSrc : GENERIC_FAVICON;
 
   return (
-    <div className={`fav ${className}`}>
+    <div className="fav">
       <img
         src={src}
         alt=""

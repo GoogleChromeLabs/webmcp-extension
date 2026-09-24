@@ -38,6 +38,22 @@ export function loadDotEnv(filePath) {
 }
 
 /**
+ * Reads one setting. A variable set in the real environment wins over the
+ * same key in `.env`, the usual dotenv rule, so a one-off
+ * `PORT=4000 npm run server` works without editing the file.
+ *
+ * @param {Record<string, string>} env Values loaded from `.env`.
+ * @param {string} name
+ * @returns {string | null} The trimmed value, or null when unset or blank.
+ */
+export function getEnv(env, name) {
+  for (const raw of [process.env[name], env[name]]) {
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  }
+  return null;
+}
+
+/**
  * Ensures a secure WEBMCP_AUTH_TOKEN exists in .env or environment.
  * Generates and persists a random UUID token if none is present.
  * @param {Record<string, string>} env
@@ -45,11 +61,7 @@ export function loadDotEnv(filePath) {
  * @returns {string}
  */
 export function ensureAuthToken(env, envPath) {
-  let token =
-    env.WEBMCP_AUTH_TOKEN ||
-    env.AUTH_TOKEN ||
-    process.env.WEBMCP_AUTH_TOKEN ||
-    process.env.AUTH_TOKEN;
+  let token = getEnv(env, 'WEBMCP_AUTH_TOKEN');
 
   if (!token) {
     token = randomUUID();
@@ -283,9 +295,4 @@ export function authorizeLogsRequest({ headers = {}, queryToken = null }, expect
   }
 
   return { authorized: false, viaSession: false };
-}
-
-/** Test-only helper to reset in-memory session state. */
-export function __clearLogsSessions() {
-  logsSessions.clear();
 }

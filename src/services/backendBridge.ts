@@ -17,7 +17,7 @@ const SERVER_URL = process.env.WEBMCP_SERVER_URL || 'http://localhost:3000';
  * At build time, esbuild statically replaces `process.env.WEBMCP_AUTH_TOKEN`
  * with the string literal token from .env.
  */
-export function getAuthToken(): string {
+function getAuthToken(): string {
   return process.env.WEBMCP_AUTH_TOKEN || '';
 }
 
@@ -108,27 +108,26 @@ export function formatErrorMessage(input: unknown): string {
 }
 
 /** The headers every request to the backend server carries. */
-function buildHeaders(data: unknown): Headers {
-  const headers = new Headers();
-  if (data) headers.set('Content-Type', 'application/json');
+function buildHeaders(): Headers {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
   const token = getAuthToken();
   if (token) headers.set('X-WebMCP-Auth', token);
   return headers;
 }
 
 /**
- * Sends a JSON request to the companion server.
+ * POSTs a JSON body to the companion server and returns its JSON reply.
  */
-export async function callBackend<T = Record<string, unknown>>(
+export async function postToBackend<T = Record<string, unknown>>(
   endpoint: string,
-  data?: unknown,
-  options: Omit<RequestInit, 'headers'> = {}
+  data: unknown,
+  options: Omit<RequestInit, 'headers' | 'method' | 'body'> = {}
 ): Promise<T> {
   const res = await fetch(`${SERVER_URL}${endpoint}`, {
     ...options,
-    method: data ? 'POST' : 'GET',
-    headers: buildHeaders(data),
-    body: data ? JSON.stringify(data) : undefined,
+    method: 'POST',
+    headers: buildHeaders(),
+    body: JSON.stringify(data),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json.error) {
@@ -140,6 +139,9 @@ export async function callBackend<T = Record<string, unknown>>(
 /**
  * Runs one streamed chat turn on the server and returns the assistant's reply
  * and any tool calls it requested.
+ *
+ * The reply is NDJSON: `{ delta }` lines with each new piece of text, then one
+ * `{ done, chatId, text, functionCalls }` line, or an `{ error }` line.
  */
 export async function streamChat(
   endpoint: string,
@@ -151,7 +153,7 @@ export async function streamChat(
     res = await fetch(`${SERVER_URL}${endpoint}`, {
       ...options,
       method: 'POST',
-      headers: buildHeaders(data),
+      headers: buildHeaders(),
       body: JSON.stringify(data),
     });
   } catch (error) {
@@ -164,6 +166,9 @@ export async function streamChat(
   const contentType = res.headers.get('Content-Type') || '';
   if (!res.ok || !res.body || contentType.includes('application/json')) {
     const json = await res.json().catch(() => ({}));
+    // 409: the server no longer has this chat. Its message tells the user
+    // what to do, so it is shown as it is.
+    if (res.status === 409 && typeof json.error === 'string') throw new UserFacingError(json.error);
     if (json.error) throw new Error(formatErrorMessage(json.error));
     if (!res.ok) throw new Error(`Request to ${endpoint} failed with HTTP ${res.status}.`);
     return json as ChatTurnResponse;
@@ -187,11 +192,16 @@ export async function streamChat(
       reported = new Error(formatErrorMessage(chunk.error));
       throw reported;
     }
-    if (typeof chunk.text === 'string' && chunk.text !== fullText) {
-      fullText = chunk.text;
+    if (typeof chunk.delta === 'string' && chunk.delta) {
+      fullText += chunk.delta;
       onText?.(fullText);
     }
     if (chunk.done) {
+      // The final line carries the whole reply, which wins over the pieces.
+      if (typeof chunk.text === 'string' && chunk.text !== fullText) {
+        fullText = chunk.text;
+        onText?.(fullText);
+      }
       finalResult = {
         ...(chunk.chatId ? { chatId: chunk.chatId } : {}),
         text: fullText,

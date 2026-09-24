@@ -3,16 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { CSSProperties } from 'react';
-
 export interface SymbolIconProps {
   name: string;
   size?: number | string;
   color?: string;
   fill?: number;
-  weight?: number;
-  className?: string;
-  style?: CSSProperties;
 }
 
 /**
@@ -23,13 +18,10 @@ export function SymbolIcon({
   size = 20,
   color = 'currentColor',
   fill = 0,
-  weight = 400,
-  className = '',
-  style = {},
 }: SymbolIconProps) {
   return (
     <span
-      className={`cdds-symbol ${className}`}
+      className="cdds-symbol"
       aria-hidden="true"
       style={{
         fontFamily: "'Google Symbols', sans-serif",
@@ -38,8 +30,7 @@ export function SymbolIcon({
         lineHeight: 1,
         display: 'inline-block',
         whiteSpace: 'nowrap',
-        fontVariationSettings: `'FILL' ${fill}, 'GRAD' 0, 'ROND' 50, 'wght' ${weight}`,
-        ...style,
+        fontVariationSettings: `'FILL' ${fill}, 'GRAD' 0, 'ROND' 50, 'wght' 400`,
       }}
     >
       {name}
@@ -50,13 +41,12 @@ export function SymbolIcon({
 export interface LogoProps {
   size?: number;
   color?: string;
-  className?: string;
 }
 
 /**
  * Atom Logo
  */
-export function AtomLogo({ size = 18, color = '#012c6f', className = '' }: LogoProps) {
+export function AtomLogo({ size = 18, color = '#012c6f' }: LogoProps) {
   return (
     <svg
       width={size}
@@ -64,7 +54,6 @@ export function AtomLogo({ size = 18, color = '#012c6f', className = '' }: LogoP
       viewBox="0 0 18 18"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={className}
       aria-hidden="true"
       style={{ display: 'block' }}
     >
@@ -92,7 +81,7 @@ export const ArrowUpIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_up"
 export const ShieldIcon = (p: IconProp) => <SymbolIcon name="shield" size={20} {...p} />;
 export const DeviceIcon = (p: IconProp) => <SymbolIcon name="devices" size={20} {...p} />;
 
-export function PlayArrowIcon({ size = 14, color = 'currentColor', className = '' }: LogoProps) {
+export function PlayArrowIcon({ size = 14, color = 'currentColor' }: LogoProps) {
   return (
     <svg
       width={size}
@@ -100,7 +89,6 @@ export function PlayArrowIcon({ size = 14, color = 'currentColor', className = '
       viewBox="0 0 14 14"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={className}
       aria-hidden="true"
       style={{ display: 'block' }}
     >
@@ -115,7 +103,7 @@ export function PlayArrowIcon({ size = 14, color = 'currentColor', className = '
   );
 }
 
-export function SquareStopIcon({ size = 12, color = 'currentColor', className = '' }: LogoProps) {
+export function SquareStopIcon({ size = 12, color = 'currentColor' }: LogoProps) {
   return (
     <svg
       width={size}
@@ -123,7 +111,6 @@ export function SquareStopIcon({ size = 12, color = 'currentColor', className = 
       viewBox="0 0 12 12"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={className}
       aria-hidden="true"
       style={{ display: 'block' }}
     >

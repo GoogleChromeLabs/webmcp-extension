@@ -6,37 +6,21 @@
 import { AutomationIcon } from './Icons.js';
 
 export interface ActionsChipProps {
-  state?: 'Closed' | 'Hover' | 'Pressed';
-  label?: string;
+  label: string;
   onClick?: () => void;
-  className?: string;
 }
 
 /**
  * ActionsChip Component
  * Interactive chip showing WebMCP tools count. Expands on hover into a pill.
  */
-export function ActionsChip({
-  state: stateProp = 'Closed',
-  label = '5 tools',
-  onClick,
-  className = '',
-}: ActionsChipProps) {
-  const isClosed = stateProp === 'Closed';
-
-  const classNames = [
-    'actions-chip',
-    'actions-chip--enabled',
-    `actions-chip--${stateProp.toLowerCase()}`,
-  ];
-  if (className) classNames.push(className);
-
+export function ActionsChip({ label, onClick }: ActionsChipProps) {
   return (
     <button
       type="button"
-      className={classNames.join(' ')}
+      className="actions-chip"
       onClick={onClick}
-      title={isClosed ? label : undefined}
+      title={label}
       aria-label={label}
     >
       <div className="actions-chip__icon-wrapper">
@@ -47,4 +31,3 @@ export function ActionsChip({
     </button>
   );
 }
-

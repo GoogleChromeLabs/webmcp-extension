@@ -13,6 +13,7 @@ import { useActiveTabTools } from '../src/hooks/useActiveTabTools.js';
 import { useActiveTabId } from '../src/hooks/useActiveTabId.js';
 import { requestTabTools, executeTabTool, getTabInfo } from '../src/services/extensionBridge.js';
 import { tabSessions } from '../src/services/tabSessionStore.js';
+import { clearSessionToolPermissions } from '../src/services/toolPermissions.js';
 import { WebMCPTool } from '../src/types/index.js';
 
 const BOOK_TOOL: WebMCPTool = {
@@ -90,7 +91,7 @@ function sseResponse(reply: {
     chunks.push({ error: reply.error });
   } else {
     if (reply.text) {
-      chunks.push({ text: reply.text });
+      chunks.push({ delta: reply.text });
     }
     chunks.push({
       done: true,
@@ -158,6 +159,15 @@ function readSession(tabId: number | null, options?: UseAgentSessionOptions): Us
   return captured as unknown as UseAgentSessionReturn;
 }
 
+/**
+ * Forgets every tab so each test starts clean. Chats end on the on-device path,
+ * which keeps these resets out of the scripted backend's request log.
+ */
+function resetTabSessions(): void {
+  for (const tabId of tabSessions.tabIds()) tabSessions.remove(tabId, { onDevice: true });
+  clearSessionToolPermissions();
+}
+
 /** Waits until `condition` holds, or gives up so a test fails rather than hangs. */
 async function waitFor(condition: () => boolean, message: string, timeoutMs = 2000): Promise<void> {
   const start = Date.now();
@@ -168,7 +178,7 @@ async function waitFor(condition: () => boolean, message: string, timeoutMs = 20
 }
 
 test('a permission prompt belongs to the tab that asked, and is not carried to another tab', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
     { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: { partySize: 2 } }] },
@@ -223,14 +233,14 @@ test('a permission prompt belongs to the tab that asked, and is not carried to a
     assert.equal(backend.requests[1].chatId, 'chat-tab-1');
     assert.equal(backend.requests[0].message, 'Book a table');
   } finally {
-    tabSessions.clear();
+    resetTabSessions();
     backend.restore();
     browser.restore();
   }
 });
 
 test('each tab keeps its own conversation, composer and progress', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
     { chatId: 'chat-tab-1', text: 'Hello from tab one.', functionCalls: [] },
@@ -271,14 +281,14 @@ test('each tab keeps its own conversation, composer and progress', async () => {
     assert.equal(readSession(2).messages.length, 0);
     assert.equal(readSession(1).messages.length, 2);
   } finally {
-    tabSessions.clear();
+    resetTabSessions();
     backend.restore();
     browser.restore();
   }
 });
 
 test('a turn keeps running in its own tab while the user works in another', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
     { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: {} }] },
@@ -310,14 +320,14 @@ test('a turn keeps running in its own tab while the user works in another', asyn
     assert.equal(readSession(1).messages.at(-1)?.text, 'All done.');
     assert.deepEqual(readSession(2).messages, []);
   } finally {
-    tabSessions.clear();
+    resetTabSessions();
     backend.restore();
     browser.restore();
   }
 });
 
 test('closing a tab stops its turn and forgets its conversation', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
   // The reply never arrives, so the turn is still in flight when the tab goes.
   const originalFetch = globalThis.fetch;
@@ -338,18 +348,18 @@ test('closing a tab stops its turn and forgets its conversation', async () => {
     await turn;
 
     // Nothing is left behind for a tab that cannot be reached again.
-    assert.equal(tabSessions.has(1), false);
+    assert.equal(tabSessions.tabIds().includes(1), false);
     assert.deepEqual(tabSessions.getState(1).messages, []);
     assert.equal(tabSessions.isAnyBusy(), false);
   } finally {
     globalThis.fetch = originalFetch;
     browser.restore();
-    tabSessions.clear();
+    resetTabSessions();
   }
 });
 
 test('a tool that opens its own tab moves the work there, not the conversation', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const originalChrome = globalThis.chrome;
   const backend = installBackend([
     { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: {} }] },
@@ -415,14 +425,14 @@ test('a tool that opens its own tab moves the work there, not the conversation',
     assert.equal(readSession(1).messages.at(-1)?.text, 'Confirmed on the new page.');
     assert.deepEqual(tabSessions.getState(7).messages, []);
   } finally {
-    tabSessions.clear();
+    resetTabSessions();
     backend.restore();
     globalThis.chrome = originalChrome;
   }
 });
 
 test('the store tells React only when a tab actually changed', () => {
-  tabSessions.clear();
+  resetTabSessions();
   let notifications = 0;
   const unsubscribe = tabSessions.subscribe(() => {
     notifications++;
@@ -446,7 +456,7 @@ test('the store tells React only when a tab actually changed', () => {
     assert.equal(tabSessions.getState(null).pendingPermission, null);
   } finally {
     unsubscribe();
-    tabSessions.clear();
+    resetTabSessions();
   }
 });
 
@@ -461,18 +471,14 @@ test('the extension bridge talks to the tab it is given, not the one in front', 
     await executeTabTool('book_table', { partySize: 2 }, 0, 1);
     assert.equal(browser.sent.at(-1)?.tabId, 1);
 
-    // Naming no tab still means the tab in front, which is what the panel
-    // wants when the user is simply looking at a page.
-    await requestTabTools();
-    assert.equal(browser.sent.at(-1)?.tabId, 2);
   } finally {
     browser.restore();
-    tabSessions.clear();
+    resetTabSessions();
   }
 });
 
 test('denying a permission prompt sends refusal response and does not execute tool', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
     { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: { partySize: 2 } }] },
@@ -510,14 +516,14 @@ test('denying a permission prompt sends refusal response and does not execute to
     assert.equal(finished.busy, false);
     assert.equal(finished.pendingPermission, null);
   } finally {
-    tabSessions.clear();
+    resetTabSessions();
     backend.restore();
     browser.restore();
   }
 });
 
 test('on-device model rejects concurrent turns across different tabs', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
   // Simulate an on-device turn in flight for tab 1
   tabSessions.update(1, { busy: true });
@@ -533,12 +539,12 @@ test('on-device model rejects concurrent turns across different tabs', async () 
     assert.ok(state2.messages[0].text.includes('The on-device model can only answer one tab at a time'));
   } finally {
     browser.restore();
-    tabSessions.clear();
+    resetTabSessions();
   }
 });
 
 test('handleStop preserves streaming text and resets busy and permission on the active tab', () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
 
   try {
@@ -564,7 +570,7 @@ test('handleStop preserves streaming text and resets busy and permission on the 
     assert.equal(state1.messages[0].text, 'Here is what I found so far...');
   } finally {
     browser.restore();
-    tabSessions.clear();
+    resetTabSessions();
   }
 });
 
@@ -591,7 +597,7 @@ test('getTabInfo returns tab metadata when tab exists and null when tabs.get thr
 });
 
 test('tabSessions.remove resets backend chat session when chatId is present', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const backend = installBackend([{ chatId: 'chat-tab-42', text: 'First reply', functionCalls: [] }]);
 
   try {
@@ -599,13 +605,13 @@ test('tabSessions.remove resets backend chat session when chatId is present', as
     tab42.setUserPrompt('Initial message');
     await tab42.handleSendPrompt();
     assert.equal(tabSessions.getInternals(42).chatId, 'chat-tab-42');
-    assert.equal(tabSessions.has(42), true);
+    assert.equal(tabSessions.tabIds().includes(42), true);
 
     tabSessions.remove(42);
-    assert.equal(tabSessions.has(42), false);
+    assert.equal(tabSessions.tabIds().includes(42), false);
     assert.deepEqual(backend.resets, [{ chatId: 'chat-tab-42' }]);
   } finally {
-    tabSessions.clear();
+    resetTabSessions();
     backend.restore();
   }
 });
@@ -646,7 +652,7 @@ function runHook<T>(useHook: () => T): { result: { current: T }; cleanup: () => 
 }
 
 test('useActiveTabTools preserves tools on status messages and ignores action messages', () => {
-  tabSessions.clear();
+  resetTabSessions();
   const listeners: Array<(message: unknown, sender?: unknown) => void> = [];
   const origChrome = globalThis.chrome;
   const origWindow = globalThis.window;
@@ -707,12 +713,12 @@ test('useActiveTabTools preserves tools on status messages and ignores action me
   } finally {
     globalThis.chrome = origChrome;
     globalThis.window = origWindow;
-    tabSessions.clear();
+    resetTabSessions();
   }
 });
 
 test('useActiveTabId cleans up removedTabId on chrome.tabs.onReplaced', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   let replacedListener: ((addedTabId: number, removedTabId: number) => void) | null = null;
   const origChrome = globalThis.chrome;
   const origWindow = globalThis.window;
@@ -743,7 +749,7 @@ test('useActiveTabId cleans up removedTabId on chrome.tabs.onReplaced', async ()
   try {
     // Populate session state for tab 1 (the tab that will be replaced)
     tabSessions.update(1, { messages: [{ id: 1, role: 'user', text: 'hello' }] });
-    assert.equal(tabSessions.has(1), true);
+    assert.equal(tabSessions.tabIds().includes(1), true);
 
     const { cleanup } = runHook(() => useActiveTabId());
     const onReplacedCb = replacedListener as ((addedTabId: number, removedTabId: number) => void) | null;
@@ -753,19 +759,19 @@ test('useActiveTabId cleans up removedTabId on chrome.tabs.onReplaced', async ()
     onReplacedCb(2, 1);
 
     // tab 1 should be completely removed from tabSessions
-    assert.equal(tabSessions.has(1), false);
+    assert.equal(tabSessions.tabIds().includes(1), false);
 
     cleanup();
     assert.equal(replacedListener, null);
   } finally {
     globalThis.chrome = origChrome;
     globalThis.window = origWindow;
-    tabSessions.clear();
+    resetTabSessions();
   }
 });
 
 test('useAgentSession logs raw errors to console and displays a generic error message in chat', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
   const originalFetch = globalThis.fetch;
   const originalConsoleError = console.error;
@@ -800,12 +806,12 @@ test('useAgentSession logs raw errors to console and displays a generic error me
     console.error = originalConsoleError;
     globalThis.fetch = originalFetch;
     browser.restore();
-    tabSessions.clear();
+    resetTabSessions();
   }
 });
 
 test('a call to a tool the page does not expose is rejected immediately without prompting or executing', async () => {
-  tabSessions.clear();
+  resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
     { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_nonexistent_tool', args: {} }] },
@@ -836,7 +842,7 @@ test('a call to a tool the page does not expose is rejected immediately without 
       'Tool "nonexistent_tool" is not available on this page.'
     );
   } finally {
-    tabSessions.clear();
+    resetTabSessions();
     backend.restore();
     browser.restore();
   }

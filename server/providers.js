@@ -7,6 +7,8 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 
+import { getEnv } from './security.js';
+
 const IMPLIED_PROVIDER = 'google';
 
 function normalizeOllamaUrl(rawUrl) {
@@ -18,7 +20,7 @@ function normalizeOllamaUrl(rawUrl) {
 
 const PROVIDERS = {
   google: {
-    keys: ['GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'API_KEY', 'apiKey'],
+    keys: ['GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     baseUrl: 'GOOGLE_GENERATIVE_AI_BASE_URL',
     defaultModel: 'google:gemini-3.6-flash',
     open: (options) => createGoogleGenerativeAI(options),
@@ -45,8 +47,8 @@ const PROVIDERS = {
 
 function readEnv(env, names) {
   for (const name of names) {
-    const raw = process.env[name] || (typeof env[name] === 'string' && env[name].trim());
-    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    const value = getEnv(env, name);
+    if (value) return value;
   }
   return null;
 }
@@ -78,7 +80,7 @@ export function loadProviders(env = {}) {
 
   const defaultSpec = PROVIDERS[configured[0]]?.defaultModel ?? PROVIDERS.google.defaultModel;
 
-  const requested = readEnv(env, ['MODEL', 'model']) || defaultSpec;
+  const requested = getEnv(env, 'MODEL') || defaultSpec;
   const parsed = parseModelSpec(requested);
 
   if (parsed && PROVIDERS[parsed.providerId]?.keys.length === 0 && !configured.includes(parsed.providerId)) {
@@ -99,7 +101,7 @@ export function loadProviders(env = {}) {
   if (!problem && parsed) {
     const provider = PROVIDERS[parsed.providerId];
     const apiKey = readEnv(env, provider.keys);
-    const baseURL = readEnv(env, [provider.baseUrl]) || undefined;
+    const baseURL = getEnv(env, provider.baseUrl) || undefined;
     model = provider.open({ apiKey, baseURL })(parsed.modelId);
   }
 
@@ -115,4 +117,3 @@ export function loadProviders(env = {}) {
 export function describeModel(config) {
   return config.spec ? `${config.spec.providerId}:${config.spec.modelId}` : config.requestedSpec;
 }
-

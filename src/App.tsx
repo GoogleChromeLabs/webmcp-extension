@@ -4,15 +4,15 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import ChatBubble from './components/ChatBubble.js';
-import WebMCPToolsDialogue from './components/WebMCPToolsDialogue.js';
-import IPHPopover from './components/IPHPopover.js';
-import ConsentScreen from './screens/ConsentScreen.js';
-import SettingsScreen from './screens/SettingsScreen.js';
-import MarkdownText from './components/MarkdownText.js';
-import ActionLog from './components/ActionLog.js';
-import OnDeviceModelStatus from './components/OnDeviceModelStatus.js';
-import ContextMeter from './components/ContextMeter.js';
+import { ChatBubble } from './components/ChatBubble.js';
+import { WebMCPToolsDialogue } from './components/WebMCPToolsDialogue.js';
+import { IPHPopover } from './components/IPHPopover.js';
+import { ConsentScreen } from './screens/ConsentScreen.js';
+import { SettingsScreen } from './screens/SettingsScreen.js';
+import { MarkdownText } from './components/MarkdownText.js';
+import { ActionLog } from './components/ActionLog.js';
+import { OnDeviceModelStatus } from './components/OnDeviceModelStatus.js';
+import { ContextMeter } from './components/ContextMeter.js';
 import { EditSquareIcon } from './components/Icons.js';
 
 import { useActiveTabId } from './hooks/useActiveTabId.js';
@@ -340,6 +340,3 @@ export function App() {
     </div>
   );
 }
-
-export default App;
-

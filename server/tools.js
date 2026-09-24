@@ -27,26 +27,14 @@ export function buildTools(toolList = []) {
   const tools = {};
   for (const declared of toolList) {
     if (!declared?.name) continue;
-    let parameters = declared.parameters ?? declared.inputSchema;
-    if (typeof parameters === 'string') {
-      try {
-        parameters = JSON.parse(parameters);
-      } catch {
-        parameters = null;
-      }
-    }
-    if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
-      parameters = { type: 'object', properties: {} };
-    } else {
-      parameters = {
-        type: 'object',
-        properties: {},
-        ...parameters,
-      };
-    }
+    // The side panel already sends an object schema (see buildToolDecls in
+    // src/services/toolEncoder.ts). This only guards the shape, since the
+    // request body could come from anything holding the auth token.
+    const { parameters } = declared;
+    const isObject = parameters && typeof parameters === 'object' && !Array.isArray(parameters);
     tools[declared.name] = tool({
       description: declared.description || '',
-      inputSchema: jsonSchema(parameters),
+      inputSchema: jsonSchema({ type: 'object', properties: {}, ...(isObject ? parameters : {}) }),
     });
   }
   return tools;
@@ -65,17 +53,33 @@ function toToolResultOutput(response) {
     : { type: 'json', value: result };
 }
 
+/** The tool calls the last assistant message is still waiting on. */
+function pendingToolCalls(history) {
+  const last = history.at(-1);
+  return last?.role === 'assistant' && Array.isArray(last.content)
+    ? last.content.filter((part) => part.type === 'tool-call')
+    : [];
+}
+
+/**
+ * Whether the conversation is waiting on tool results. When it is not, tool
+ * results have nothing to answer: the server was restarted, or the chat was
+ * evicted, and providers reject a tool result without its call.
+ */
+export function hasPendingToolCalls(history = []) {
+  return pendingToolCalls(history).length > 0;
+}
+
 /**
  * Appends either a user prompt or tool execution results to a conversation's
  * `ModelMessage[]` history, settling any unanswered tool calls first so
  * upstream providers never reject dangling tool calls.
+ *
+ * Tool results are only appended when `hasPendingToolCalls(history)`; the
+ * caller checks that first.
  */
 export function appendTurnMessages(history = [], { message, toolResponses } = {}) {
-  const last = history.at(-1);
-  const callParts =
-    last?.role === 'assistant' && Array.isArray(last.content)
-      ? last.content.filter((part) => part.type === 'tool-call')
-      : [];
+  const callParts = pendingToolCalls(history);
 
   const toCallResult = (callPart, response) => ({
     type: 'tool-result',
@@ -104,18 +108,7 @@ export function appendTurnMessages(history = [], { message, toolResponses } = {}
       return toolResponses[idx].functionResponse;
     };
 
-    const content =
-      callParts.length > 0
-        ? callParts.map((callPart) => toCallResult(callPart, takeResponse(callPart)?.response))
-        : toolResponses
-            .filter((r) => r?.functionResponse)
-            .map(({ functionResponse }) => ({
-              type: 'tool-result',
-              toolCallId: functionResponse.id || functionResponse.name,
-              toolName: functionResponse.name,
-              output: toToolResultOutput(functionResponse.response),
-            }));
-
+    const content = callParts.map((callPart) => toCallResult(callPart, takeResponse(callPart)?.response));
     return [...history, { role: 'tool', content }];
   }
 
@@ -136,4 +129,3 @@ export function appendTurnMessages(history = [], { message, toolResponses } = {}
 
   return settled;
 }
-

@@ -12,10 +12,10 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { formatErrorMessage } from '../services/backendBridge.js';
-import { getSpotlighting, resetChatSession, sendChatTurn } from '../services/chatBridge.js';
+import { endChat, getSpotlighting, sendChatTurn } from '../services/chatBridge.js';
 import { executeTabTool, getTabInfo, requestTabTools } from '../services/extensionBridge.js';
 import { tabSessions } from '../services/tabSessionStore.js';
-import { buildToolDecls, decodeToolName, isToolUntrusted } from '../services/toolEncoder.js';
+import { buildToolDecls, decodeToolName } from '../services/toolEncoder.js';
 import {
   applyToolPermissionDecision,
   clearSessionToolPermissions,
@@ -24,9 +24,11 @@ import {
   originOfUrl,
   ToolPermissionDecision,
 } from '../services/toolPermissions.js';
+import { applySpotlighting, applyTokenLimit, waitForToolsToSettle } from '../services/toolResults.js';
 import {
   ActivityEntry,
   ChatMessage,
+  ChatTurnRequest,
   ChatTurnResponse,
   PendingToolPermission,
   UserFacingError,
@@ -61,101 +63,6 @@ export interface UseAgentSessionReturn {
   handleReset: () => void;
 }
 
-export const MAX_TOOL_RESPONSE_CHARS = 8000;
-
-export function applyTokenLimit(result: unknown): unknown {
-  if (result === undefined || result === null) return result;
-  const str = typeof result === 'string' ? result : JSON.stringify(result);
-  if (str && str.length > MAX_TOOL_RESPONSE_CHARS) {
-    console.warn(
-      `[WebMCP Security] Tool payload exceeded limit: ${str.length} chars (max: ${MAX_TOOL_RESPONSE_CHARS})`
-    );
-    const truncated = str.slice(0, MAX_TOOL_RESPONSE_CHARS);
-    return `${truncated}\n\n[WEBMCP_SECURITY_WARNING: Tool response exceeded maximum allowable limit (${str.length} > ${MAX_TOOL_RESPONSE_CHARS} characters) and was truncated to protect against context exhaustion and prompt injection.]`;
-  }
-  return result;
-}
-
-/**
- * Base64-encodes a UTF-8 string in the browser.
- *
- * `btoa` only accepts Latin-1, and the old `unescape(encodeURIComponent(...))`
- * trick throws a URIError on a lone surrogate — which `applyTokenLimit` can
- * produce when it truncates mid-character. `TextEncoder` replaces unpaired
- * surrogates with U+FFFD instead of throwing, so this cannot fail on any input.
- */
-function encodeBase64(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = '';
-  // Chunked to stay well under the argument-count limit of String.fromCharCode.
-  const CHUNK_SIZE = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE));
-  }
-  return btoa(binary);
-}
-
-export function applySpotlighting(result: unknown, tool?: WebMCPTool, fence?: string): unknown {
-  if (!isToolUntrusted(tool)) return result;
-
-  const rawStr = typeof result === 'string' ? result : JSON.stringify(result);
-
-  // Encoding is the stronger spotlighting, but it takes a model that decodes
-  // base64 reliably. Callers that pass a fence get delimiting instead, with
-  // any forged closing marker stripped so the data cannot break out.
-  if (fence) {
-    const fenced = (rawStr || '').split(`</${fence}>`).join('');
-    return `<${fence}>\n${fenced}\n</${fence}>`;
-  }
-
-  return encodeBase64(rawStr || '');
-}
-
-/**
- * Refreshes the page's tools after a round of tool calls, and waits until they
- * have settled, so the next request declares the tools the page has now.
- *
- * A call can change them, by navigating, or by rendering a view with tools of
- * its own, and a page can take a while to register those: the content script
- * only reports the list once its changes have paused. So this waits for a
- * report, then for `quietMs` without another, and gives up after `timeoutMs`,
- * keeping whatever tools arrived by then.
- */
-export async function waitForToolsToSettle(
-  toolsRef: { readonly current: WebMCPTool[] },
-  {
-    requestTools,
-    signal,
-    quietMs = 250,
-    timeoutMs = 2000,
-    pollMs = 25,
-  }: {
-    requestTools: () => Promise<void>;
-    signal?: AbortSignal;
-    quietMs?: number;
-    timeoutMs?: number;
-    pollMs?: number;
-  }
-): Promise<void> {
-  const start = performance.now();
-  // Every report replaces the array, even when the tools are the same.
-  let seen = toolsRef.current;
-  let lastReport: number | null = null;
-
-  try {
-    await requestTools();
-  } catch {}
-
-  while (!signal?.aborted && performance.now() - start < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-    if (toolsRef.current !== seen) {
-      seen = toolsRef.current;
-      lastReport = performance.now();
-    }
-    if (lastReport !== null && performance.now() - lastReport >= quietMs) return;
-  }
-}
-
 let nextId = Date.now();
 const generateId = (): number => ++nextId;
 
@@ -172,6 +79,60 @@ function toolsViewFor(getTabId: () => number): { readonly current: WebMCPTool[] 
       return tabSessions.getState(getTabId()).tools;
     },
   };
+}
+
+/** One entry of the `toolResponses` a turn sends back to the model. */
+type ToolResponse = NonNullable<ChatTurnRequest['toolResponses']>[number];
+
+function toolResponse(
+  call: { id?: string; name: string },
+  response: ToolResponse['functionResponse']['response']
+): ToolResponse {
+  return { functionResponse: { id: call.id, name: call.name, response } };
+}
+
+/**
+ * Shows a permission prompt under `tabId` and waits for the user's answer.
+ * Stopping the turn clears the prompt and counts as a denial.
+ */
+function askToolPermission(
+  tabId: number,
+  signal: AbortSignal,
+  prompt: Omit<PendingToolPermission, 'allow' | 'allowAlways' | 'deny'> & { canAllowAlways: boolean }
+): Promise<ToolPermissionDecision> {
+  const { canAllowAlways, ...details } = prompt;
+  return new Promise<ToolPermissionDecision>((resolve) => {
+    if (signal.aborted) {
+      resolve('deny');
+      return;
+    }
+    const clearPrompt = () => tabSessions.update(tabId, { pendingPermission: null });
+    const onAbort = () => {
+      clearPrompt();
+      resolve('deny');
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    const settle = (outcome: ToolPermissionDecision) => () => {
+      signal.removeEventListener('abort', onAbort);
+      clearPrompt();
+      resolve(outcome);
+    };
+
+    // Filed under this turn's tab, so it is only on screen while that tab is
+    // in front.
+    tabSessions.update(tabId, {
+      pendingPermission: {
+        ...details,
+        allow: settle('allow'),
+        // Only offered where the grant would mean what the button says: a
+        // known tool, in the top frame, of a page with an origin, and never
+        // for something that may be irreversible.
+        allowAlways: canAllowAlways ? settle('allowAlways') : undefined,
+        deny: settle('deny'),
+      },
+    });
+  });
 }
 
 /**
@@ -207,11 +168,10 @@ export function useAgentSession(
     // where the other left off. That holds for every tab, not just the one in
     // front, since they all move to the new backend together.
     if (onDeviceModelRef.current !== next) {
+      // Each chat is ended on the backend that was holding it.
       for (const tabId of tabSessions.tabIds()) {
-        tabSessions.resetChat(tabId, { onDevice: true });
+        tabSessions.resetChat(tabId, { onDevice: onDeviceModelRef.current });
       }
-      resetChatSession({ onDevice: onDeviceModelRef.current });
-      clearSessionToolPermissions();
     }
     onDeviceModelRef.current = next;
   }, [options?.onDeviceModel]);
@@ -365,6 +325,100 @@ export function useAgentSession(
       messages: [...previous.messages, { id: generateId(), role: 'user', text: textToSend }],
     }));
 
+    /**
+     * Runs one tool call the model asked for: finds the tool, asks the user
+     * when the rules say so, runs it on the page, and prepares the result for
+     * the model. Returns null when the turn was stopped along the way.
+     */
+    const runToolCall = async (
+      call: NonNullable<ChatTurnResponse['functionCalls']>[number]
+    ): Promise<ToolResponse | null> => {
+      const { name, frameId } = decodeToolName(call.name);
+      // Find the tool declaration among this tab's tools without crossing frame boundaries
+      const targetTool =
+        frameId !== undefined
+          ? toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === frameId)
+          : toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === 0) ||
+            toolsView.current.find((t) => t.name === name);
+
+      if (!targetTool) {
+        return toolResponse(call, { error: `Tool "${name}" is not available on this page.` });
+      }
+
+      const entry = logActivity(name);
+      const origin = currentOrigin();
+      // Explicit frameId from the tool call takes precedence over fallback tool metadata.
+      const toolFrameId = frameId ?? targetTool.frameId ?? 0;
+      const permissionQuery = {
+        sensitiveActionAlerts: sensitiveActionAlertsRef.current,
+        origin,
+        toolName: targetTool.name,
+        tabId,
+        readOnlyHint: targetTool.readOnlyHint,
+        consequentialHint: targetTool.consequentialHint,
+        toolFrameId,
+      };
+
+      if (needsToolPermission(permissionQuery)) {
+        const decision = await askToolPermission(tabId, signal, {
+          toolName: targetTool.name,
+          toolDescription: targetTool.description,
+          origin: origin || undefined,
+          consequential: targetTool.consequentialHint === true,
+          canAllowAlways: isGrantEligible(permissionQuery),
+        });
+        if (signal.aborted) return null;
+
+        // Verify that the tab has not navigated to a different origin while awaiting permission.
+        if (currentOrigin() !== origin) {
+          completeActivity(entry);
+          return toolResponse(call, { error: 'Page origin changed before tool execution was approved.' });
+        }
+        if (!applyToolPermissionDecision(decision, permissionQuery)) {
+          completeActivity(entry);
+          return toolResponse(call, { error: 'User denied permission to execute this tool.' });
+        }
+      }
+
+      try {
+        // Security Note: This is where you might utilize a critic to check that the
+        // tool call and parameters align with the user's intent before execution.
+        let movedToNewTab = false;
+        const rawRes = await executeTabTool(name, call.args, toolFrameId, turnTabId, {
+          onTabChanged: (movedTabId) => {
+            turnTabId = movedTabId;
+            movedToNewTab = true;
+          },
+        });
+        if (signal.aborted) return null;
+        if (movedToNewTab) {
+          const movedInfo = await getTabInfo(turnTabId);
+          if (movedInfo) {
+            tabSessions.update(turnTabId, (prev) => ({
+              domain: movedInfo.domain || prev.domain,
+              origin: movedInfo.url ? originOfUrl(movedInfo.url) : prev.origin,
+              favicon: movedInfo.favicon || prev.favicon,
+            }));
+          }
+        }
+
+        const res = applySpotlighting(
+          applyTokenLimit(rawRes),
+          targetTool,
+          getSpotlighting(onDeviceModelRef.current)
+        );
+
+        // Security Note: This is where you might utilize a prompt injection classifier to
+        // detect any prompt injection in the tool output before returning it to the model.
+        completeActivity(entry);
+        return toolResponse(call, { result: res });
+      } catch (err: unknown) {
+        if (signal.aborted) return null;
+        completeActivity(entry);
+        return toolResponse(call, { error: (err as Error)?.message || String(err) });
+      }
+    };
+
     try {
       const toolDecls = buildToolDecls(toolsView.current);
       let currentResult: ChatTurnResponse = await sendChatTurn(
@@ -408,160 +462,11 @@ export function useAgentSession(
           messageRendered = true;
         }
 
-        const toolResponses = [];
+        const toolResponses: ToolResponse[] = [];
         for (const call of currentResult.functionCalls) {
           if (signal.aborted) break;
-          const { name, frameId } = decodeToolName(call.name);
-          // Find the tool declaration among this tab's tools without crossing frame boundaries
-          const targetTool =
-            frameId !== undefined
-              ? toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === frameId)
-              : toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === 0) ||
-                toolsView.current.find((t) => t.name === name);
-
-          if (!targetTool) {
-            const errorMsg = `Tool "${name}" is not available on this page.`;
-            toolResponses.push({
-              functionResponse: {
-                id: call.id,
-                name: call.name,
-                response: { error: errorMsg },
-              },
-            });
-            continue;
-          }
-
-          const entry = logActivity(name);
-
-          const toolName = targetTool.name;
-          const origin = currentOrigin();
-          // Explicit frameId from the tool call takes precedence over fallback tool metadata.
-          const toolFrameId = frameId ?? targetTool.frameId ?? 0;
-          const permissionQuery = {
-            sensitiveActionAlerts: sensitiveActionAlertsRef.current,
-            origin,
-            toolName,
-            tabId,
-            readOnlyHint: targetTool.readOnlyHint,
-            consequentialHint: targetTool.consequentialHint,
-            toolFrameId,
-          };
-          const grantEligible = isGrantEligible(permissionQuery);
-          const needsPermission = needsToolPermission(permissionQuery);
-
-          // If sensitive action alerts is enabled and tool is not readonly, prompt the user before execution
-          if (needsPermission) {
-            const decision = await new Promise<ToolPermissionDecision>((resolve) => {
-              const clearPrompt = () => tabSessions.update(tabId, { pendingPermission: null });
-              const onAbort = () => {
-                signal.removeEventListener('abort', onAbort);
-                clearPrompt();
-                resolve('deny');
-              };
-
-              if (signal.aborted) {
-                resolve('deny');
-                return;
-              }
-
-              signal.addEventListener('abort', onAbort, { once: true });
-
-              const settle = (outcome: ToolPermissionDecision) => () => {
-                signal.removeEventListener('abort', onAbort);
-                clearPrompt();
-                resolve(outcome);
-              };
-
-              // Filed under this turn's tab, so it is only on screen while
-              // that tab is in front.
-              tabSessions.update(tabId, {
-                pendingPermission: {
-                  toolName,
-                  toolDescription: targetTool?.description,
-                  origin: origin || undefined,
-                  consequential: targetTool?.consequentialHint === true,
-                  allow: settle('allow'),
-                  // Only offered where the grant would mean what the button says:
-                  // a known tool, in the top frame, of a page with an origin, and
-                  // never for something that may be irreversible.
-                  allowAlways: grantEligible ? settle('allowAlways') : undefined,
-                  deny: settle('deny'),
-                },
-              });
-            });
-
-            if (signal.aborted) break;
-
-            // Verify that the tab has not navigated to a different origin while awaiting permission.
-            const latestOrigin = currentOrigin();
-            if (latestOrigin !== origin) {
-              completeActivity(entry);
-              toolResponses.push({
-                functionResponse: {
-                  id: call.id,
-                  name: call.name,
-                  response: { error: 'Page origin changed before tool execution was approved.' },
-                },
-              });
-              continue;
-            }
-
-            if (!applyToolPermissionDecision(decision, permissionQuery)) {
-              completeActivity(entry);
-              toolResponses.push({
-                functionResponse: {
-                  id: call.id,
-                  name: call.name,
-                  response: { error: 'User denied permission to execute this tool.' },
-                },
-              });
-              continue;
-            }
-          }
-
-          try {
-            // Security Note: This is where you might utilize a critic to check that the
-            // tool call and parameters align with the user's intent before execution.
-            let movedToNewTab = false;
-            const rawRes = await executeTabTool(name, call.args, toolFrameId, turnTabId, {
-              onTabChanged: (movedTabId) => {
-                turnTabId = movedTabId;
-                movedToNewTab = true;
-              },
-            });
-            if (signal.aborted) break;
-            if (movedToNewTab) {
-              const movedInfo = await getTabInfo(turnTabId);
-              if (movedInfo) {
-                tabSessions.update(turnTabId, (prev) => ({
-                  domain: movedInfo.domain || prev.domain,
-                  origin: movedInfo.url ? originOfUrl(movedInfo.url) : prev.origin,
-                  favicon: movedInfo.favicon || prev.favicon,
-                }));
-              }
-            }
-
-            const limitedRes = applyTokenLimit(rawRes);
-            const res = applySpotlighting(
-              limitedRes,
-              targetTool,
-              getSpotlighting(onDeviceModelRef.current)
-            );
-
-            // Security Note: This is where you might utilize a prompt injection classifier to
-            // detect any prompt injection in the tool output before returning it to the model.
-            completeActivity(entry);
-            toolResponses.push({
-              functionResponse: { id: call.id, name: call.name, response: { result: res } },
-            });
-          } catch (err: unknown) {
-            if (signal.aborted) break;
-            const errorMsg = (err as Error)?.message || String(err);
-            completeActivity(entry);
-            toolResponses.push({
-              functionResponse: { id: call.id, name: call.name, response: { error: errorMsg } },
-            });
-          }
+          const response = await runToolCall(call);
+          if (response) toolResponses.push(response);
         }
 
         if (signal.aborted) break;
@@ -637,7 +542,7 @@ export function useAgentSession(
             : 'Something went wrong while processing your request. Please try again.',
       });
       if (internals.chatId) {
-        resetChatSession({ chatId: internals.chatId, onDevice: onDeviceModelRef.current });
+        endChat(internals.chatId, { onDevice: onDeviceModelRef.current });
         internals.chatId = undefined;
       }
     } finally {

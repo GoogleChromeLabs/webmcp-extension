@@ -5,21 +5,24 @@
 
 console.debug(`[WebMCP] Content script injected in ${window.location.href}`);
 
+const WEBMCP_DISABLED_MESSAGE =
+  'Turn on the "WebMCP for testing" flag in about://flags and restart browser to use tools exposed by this website.';
+
 chrome.runtime.onMessage.addListener((message, _, reply) => {
+  const { action, name, inputArgs, fromOrigins } = message;
   if (!document.modelContext) {
-    chrome.runtime.sendMessage({
-      message:
-        'Turn on the "WebMCP for testing" flag in about://flags and restart browser to use tools exposed by this website.',
-    });
+    chrome.runtime.sendMessage({ message: WEBMCP_DISABLED_MESSAGE });
+    // A tool call still gets an answer, so the model hears why it failed
+    // instead of a closed message port.
+    if (action === 'EXECUTE_TOOL') reply(JSON.stringify(WEBMCP_DISABLED_MESSAGE));
     return;
   }
-  const { action, name, inputArgs, fromOrigins } = message;
   try {
-    if (action == 'LIST_TOOLS') {
+    if (action === 'LIST_TOOLS') {
       debouncedListTools(fromOrigins);
       document.modelContext.ontoolchange = debouncedListTools.bind(null, fromOrigins);
     }
-    if (action == 'EXECUTE_TOOL') {
+    if (action === 'EXECUTE_TOOL') {
       console.debug(
         `[WebMCP] Execute tool "${name}" with ${JSON.stringify(inputArgs)} in ${window.location.href}`,
       );
@@ -76,7 +79,7 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
         .catch((error) => reply(JSON.stringify(toMessage(error))));
       return true;
     }
-    if (action == 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT') {
+    if (action === 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT') {
       console.debug(`[WebMCP] Get cross document script tool result in ${window.location.href}`);
       reply(document.querySelector('script[type="application/ld+json"]')?.textContent);
     }
@@ -99,9 +102,9 @@ function debouncedListTools(fromOrigins) {
 }
 
 async function listTools(fromOrigins) {
-  let tools = [];
+  const tools = [];
   for (const tool of await document.modelContext.getTools({ fromOrigins })) {
-    const frameId = tool.window == window ? 0 : await getFrameId(tool.window);
+    const frameId = tool.window === window ? 0 : await getFrameId(tool.window);
     tools.push({
       description: tool.description,
       inputSchema: tool.inputSchema,
@@ -123,7 +126,7 @@ async function getFrameId(targetWindow) {
     const listener = ({ source, data }) => {
       // `data` is attacker-controlled: any frame can post anything, including
       // null or a bare string, so never dereference it unguarded.
-      if (source == targetWindow && data?.action === 'GET_FRAME_ID_RESPONSE') {
+      if (source === targetWindow && data?.action === 'GET_FRAME_ID_RESPONSE') {
         window.removeEventListener('message', listener);
         clearTimeout(timeoutId);
         resolve(data.frameId);

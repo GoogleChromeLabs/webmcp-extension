@@ -5,10 +5,10 @@
 
 /* ==========================================================================
    CDDS FOUNDATION - FONTS
-   Google Symbols, Google Sans Text, Google Sans Flex
+   Google Symbols (bundled), Google Sans, Google Sans Text, Google Sans Flex
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Text:ital,wght@0,400;0,500;0,700;1,400&family=Google+Sans+Flex:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Text:ital,wght@0,400;0,500;0,700;1,400&family=Google+Sans+Flex:wght@400;500;600&display=swap');
 
 @font-face {
   font-family: 'Google Symbols';

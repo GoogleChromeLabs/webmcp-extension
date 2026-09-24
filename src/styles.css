@@ -816,6 +816,10 @@ main {
   user-select: none;
   overflow: hidden;
   transition: all var(--transition-normal);
+  /* Collapsed to the icon until hovered. */
+  width: 24px;
+  padding: 0 2px;
+  justify-content: center;
 }
 
 .actions-chip__icon-wrapper {
@@ -835,45 +839,31 @@ main {
   margin: 0;
   white-space: nowrap;
   color: inherit;
-}
-
-.actions-chip--closed,
-.actions-chip--enabled.actions-chip--closed {
-  width: 24px;
-  padding: 0 2px;
-  justify-content: center;
-}
-
-.actions-chip--closed .actions-chip__label {
   max-width: 0;
   opacity: 0;
   overflow: hidden;
   transition: max-width var(--transition-normal), opacity 0.15s ease-in-out;
 }
 
-.actions-chip:hover,
-.actions-chip--hover {
+.actions-chip:hover {
   width: auto;
   padding-left: 4px;
   padding-right: 10px;
 }
 
-.actions-chip:hover .actions-chip__label,
-.actions-chip--hover .actions-chip__label {
+.actions-chip:hover .actions-chip__label {
   max-width: 120px;
   opacity: 1;
 }
 
-.actions-chip:active,
-.actions-chip--pressed {
+.actions-chip:active {
   background-color: var(--color-primary) !important;
   color: #ffffff !important;
   padding-left: 4px;
   padding-right: 10px;
 }
 
-.actions-chip:active .actions-chip__label,
-.actions-chip--pressed .actions-chip__label {
+.actions-chip:active .actions-chip__label {
   color: #ffffff !important;
   max-width: 120px;
   opacity: 1;
@@ -987,8 +977,7 @@ main {
   background-color: var(--color-primary-hover);
 }
 
-.button-ui:active,
-.button-ui--pressed {
+.button-ui:active {
   background-color: var(--color-primary-active);
 }
 

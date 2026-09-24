@@ -3,43 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
 import { PlayArrowIcon, SquareStopIcon } from './Icons.js';
 
 export type ButtonVariant = 'live' | 'send' | 'stop';
 
-export interface ButtonUIProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonUIProps {
   variant?: ButtonVariant;
-  pressed?: boolean;
+  onClick?: () => void;
 }
 
 /**
  * ButtonUI Component
  * Circular action button rendered in the prompt composer toolbar.
  */
-export function ButtonUI({
-  variant = 'live',
-  pressed = false,
-  onClick,
-  className = '',
-  type = 'button',
-  'aria-label': ariaLabel,
-  ...restProps
-}: ButtonUIProps) {
+export function ButtonUI({ variant = 'live', onClick }: ButtonUIProps) {
   const isStop = variant === 'stop';
 
-  const classNames = ['button-ui'];
-  if (pressed) classNames.push('button-ui--pressed');
-  if (className) classNames.push(className);
-
   return (
-    <button
-      type={type}
-      className={classNames.join(' ')}
-      onClick={onClick}
-      aria-label={ariaLabel || variant}
-      {...restProps}
-    >
+    <button type="button" className="button-ui" onClick={onClick} aria-label={variant}>
       <div className="button-ui__icon-wrapper">
         {isStop ? (
           <SquareStopIcon size={12} color="#ffffff" />

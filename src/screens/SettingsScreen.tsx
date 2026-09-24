@@ -114,5 +114,3 @@ export function SettingsScreen({
     </div>
   );
 }
-
-export default SettingsScreen;

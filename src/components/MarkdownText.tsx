@@ -7,7 +7,6 @@ import { useMemo } from 'react';
 
 export interface MarkdownTextProps {
   content?: string;
-  className?: string;
 }
 
 type Block =
@@ -20,13 +19,13 @@ type Block =
  * MarkdownText Component
  * Lightweight Markdown renderer for AI assistant responses.
  */
-export function MarkdownText({ content = '', className = '' }: MarkdownTextProps) {
+export function MarkdownText({ content = '' }: MarkdownTextProps) {
   const blocks = useMemo(() => (content ? parseBlocks(content) : []), [content]);
 
   if (!content) return null;
 
   return (
-    <div className={`markdown ${className}`}>
+    <div className="markdown">
       {blocks.map((block, idx) => (
         <RenderBlock key={`${block.type}-${idx}`} block={block} />
       ))}
@@ -188,5 +187,3 @@ function renderInline(text: string) {
     return part;
   });
 }
-
-export default MarkdownText;

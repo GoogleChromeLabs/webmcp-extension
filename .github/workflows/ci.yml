@@ -36,8 +36,8 @@ jobs:
 
       - run: npm run typecheck
 
-      # tsc only covers src, tests and extension typings, so nothing above
-      # would catch a syntax error in the server or the build script.
+      # tsc covers src, tests, extension and shared (allowJs), but not server/
+      # or scripts/, so this catches syntax errors there.
       - run: npm run check:syntax
 
       # The build generates a throwaway auth token into .env when one is

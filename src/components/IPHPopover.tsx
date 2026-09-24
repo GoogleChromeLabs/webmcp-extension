@@ -5,9 +5,9 @@
 
 import { SymbolIcon } from './Icons.js';
 
+const TITLE = 'Available WebMCP tools';
+
 export interface IPHPopoverProps {
-  title?: string;
-  description?: string;
   onClose?: () => void;
   onViewActions?: () => void;
   onGotIt?: () => void;
@@ -17,8 +17,6 @@ export interface IPHPopoverProps {
  * IPHPopover Component
  */
 export function IPHPopover({
-  title = 'Available WebMCP tools',
-  description = 'Available WebMCP tools enables AI agents to perform actions quicker. You can always review available tools on a page.',
   onClose,
   onViewActions,
   onGotIt,
@@ -27,7 +25,7 @@ export function IPHPopover({
     <div
       className="iph"
       role="region"
-      aria-label={title}
+      aria-label={TITLE}
       onKeyDown={(e) => {
         if (e.key === 'Escape' && onClose) {
           e.stopPropagation();
@@ -46,8 +44,11 @@ export function IPHPopover({
         </button>
 
         <div className="iph__content">
-          <h4 className="iph__title">{title}</h4>
-          <p className="iph__desc">{description}</p>
+          <h4 className="iph__title">{TITLE}</h4>
+          <p className="iph__desc">
+            Available WebMCP tools enables AI agents to perform actions quicker. You can always review
+            available tools on a page.
+          </p>
           <a
             href="#"
             className="iph__link"
@@ -83,5 +84,3 @@ export function IPHPopover({
     </div>
   );
 }
-
-export default IPHPopover;

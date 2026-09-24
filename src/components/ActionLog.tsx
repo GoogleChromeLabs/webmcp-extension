@@ -11,7 +11,6 @@ export interface ActionLogProps {
   status: 'initiation' | 'running' | 'completed' | 'permission';
   statusText?: string;
   activityLogs?: ActivityEntry[];
-  defaultOpen?: boolean;
   /** Keeps the log in the page, but out of sight and out of the accessibility tree. */
   hidden?: boolean;
 }
@@ -33,10 +32,9 @@ export function ActionLog({
   status,
   statusText,
   activityLogs = [],
-  defaultOpen,
   hidden,
 }: ActionLogProps) {
-  const [isOpen, setIsOpen] = useState<boolean>(defaultOpen ?? (status !== 'completed'));
+  const [isOpen, setIsOpen] = useState<boolean>(status !== 'completed');
   const contentId = useId();
 
   // Determine status label
@@ -126,5 +124,3 @@ export function ActionLog({
     </div>
   );
 }
-
-export default ActionLog;

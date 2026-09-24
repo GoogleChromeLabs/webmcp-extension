@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isToolUntrusted, buildToolDecls } from '../src/services/toolEncoder.js';
-import { applySpotlighting } from '../src/hooks/useAgentSession.js';
+import { applySpotlighting } from '../src/services/toolResults.js';
 import { WebMCPTool } from '../src/types/index.js';
 
 test('isToolUntrusted defaults to false per the WebMCP spec and respects untrustedContentHint', () => {

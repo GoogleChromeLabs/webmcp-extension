@@ -6,26 +6,19 @@
 import { AutomationIcon, CloseIcon, SymbolIcon } from './Icons.js';
 
 export interface WebMCPToolsDialogueProps {
-  domain?: string;
-  toolsCount?: number;
-  toolsList?: string[];
+  domain: string;
+  toolsCount: number;
+  toolsList: string[];
   onClose?: () => void;
-  className?: string;
 }
 
 /**
  * WebMCPToolsDialogue Component
  */
-export function WebMCPToolsDialogue({
-  domain = 'Active Tab',
-  toolsCount = 0,
-  toolsList = [],
-  onClose,
-  className = '',
-}: WebMCPToolsDialogueProps) {
+export function WebMCPToolsDialogue({ domain, toolsCount, toolsList, onClose }: WebMCPToolsDialogueProps) {
   return (
     <div
-      className={`tools-dialogue ${className}`}
+      className="tools-dialogue"
       role="dialog"
       aria-modal="false"
       aria-labelledby="webmcp-tools-dialog-title"
@@ -86,5 +79,3 @@ export function WebMCPToolsDialogue({
     </div>
   );
 }
-
-export default WebMCPToolsDialogue;

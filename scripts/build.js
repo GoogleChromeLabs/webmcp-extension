@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import esbuild from 'esbuild';
-import { loadDotEnv, ensureAuthToken } from '../server/security.js';
+import { loadDotEnv, getEnv, ensureAuthToken } from '../server/security.js';
 import { createSidebarBuildOptions } from './sidebarBuildConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -16,7 +16,7 @@ const envPath = path.join(rootDir, '.env');
 
 const env = loadDotEnv(envPath);
 const authToken = ensureAuthToken(env, envPath);
-const port = process.env.PORT || env.PORT || '3000';
+const port = getEnv(env, 'PORT') || '3000';
 const serverUrl = `http://localhost:${port}`;
 
 const isWatch = process.argv.includes('--watch');
@@ -27,14 +27,11 @@ if (!isWatch) {
 }
 fs.mkdirSync(distDir, { recursive: true });
 
-function copyStaticAssets() {
-  // Only the extension shell is copied verbatim. Everything under src/ is
-  // bundled by esbuild below, including the fonts referenced from styles.css,
-  // so copying it here would ship the sources and a second copy of the fonts.
-  fs.cpSync(path.join(rootDir, 'extension'), distDir, { recursive: true });
-}
-
-copyStaticAssets();
+// Only the extension shell is copied verbatim. Everything under src/ is
+// bundled by esbuild below, including the fonts referenced from styles.css,
+// so copying it here would ship the sources and a second copy of the fonts.
+const extensionDir = path.join(rootDir, 'extension');
+fs.cpSync(extensionDir, distDir, { recursive: true });
 
 const buildOptions = createSidebarBuildOptions({
   rootDir,
@@ -46,6 +43,11 @@ const buildOptions = createSidebarBuildOptions({
 if (isWatch) {
   const ctx = await esbuild.context(buildOptions);
   await ctx.watch();
+  // esbuild only watches what it bundles, so the extension shell
+  // (manifest, background.js, content.js, ...) is copied again on change.
+  fs.watch(extensionDir, { recursive: true }, () => {
+    fs.cpSync(extensionDir, distDir, { recursive: true });
+  });
   console.log('👀 Watching for changes with WebMCP auth token injected...');
 } else {
   await esbuild.build(buildOptions);

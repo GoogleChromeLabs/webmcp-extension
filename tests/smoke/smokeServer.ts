@@ -249,12 +249,11 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
 
         res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
         const streamParts = nextReply.textChunks || (nextReply.text ? [nextReply.text] : []);
-        let streamedText = '';
+        // Like the real server: each line carries only the new piece of text.
         for (const chunk of streamParts) {
-          streamedText += chunk;
-          res.write(JSON.stringify({ text: streamedText }) + '\n');
+          res.write(JSON.stringify({ delta: chunk }) + '\n');
         }
-        const finalText = nextReply.text ?? streamedText;
+        const finalText = nextReply.text ?? streamParts.join('');
         res.write(
           JSON.stringify({
             done: true,

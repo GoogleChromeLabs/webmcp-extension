@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { appendTurnMessages } from '../server/tools.js';
-import { resetChatSession, sendChatTurn } from '../src/services/chatBridge.js';
+import { endAllChats, endChat, sendChatTurn } from '../src/services/chatBridge.js';
 
 function stubServer(replies: Array<Record<string, unknown> | Error>) {
   const original = globalThis.fetch;
@@ -63,19 +63,25 @@ test('sendChatTurn forwards requests to /api/chat and returns text and functionC
   }
 });
 
-test('resetChatSession sends /api/chat/reset with optional chatId', async () => {
+test('endChat ends one server chat, endAllChats ends them all', async () => {
   const server = stubServer([]);
   try {
-    resetChatSession({ chatId: 'tab-99', onDevice: false });
+    endChat('tab-99');
     await new Promise((r) => setTimeout(r, 10));
     assert.equal(server.sent.length, 1);
     assert.ok(server.sent[0].url.endsWith('/api/chat/reset'));
     assert.deepEqual(server.sent[0].body, { chatId: 'tab-99' });
 
-    // Empty chatId is a no-op so it does not wipe other tabs' sessions
-    resetChatSession({ chatId: undefined, onDevice: false });
+    endAllChats();
     await new Promise((r) => setTimeout(r, 10));
-    assert.equal(server.sent.length, 1);
+    assert.equal(server.sent.length, 2);
+    assert.deepEqual(server.sent[1].body, {});
+
+    // The on-device backend never calls the server.
+    endChat('tab-99', { onDevice: true });
+    endAllChats({ onDevice: true });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(server.sent.length, 2);
   } finally {
     server.restore();
   }

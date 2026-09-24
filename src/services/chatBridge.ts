@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { callBackend, streamChat } from './backendBridge.js';
+import { postToBackend, streamChat } from './backendBridge.js';
 import { getSpotlightFence, resetOnDeviceChat, sendOnDeviceChat } from './promptApiBackend.js';
 import { ChatTurnRequest, ChatTurnResponse } from '../types/index.js';
 
@@ -24,6 +24,9 @@ export async function sendChatTurn(
 ): Promise<ChatTurnResponse> {
   const { signal, onDevice = false, onText } = options;
   if (onDevice) {
+    // A new message with no chatId starts a new chat. Without an id here, the
+    // on-device backend would carry on with whichever tab's chat it holds.
+    // The server makes its own id, so only this path needs one.
     return sendOnDeviceChat(
       {
         ...request,
@@ -44,19 +47,23 @@ export function getSpotlighting(onDevice = false): string | undefined {
   return onDevice ? getSpotlightFence() : undefined;
 }
 
-/** Ends the conversation wherever it is being held. */
-export function resetChatSession(options: { chatId?: string; onDevice?: boolean } = {}): void {
-  const hasSpecificChat = 'chatId' in options;
-  const { chatId, onDevice } = options;
-
-  // If a specific chatId was requested but is undefined (e.g. tab had no
-  // conversation yet), do not touch the active session of another tab.
-  if (hasSpecificChat && !chatId) return;
-
-  resetOnDeviceChat(hasSpecificChat ? chatId : undefined);
-  if (!onDevice) {
-    void callBackend('/api/chat/reset', hasSpecificChat ? { chatId } : {}).catch(() => {});
+/**
+ * Ends one conversation on the backend that holds it, so it stops taking up
+ * context there. Other tabs' conversations are left alone.
+ */
+export function endChat(chatId: string, { onDevice = false }: { onDevice?: boolean } = {}): void {
+  if (onDevice) {
+    resetOnDeviceChat(chatId);
+  } else {
+    void postToBackend('/api/chat/reset', { chatId }).catch(() => {});
   }
 }
 
-
+/** Ends every conversation on one backend. */
+export function endAllChats({ onDevice = false }: { onDevice?: boolean } = {}): void {
+  if (onDevice) {
+    resetOnDeviceChat();
+  } else {
+    void postToBackend('/api/chat/reset', {}).catch(() => {});
+  }
+}

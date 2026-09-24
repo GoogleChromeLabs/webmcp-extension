@@ -26,7 +26,6 @@ export interface AllowToolPermissionCardProps {
    */
   onAlwaysAllow?: () => void;
   onDeny: () => void;
-  className?: string;
 }
 
 /**
@@ -58,7 +57,6 @@ export function AllowToolPermissionCard({
   onAllow,
   onAlwaysAllow,
   onDeny,
-  className = '',
 }: AllowToolPermissionCardProps) {
   const siteLabel = labelForOrigin(origin);
   // "Always" would promise more than this does. The grant lasts until the chat
@@ -73,7 +71,6 @@ export function AllowToolPermissionCard({
 
   const classNames = ['tool-permission-card'];
   if (consequential) classNames.push('tool-permission-card--consequential');
-  if (className) classNames.push(className);
 
   return (
     <div

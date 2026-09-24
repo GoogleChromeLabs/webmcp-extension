@@ -36,11 +36,20 @@ export function domainFor(url?: string): string {
   }
 }
 
-/** The favicon a tab reports, or one derived from its host. */
+/**
+ * The favicon a tab reports, or else the one Chrome has cached for the page,
+ * read through the extension's own `_favicon` endpoint (the `favicon`
+ * permission). That keeps the lookup inside the browser instead of sending
+ * the page's domain to a remote favicon service.
+ */
 export function faviconFor(url?: string, reported?: string): string {
   if (reported) return reported;
-  const host = domainFor(url);
-  return host !== 'New Tab' ? `https://www.google.com/s2/favicons?domain=${host}&sz=32` : '';
+  const chromeApi = getChrome();
+  if (!url || domainFor(url) === 'New Tab' || !chromeApi?.runtime?.getURL) return '';
+  const faviconUrl = new URL(chromeApi.runtime.getURL('/_favicon/'));
+  faviconUrl.searchParams.set('pageUrl', url);
+  faviconUrl.searchParams.set('size', '32');
+  return faviconUrl.toString();
 }
 
 /** A tab's display details, with a fallback favicon when the page has none. */
@@ -71,30 +80,16 @@ export async function getTabInfo(tabId: number): Promise<TabInfo | null> {
 }
 
 /**
- * The tab a caller means: the one it names, or the active one when it does not
- * name any. A turn always names its own tab, so it keeps talking to the page
- * it started on even after the user has moved on to another.
+ * Asks the page in `tabId` to report its tools. The report arrives later as a
+ * runtime message, which useActiveTabTools files under the tab.
  */
-async function resolveTabId(tabId?: number): Promise<number | undefined> {
-  if (tabId !== undefined) return tabId;
-  const chromeApi = getChrome();
-  if (!chromeApi?.tabs) return undefined;
-  const [tab] = await chromeApi.tabs.query({ active: true, currentWindow: true });
-  return tab?.id;
-}
-
-/**
- * Requests the tools list from `tabId`, or from the active tab.
- */
-export async function requestTabTools(tabId?: number): Promise<void> {
+export async function requestTabTools(tabId: number): Promise<void> {
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) return;
-  const targetTabId = await resolveTabId(tabId);
-  if (targetTabId === undefined) return;
 
   try {
-    const fromOrigins = await getAllFrameOrigins(targetTabId);
-    await chromeApi.tabs.sendMessage(targetTabId, { action: 'LIST_TOOLS', fromOrigins }, { frameId: 0 });
+    const fromOrigins = await getAllFrameOrigins(tabId);
+    await chromeApi.tabs.sendMessage(tabId, { action: 'LIST_TOOLS', fromOrigins }, { frameId: 0 });
   } catch {
     // The tab has no content script (e.g. chrome://, New Tab) or navigated away.
   }
@@ -103,9 +98,9 @@ export async function requestTabTools(tabId?: number): Promise<void> {
 /**
  * Executes a tool on the target Chrome tab/iframe.
  *
- * `tabId` is the tab the turn belongs to. Without it the tool would run
- * against whichever tab is in front when the call happens, which is not the
- * one that asked for it as soon as the user switches tabs mid-turn.
+ * `tabId` is the tab the turn belongs to, not whichever tab is in front: the
+ * user may switch tabs mid-turn, and the tool must still run on the page that
+ * asked for it.
  *
  * A tool can also open a tab of its own, and the flow then carries on there.
  * `onTabChanged` reports that, so the rest of the turn works with the page it
@@ -113,18 +108,15 @@ export async function requestTabTools(tabId?: number): Promise<void> {
  */
 export async function executeTabTool(
   name: string,
-  inputArgs: Record<string, unknown> | string,
-  frameId?: number,
-  tabId?: number,
+  inputArgs: Record<string, unknown>,
+  frameId: number,
+  tabId: number,
   options: { onTabChanged?: (tabId: number) => void } = {}
 ): Promise<unknown> {
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) throw new Error('No active tab available for tool execution.');
 
-  const currentTabId = await resolveTabId(tabId);
-  if (currentTabId === undefined) throw new Error('No active tab available for tool execution.');
-
-  let targetTabId = currentTabId;
+  let targetTabId = tabId;
 
   let toolsReady: () => void = () => {};
   const toolsPromise = new Promise<void>((resolve) => {
@@ -138,7 +130,7 @@ export async function executeTabTool(
 
   const listener = (msg: { type?: string; tools?: unknown }, sender: chrome.runtime.MessageSender) => {
     if (msg?.type === 'contentScriptReady' && sender.tab) {
-      if (sender.tab.id === currentTabId || sender.tab.openerTabId === currentTabId) {
+      if (sender.tab.id === tabId || sender.tab.openerTabId === tabId) {
         if (sender.tab.id !== undefined) {
           targetTabId = sender.tab.id;
         }
@@ -167,7 +159,7 @@ export async function executeTabTool(
     // A navigation was triggered. The result will be on the next document,
     // which may live in a new tab if the tool opened one.
     await raceWithTimeout(contentScriptReadyPromise, 2000);
-    if (targetTabId !== currentTabId) {
+    if (targetTabId !== tabId) {
       options.onTabChanged?.(targetTabId);
       void requestTabTools(targetTabId).catch(() => {});
     }
@@ -179,7 +171,7 @@ export async function executeTabTool(
       targetTabId,
       { action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT' },
       // The original frameId only makes sense in the original tab.
-      { frameId: targetTabId === currentTabId ? frameId : 0 },
+      { frameId: targetTabId === tabId ? frameId : 0 },
     );
   } finally {
     chromeApi.runtime.onMessage.removeListener(listener);

@@ -6,9 +6,10 @@
 /**
  * Remembers which tools the user has allowed to run without being asked again.
  *
- * A grant is scoped to one tool of one origin, so allowing `checkout_cart` on
- * `https://shop.example` says nothing about a tool of the same name on any
- * other site, nor about any other tool of that site.
+ * A grant is scoped to one tool of one origin in one tab's chat, so allowing
+ * `checkout_cart` on `https://shop.example` says nothing about a tool of the
+ * same name on any other site, about any other tool of that site, or about the
+ * same site in another tab.
  *
  * The grants live in memory only: they are gone when the panel closes, and
  * `clearSessionToolPermissions` drops them when a chat is reset. Nothing is
@@ -23,72 +24,41 @@ const grants = new Set<string>();
  * whatever characters a tool name holds, which a plain separator would not:
  * without it, `('https://a', 'b|c')` and `('https://a|b', 'c')` would collide.
  */
-function toolPermissionKey(origin: string, toolName: string, tabId?: number): string {
-  return tabId !== undefined
-    ? JSON.stringify([origin, toolName, tabId])
-    : JSON.stringify([origin, toolName]);
+function toolPermissionKey(origin: string, toolName: string, tabId: number): string {
+  return JSON.stringify([origin, toolName, tabId]);
 }
 
 /**
- * Whether the tool may run on this origin without asking.
+ * Whether the tool may run on this origin in this tab without asking.
  *
  * An empty origin is never granted: a grant that is not tied to a site could
  * be used by any site, so those calls keep prompting.
  */
-export function isToolAllowedForSession(origin: string, toolName: string, tabId?: number): boolean {
+export function isToolAllowedForSession(origin: string, toolName: string, tabId: number): boolean {
   if (!origin || !toolName) return false;
-  if (tabId !== undefined && grants.has(toolPermissionKey(origin, toolName, tabId))) {
-    return true;
-  }
-  return grants.has(toolPermissionKey(origin, toolName));
+  return grants.has(toolPermissionKey(origin, toolName, tabId));
 }
 
 /**
- * Lets the tool run on this origin for the rest of the session.
+ * Lets the tool run on this origin in this tab for the rest of the session.
  * Returns whether the grant was recorded, which it is not without an origin.
  */
-export function allowToolForSession(origin: string, toolName: string, tabId?: number): boolean {
+export function allowToolForSession(origin: string, toolName: string, tabId: number): boolean {
   if (!origin || !toolName) return false;
   grants.add(toolPermissionKey(origin, toolName, tabId));
   return true;
 }
 
-/** Takes back a single grant, so the tool prompts again. */
-export function revokeSessionToolPermission(origin: string, toolName: string, tabId?: number): void {
-  if (tabId !== undefined) {
-    grants.delete(toolPermissionKey(origin, toolName, tabId));
-  }
-  grants.delete(toolPermissionKey(origin, toolName));
-}
-
-/**
- * Takes back every grant, or every grant belonging to `tabId` (plus unscoped
- * grants) when a specific tab's chat is reset or closed.
- */
+/** Takes back every grant, or only the grants of `tabId` when its chat is reset or closed. */
 export function clearSessionToolPermissions(tabId?: number): void {
   if (tabId === undefined) {
     grants.clear();
     return;
   }
   for (const key of [...grants]) {
-    const parsed = JSON.parse(key) as [string, string, number?];
-    if (parsed[2] === undefined || parsed[2] === tabId) {
-      grants.delete(key);
-    }
+    const [, , grantTabId] = JSON.parse(key) as [string, string, number];
+    if (grantTabId === tabId) grants.delete(key);
   }
-}
-
-/** The grants held right now, for inspecting session state in tests. */
-export function listSessionToolPermissions(
-  tabId?: number
-): Array<{ origin: string; toolName: string; tabId?: number }> {
-  const results: Array<{ origin: string; toolName: string; tabId?: number }> = [];
-  for (const key of grants) {
-    const [origin, toolName, grantTabId] = JSON.parse(key) as [string, string, number?];
-    if (tabId !== undefined && grantTabId !== undefined && grantTabId !== tabId) continue;
-    results.push(grantTabId !== undefined ? { origin, toolName, tabId: grantTabId } : { origin, toolName });
-  }
-  return results;
 }
 
 /** Everything the permission rules need to know about one pending tool call. */
@@ -98,8 +68,8 @@ export interface ToolPermissionQuery {
   /** The origin of the top frame of the tab. */
   origin: string;
   toolName: string;
-  /** The tab whose chat session owns the grant, when scoped per tab. */
-  tabId?: number;
+  /** The tab whose chat session owns the grant. */
+  tabId: number;
   readOnlyHint?: boolean;
   /**
    * The page's `consequentialHint`: this call may do something that cannot be

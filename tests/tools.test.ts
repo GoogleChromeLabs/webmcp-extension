@@ -6,14 +6,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildTools } from '../server/tools.js';
+import { appendTurnMessages, buildTools, hasPendingToolCalls } from '../server/tools.js';
 
 test('buildTools declares the page tools, and leaves them without an execute', () => {
   const tools = buildTools([
     { name: 'book_table', description: 'Books a table', parameters: { type: 'object', properties: { size: { type: 'number' } } } },
-    // A page may send its schema as a string, or under the newer name.
-    { name: 'search', description: 'Searches', inputSchema: '{"type":"object","properties":{"q":{"type":"string"}}}' },
-    { name: 'broken', parameters: 'not json' },
+    // Only a missing `type` is filled in.
+    { name: 'search', description: 'Searches', parameters: { properties: { q: { type: 'string' } } } },
+    // A string is not a schema: the side panel parses schemas before sending.
+    { name: 'broken', parameters: '{"type":"object"}' as any },
     { name: 'bare' },
     // Nothing usable: no name at all.
     { description: 'Nameless' },
@@ -34,7 +35,7 @@ test('buildTools declares the page tools, and leaves them without an execute', (
     type: 'object',
     properties: { q: { type: 'string' } },
   });
-  // A schema that will not parse, and a tool that declared none at all, both
+  // A schema that is not an object, and a tool that declared none at all, both
   // fall back to an empty object rather than failing the whole turn.
   const empty = { type: 'object', properties: {} };
   assert.deepEqual((tools as any).broken.inputSchema.jsonSchema, empty);
@@ -64,4 +65,17 @@ test('buildTools handles null, non-array inputs, and non-object schemas graceful
     type: 'object',
     properties: { q: { type: 'string' } },
   });
+});
+
+test('hasPendingToolCalls is true only while the last assistant message waits on a tool call', () => {
+  const call = { type: 'tool-call', toolCallId: 'c1', toolName: 'search', input: {} };
+  assert.equal(hasPendingToolCalls([]), false);
+  assert.equal(hasPendingToolCalls([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]), false);
+  assert.equal(hasPendingToolCalls([{ role: 'assistant', content: [call] }]), true);
+
+  // Once answered, nothing is pending any more.
+  const answered = appendTurnMessages([{ role: 'assistant', content: [call] }], {
+    toolResponses: [{ functionResponse: { id: 'c1', name: 'search', response: { result: 'ok' } } }],
+  });
+  assert.equal(hasPendingToolCalls(answered), false);
 });

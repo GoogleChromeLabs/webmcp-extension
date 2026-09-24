@@ -17,5 +17,5 @@
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "types": ["chrome", "node"]
   },
-  "include": ["src/**/*", "tests/**/*", "extension/**/*"]
+  "include": ["src/**/*", "tests/**/*", "extension/**/*", "shared/**/*"]
 }

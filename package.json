@@ -18,7 +18,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "check:syntax": "for f in server/*.js scripts/*.js extension/*.js; do node --check \"$f\" || exit 1; done",
+    "check:syntax": "for f in server/*.js scripts/*.js; do node --check \"$f\" || exit 1; done",
     "build": "node scripts/build.js",
     "watch": "node scripts/build.js --watch",
     "dev": "npm run watch",

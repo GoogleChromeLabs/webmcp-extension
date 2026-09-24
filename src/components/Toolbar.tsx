@@ -10,7 +10,6 @@ export interface ToolbarProps {
   actionVariant?: ButtonVariant;
   onActionClick?: () => void;
   onSettingsClick?: () => void;
-  className?: string;
 }
 
 /**
@@ -21,10 +20,9 @@ export function Toolbar({
   actionVariant = 'live',
   onActionClick,
   onSettingsClick,
-  className = '',
 }: ToolbarProps) {
   return (
-    <div className={`toolbar ${className}`}>
+    <div className="toolbar">
       {onSettingsClick && (
         <button
           type="button"
@@ -43,4 +41,3 @@ export function Toolbar({
     </div>
   );
 }
-

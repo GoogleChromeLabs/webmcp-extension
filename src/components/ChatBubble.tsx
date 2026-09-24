@@ -17,7 +17,6 @@ export interface ChatBubbleProps {
   textProps?: TextInputProps;
   toolbarProps?: ToolbarProps;
   permissionProps?: AllowToolPermissionCardProps | null;
-  className?: string;
 }
 
 /**
@@ -27,20 +26,18 @@ export interface ChatBubbleProps {
  */
 export function ChatBubble({
   showTab = false,
-  tabProps = {},
+  tabProps,
   textProps = {},
   toolbarProps = {},
   permissionProps = null,
-  className = '',
 }: ChatBubbleProps) {
   const classNames = ['chat-bubble'];
   if (showTab) classNames.push('chat-bubble--with-tab');
   if (permissionProps) classNames.push('chat-bubble--permission');
-  if (className) classNames.push(className);
 
   return (
     <div className={classNames.join(' ')}>
-      {showTab && <AttachedTab {...tabProps} />}
+      {showTab && tabProps && <AttachedTab {...tabProps} />}
       {permissionProps ? (
         <AllowToolPermissionCard {...permissionProps} />
       ) : (
@@ -52,6 +49,3 @@ export function ChatBubble({
     </div>
   );
 }
-
-export default ChatBubble;
-

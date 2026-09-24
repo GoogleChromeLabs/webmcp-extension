@@ -7,6 +7,7 @@ import { getAllFrameOrigins } from './utils.js';
 
 // Allows users to open the side panel by clicking the action icon.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+chrome.action.setBadgeBackgroundColor({ color: '#0c7a92' });
 
 // Inject content script in all tabs first.
 chrome.runtime.onInstalled.addListener(async () => {
@@ -29,7 +30,6 @@ async function updateBadge(tabId) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id !== tabId) return;
   chrome.action.setBadgeText({ text: '', tabId });
-  chrome.action.setBadgeBackgroundColor({ color: '#0c7a92' });
   const fromOrigins = await getAllFrameOrigins(tab.id);
   const message = { action: 'LIST_TOOLS', fromOrigins };
   // Log rejections at debug level on tabs where content.js cannot run (e.g.
@@ -41,7 +41,7 @@ async function updateBadge(tabId) {
 }
 
 chrome.runtime.onMessage.addListener(({ action, tools }, { tab, frameId }, sendResponse) => {
-  if (action == 'INJECT_GET_FRAME_ID') {
+  if (action === 'INJECT_GET_FRAME_ID') {
     // `tab` is undefined for messages from the side panel, which has no tab.
     if (!tab?.id) {
       sendResponse();
@@ -56,7 +56,7 @@ chrome.runtime.onMessage.addListener(({ action, tools }, { tab, frameId }, sendR
       .finally(sendResponse);
     return true;
   }
-  if (action == 'GET_FRAME_ID') {
+  if (action === 'GET_FRAME_ID') {
     sendResponse(frameId);
     return;
   }

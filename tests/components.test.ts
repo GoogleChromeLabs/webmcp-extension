@@ -39,11 +39,9 @@ test('ButtonUI renders Play Arrow and Square Stop buttons with distinct accessib
   const stopHtml = renderToString(
     React.createElement(ButtonUI, {
       variant: 'stop',
-      pressed: true,
     })
   );
   assert.ok(stopHtml.includes('button-ui'));
-  assert.ok(stopHtml.includes('button-ui--pressed'));
   assert.ok(stopHtml.includes('aria-label="stop"'));
   assert.ok(stopHtml.includes('<svg'));
 });
@@ -115,25 +113,24 @@ test('ActionLog renders initiation, running, and completed states', () => {
         { id: 1, name: 'apply_filters', done: true },
         { id: 2, name: 'search_items', done: false },
       ],
-      defaultOpen: true,
     })
   );
   assert.ok(runningHtml.includes('Apply filters...'));
   assert.ok(runningHtml.includes('action-log__item-check'));
   assert.ok(runningHtml.includes('action-log__item-circle'));
 
-  // 3. Completed
+  // 3. Completed: collapsed until the user asks to see the steps
   const completedHtml = renderToString(
     React.createElement(ActionLog, {
       status: 'completed',
       activityLogs: [
         { id: 1, name: 'apply_filters', done: true },
       ],
-      defaultOpen: true,
     })
   );
   assert.ok(completedHtml.includes('Show thinking'));
-  assert.ok(completedHtml.includes('Apply filters'));
+  assert.ok(completedHtml.includes('aria-expanded="false"'));
+  assert.ok(!completedHtml.includes('action-log__item-label'));
 });
 
 test('AttachedTab renders domain and tools count label conditionally', () => {
@@ -142,17 +139,17 @@ test('AttachedTab renders domain and tools count label conditionally', () => {
       domain: 'example.com',
       toolsCountLabel: '3 tools',
       hasTools: true,
-      isOpen: true,
     })
   );
 
   assert.ok(openHtml.includes('example.com'));
   assert.ok(openHtml.includes('3 tools'));
-  assert.ok(openHtml.includes('attached-tab--open'));
+  assert.ok(openHtml.includes('actions-chip'));
 
   const noToolsHtml = renderToString(
     React.createElement(AttachedTab, {
       domain: 'example.com',
+      toolsCountLabel: '',
       hasTools: false,
     })
   );
@@ -164,7 +161,6 @@ test('ActionsChip renders label and automation icon', () => {
   const html = renderToString(
     React.createElement(ActionsChip, {
       label: '4 tools',
-      state: 'Closed',
     })
   );
 
@@ -185,7 +181,7 @@ test('TextInput and ChatBubble render cleanly', () => {
   const bubbleHtml = renderToString(
     React.createElement(ChatBubble, {
       showTab: true,
-      tabProps: { domain: 'example.com', toolsCountLabel: '2 tools' },
+      tabProps: { domain: 'example.com', toolsCountLabel: '2 tools', hasTools: true },
       textProps: { value: 'test', onChange: () => {} },
       toolbarProps: { actionVariant: 'send' },
     })
@@ -242,11 +238,10 @@ test('ActionLog renders aria-expanded and aria-controls for accessibility', () =
       activityLogs: [
         { id: 1, name: 'search_items', done: true },
       ],
-      defaultOpen: true,
     })
   );
 
-  assert.ok(html.includes('aria-expanded="true"'));
+  assert.ok(html.includes('aria-expanded="false"'));
   assert.ok(html.includes('aria-controls='));
 });
 
@@ -334,7 +329,7 @@ test('ChatBubble renders AllowToolPermissionCard when permissionProps is passed'
   const permissionBubbleHtml = renderToString(
     React.createElement(ChatBubble, {
       showTab: true,
-      tabProps: { domain: 'restaurant.com', toolsCountLabel: '1 tool' },
+      tabProps: { domain: 'restaurant.com', toolsCountLabel: '1 tool', hasTools: true },
       permissionProps: {
         toolName: 'create_reservation',
         toolDescription: 'Create dinner booking',
@@ -360,7 +355,6 @@ test('ActionLog renders Waiting for permission state with atom logo and header',
       activityLogs: [
         { id: 1, name: 'delete_account', done: false },
       ],
-      defaultOpen: true,
     })
   );
 
