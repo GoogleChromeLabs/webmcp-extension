@@ -6,7 +6,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'puppeteer-core';
-import { evaluate, waitForCondition } from './wait.js';
 import { createSmokeSession, smokeSkipReason, SmokeSessionContext } from './chromeHarness.js';
 import {
   clickOrThrow,
@@ -14,6 +13,8 @@ import {
   readExecutedTools,
   submitPromptInSidebar,
   waitForExecutedToolCount,
+  SELECTORS,
+  SIDEBAR_POLLING,
 } from './sidebarHelpers.js';
 import { NAMED_TOOLS } from './smokeServer.js';
 
@@ -24,6 +25,13 @@ const FLIGHT_CALL_ID = 'call_flights_1';
 const FLIGHTS_TOOL = NAMED_TOOLS.getFlights.name;
 /** How the side panel names `get_flights` of frame 0 for the model. */
 const ENCODED_FLIGHTS_TOOL = frame0ToolName(FLIGHTS_TOOL);
+
+declare global {
+  interface Window {
+    /** Every scrollIntoView() call the app made, recorded by installScrollIntoViewSpy. */
+    __scrollIntoViewCalls?: Array<{ isListEnd: boolean; overflowing: boolean }>;
+  }
+}
 
 /** Enough paragraphs to overflow the 520px-tall side panel. */
 const LONG_REPLY = Array.from(
@@ -42,21 +50,22 @@ const LONG_REPLY = Array.from(
  * animation is replaced: the target element and the call itself are the app's.
  */
 async function installScrollIntoViewSpy(sidebar: Page): Promise<void> {
-  await evaluate(sidebar, `(() => {
-      if (window.__scrollIntoViewCalls) return;
-      window.__scrollIntoViewCalls = [];
-      const original = Element.prototype.scrollIntoView;
-      Element.prototype.scrollIntoView = function (arg) {
-        const list = document.querySelector('.chat-card__messages');
-        window.__scrollIntoViewCalls.push({
-          isListEnd: Boolean(list) && list.lastElementChild === this,
-          overflowing: Boolean(list) && list.scrollHeight > list.clientHeight,
-        });
-        const options = typeof arg === 'object' && arg !== null ? { ...arg, behavior: 'instant' } : arg;
-        return original.call(this, options);
-      };
-    })()`
-  );
+  await sidebar.evaluate(() => {
+    if (window.__scrollIntoViewCalls) return;
+    const calls: NonNullable<Window['__scrollIntoViewCalls']> = [];
+    window.__scrollIntoViewCalls = calls;
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
+      const list = document.querySelector('.chat-card__messages');
+      calls.push({
+        isListEnd: list?.lastElementChild === this,
+        overflowing: list ? list.scrollHeight > list.clientHeight : false,
+      });
+      const options: boolean | ScrollIntoViewOptions | undefined =
+        typeof arg === 'object' && arg !== null ? { ...arg, behavior: 'instant' } : arg;
+      return original.call(this, options);
+    };
+  });
 }
 
 describe('Smoke — Chat & Read-Only Tool Execution', { skip: smokeSkipReason(), timeout: 60_000 }, () => {
@@ -80,14 +89,15 @@ describe('Smoke — Chat & Read-Only Tool Execution', { skip: smokeSkipReason(),
 
     await installScrollIntoViewSpy(sidebar);
     await submitPromptInSidebar(sidebar, PROMPT);
-    await waitForCondition(
-      () =>
-        evaluate<boolean>(sidebar, `Boolean(
-            document.querySelector('.user-bubble')?.textContent?.includes(${JSON.stringify(PROMPT)}) &&
+    // Wait for the prompt and the full streamed reply to render.
+    await sidebar.waitForFunction(
+      (prompt) =>
+        Boolean(
+          document.querySelector('.user-bubble')?.textContent?.includes(prompt) &&
             document.querySelector('.ai-response')?.textContent?.includes('Paragraph 12:')
-          )`
         ),
-      'the prompt and the full streamed AI reply to render'
+      SIDEBAR_POLLING,
+      PROMPT
     );
   });
 
@@ -100,9 +110,11 @@ describe('Smoke — Chat & Read-Only Tool Execution', { skip: smokeSkipReason(),
     const executed = await waitForExecutedToolCount(page, 1);
     assert.deepEqual(executed, [{ name: FLIGHTS_TOOL, args: { destination: DESTINATION } }]);
 
-    const cardShown = await evaluate<boolean>(sidebar, `Boolean(document.querySelector('.tool-permission-card'))`
+    assert.equal(
+      await sidebar.$(SELECTORS.permissionCard),
+      null,
+      'A read-only tool must not ask for permission'
     );
-    assert.equal(cardShown, false, 'A read-only tool must not ask for permission');
   });
 
   it('sends the tool result back to the model on the follow-up turn', async () => {
@@ -136,33 +148,20 @@ describe('Smoke — Chat & Read-Only Tool Execution', { skip: smokeSkipReason(),
     const { sidebar } = session;
     // The test never scrolls the list itself: every scroll comes from the app's
     // own scrollIntoView() calls, recorded by the spy installed before the prompt.
-    const metrics = await waitForCondition(
-      () =>
-        evaluate<{
-          overflowY: string;
-          scrollTop: number;
-          scrollHeight: number;
-          clientHeight: number;
-          appCallsOnOverflowingList: number;
-        } | null>(sidebar, `(() => {
-            const list = document.querySelector('.chat-card__messages');
-            if (!list) return null;
-            const calls = window.__scrollIntoViewCalls || [];
-            // Calls that targeted the end of the message list once it overflowed.
-            const appCallsOnOverflowingList = calls.filter((c) => c.isListEnd && c.overflowing).length;
-            const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
-            if (appCallsOnOverflowingList === 0 || !atBottom) return null;
-            return {
-              overflowY: window.getComputedStyle(list).overflowY,
-              scrollTop: list.scrollTop,
-              scrollHeight: list.scrollHeight,
-              clientHeight: list.clientHeight,
-              appCallsOnOverflowingList,
-            };
-          })()`
-        ),
-      'the app to scrollIntoView() the end of the overflowing .chat-card__messages list'
-    );
+    await sidebar.waitForFunction(() => {
+      const list = document.querySelector('.chat-card__messages');
+      if (!list) return false;
+      // Calls that targeted the end of the message list once it overflowed.
+      const appCalls = (window.__scrollIntoViewCalls ?? []).filter((c) => c.isListEnd && c.overflowing);
+      const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
+      return appCalls.length > 0 && atBottom;
+    }, SIDEBAR_POLLING);
+    const metrics = await sidebar.$eval('.chat-card__messages', (list) => ({
+      overflowY: window.getComputedStyle(list).overflowY,
+      scrollTop: list.scrollTop,
+      scrollHeight: list.scrollHeight,
+      clientHeight: list.clientHeight,
+    }));
 
     assert.equal(metrics.overflowY, 'auto', '.chat-card__messages must use overflow-y: auto to scroll');
     assert.ok(
@@ -176,14 +175,9 @@ describe('Smoke — Chat & Read-Only Tool Execution', { skip: smokeSkipReason(),
     const { sidebar } = session;
     await clickOrThrow(sidebar, 'button.action-log__header');
 
-    const labels = await waitForCondition(
-      () =>
-        evaluate<string[] | null>(sidebar, `(() => {
-            const items = [...document.querySelectorAll('.action-log__item-label')].map((el) => el.textContent?.trim() || '');
-            return items.length > 0 ? items : null;
-          })()`
-        ),
-      'ActionLog to expand and display executed tool labels'
+    await sidebar.waitForSelector('.action-log__item-label');
+    const labels = await sidebar.$$eval('.action-log__item-label', (items) =>
+      items.map((el) => el.textContent?.trim() || '')
     );
     assert.ok(
       labels.includes('Get flights'),

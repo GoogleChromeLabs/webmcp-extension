@@ -3,9 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import assert from 'node:assert/strict';
 import type { Page } from 'puppeteer-core';
-import { evaluate, waitForCondition } from './wait.js';
 import { TEST_PAGE_TOOL_COUNT } from './smokeServer.js';
+
+/** A tool call the test page recorded when its `execute` ran. */
+export interface ExecutedToolCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
+declare global {
+  interface Window {
+    /** Set by `/test-page`: every tool call its `execute` functions ran, in order. */
+    __executedTools?: ExecutedToolCall[];
+    /** Set by `/test-page` once all its tools are registered. */
+    __toolsRegistered?: boolean;
+  }
+}
 
 export interface PermissionCardSnapshot {
   title: string;
@@ -19,12 +34,6 @@ export interface PermissionCardSnapshot {
   warningText: string;
   inputHidden: boolean;
   actionLogWaiting: boolean;
-}
-
-/** A tool call the test page recorded when its `execute` ran. */
-export interface ExecutedToolCall {
-  name: string;
-  args: Record<string, unknown>;
 }
 
 /** Selectors shared by several smoke tests. */
@@ -42,10 +51,16 @@ export const SELECTORS = {
 } as const;
 
 /**
- * A browser-side expression resolving to the tab id of `/test-page`, for use
- * inside `chrome.*` calls made from the side panel.
+ * `waitForFunction` options for sidebar.html.
+ *
+ * sidebar.html runs in a background tab, because the test page has to be the
+ * active tab for the side panel to follow it. Background tabs never fire
+ * `requestAnimationFrame`, which is what `waitForFunction` polls with by
+ * default, so it would never resolve there. Poll on a timer instead.
+ * (`waitForSelector` is fine without this: it watches DOM mutations, as long
+ * as the `visible` / `hidden` options are not used.)
  */
-export const TEST_PAGE_TAB_ID_EXPR = `(await chrome.tabs.query({})).find(t => t.url && t.url.includes('/test-page'))?.id`;
+export const SIDEBAR_POLLING = { polling: 50 } as const;
 
 /**
  * Clicks the first element matching `selector` (and, when given, whose trimmed
@@ -54,61 +69,39 @@ export const TEST_PAGE_TAB_ID_EXPR = `(await chrome.tabs.query({})).find(t => t.
  *
  * This calls `element.click()` inside the page rather than Puppeteer's
  * `page.click()` / `locator().click()`. Those wait for the element to be
- * visible and send real mouse events, and sidebar.html runs in a background
- * tab (the test page has to be the active tab for the side panel to follow
- * it), so they time out there.
+ * visible and send real mouse events, which does not work in the background
+ * sidebar tab (see `SIDEBAR_POLLING`).
  */
-export async function clickOrThrow(
-  page: Page,
-  selector: string,
-  text?: string
-): Promise<void> {
-  await evaluate(page, `(() => {
-      const selector = ${JSON.stringify(selector)};
-      const text = ${JSON.stringify(text ?? null)};
-      const el = [...document.querySelectorAll(selector)].find(
+export async function clickOrThrow(page: Page, selector: string, text?: string): Promise<void> {
+  await page.evaluate(
+    (selector, text) => {
+      const el = [...document.querySelectorAll<HTMLElement>(selector)].find(
         (node) => text === null || node.textContent?.trim() === text
       );
       if (!el) {
-        throw new Error('clickOrThrow: no element matches ' + selector + (text === null ? '' : ' with text "' + text + '"'));
+        throw new Error(
+          `clickOrThrow: no element matches ${selector}${text === null ? '' : ` with text "${text}"`}`
+        );
       }
       el.click();
-    })()`
-  );
-}
-
-/** Waits until an element matching `selector` exists in the given page. */
-export async function waitForSelector(
-  page: Page,
-  selector: string,
-  description = `${selector} to appear`
-): Promise<void> {
-  await waitForCondition(
-    () => evaluate<boolean>(page, `Boolean(document.querySelector(${JSON.stringify(selector)}))`),
-    description
+    },
+    selector,
+    text ?? null
   );
 }
 
 /** Waits until the side panel's visible text contains `text`. */
-export async function waitForSidebarText(
-  sidebar: Page,
-  text: string,
-  description = `side panel to show "${text}"`
-): Promise<void> {
-  await waitForCondition(
-    () =>
-      evaluate<boolean>(sidebar, `document.body.innerText.includes(${JSON.stringify(text)})`
-      ),
-    description
+export async function waitForSidebarText(sidebar: Page, text: string): Promise<void> {
+  await sidebar.waitForFunction(
+    (text) => document.body.innerText.includes(text),
+    SIDEBAR_POLLING,
+    text
   );
 }
 
 /** Reads the tool calls the test page has executed so far, in order. */
-export async function readExecutedTools(
-  page: Page
-): Promise<ExecutedToolCall[]> {
-  return evaluate<ExecutedToolCall[]>(page, `window.__executedTools ?? []`
-  );
+export async function readExecutedTools(page: Page): Promise<ExecutedToolCall[]> {
+  return page.evaluate(() => window.__executedTools ?? []);
 }
 
 /** Waits until the test page has executed exactly `count` tool calls, and returns them. */
@@ -116,41 +109,38 @@ export async function waitForExecutedToolCount(
   page: Page,
   count: number
 ): Promise<ExecutedToolCall[]> {
-  return waitForCondition(async () => {
-    const calls = await readExecutedTools(page);
-    return calls.length === count ? calls : null;
-  }, `test page to have executed ${count} tool call(s)`);
+  await page.waitForFunction((count) => window.__executedTools?.length === count, {}, count);
+  return readExecutedTools(page);
 }
 
-export async function dismissConsentScreen(
-  sidebar: Page
-): Promise<void> {
-  await waitForCondition(async () => {
-    return await evaluate<boolean>(sidebar, `Boolean(document.querySelector('.consent-view') && document.body.innerText.includes('Got it'))`
-    );
-  }, 'ConsentScreen to mount inside sidebar.html');
-
+export async function dismissConsentScreen(sidebar: Page): Promise<void> {
+  await sidebar.waitForFunction(
+    () => Boolean(document.querySelector('.consent-view')) && document.body.innerText.includes('Got it'),
+    SIDEBAR_POLLING
+  );
   await clickOrThrow(sidebar, '.consent-view button', 'Got it');
-
-  await waitForCondition(async () => {
-    return await evaluate<boolean>(sidebar, `localStorage.getItem('agentConsent') === 'true' && Boolean(document.querySelector('#welcomeCard'))`
-    );
-  }, 'ConsentScreen dismissal to persist agentConsent and render #welcomeCard');
+  await sidebar.waitForFunction(
+    () =>
+      localStorage.getItem('agentConsent') === 'true' && Boolean(document.querySelector('#welcomeCard')),
+    SIDEBAR_POLLING
+  );
 }
 
+/** Waits until the AttachedTab chip reads "`expectedToolCount` tools". */
 export async function waitForAttachedTabTools(
   sidebar: Page,
   expectedToolCount = TEST_PAGE_TOOL_COUNT
 ): Promise<void> {
-  const expectedLabel = `${expectedToolCount} tools`;
-  await waitForCondition(async () => {
-    return await evaluate<boolean>(sidebar, `Boolean(
-        document.querySelector('.attached-tab') &&
-        // Not a plain includes(): "10 tools" must not match "110 tools".
-        /(^|\\D)${expectedToolCount} tools\\b/.test(document.querySelector('.actions-chip')?.textContent ?? '')
-      )`
-    );
-  }, `AttachedTab chip to read "${expectedLabel}"`);
+  await sidebar.waitForFunction(
+    (count) =>
+      Boolean(document.querySelector('.attached-tab')) &&
+      // Not a plain includes(): "10 tools" must not match "110 tools".
+      new RegExp(`(^|\\D)${count} tools\\b`).test(
+        document.querySelector('.actions-chip')?.textContent ?? ''
+      ),
+    SIDEBAR_POLLING,
+    expectedToolCount
+  );
 }
 
 /**
@@ -158,67 +148,56 @@ export async function waitForAttachedTabTools(
  *
  * The value is set through the native input setter plus an `input` event so
  * React sees the change; Puppeteer's `page.type()` would need keyboard focus,
- * which the background sidebar tab does not get (see `clickOrThrow`).
+ * which the background sidebar tab does not get (see `SIDEBAR_POLLING`).
  */
-export async function submitPromptInSidebar(
-  sidebar: Page,
-  promptText: string
-): Promise<void> {
-  await waitForSelector(sidebar, SELECTORS.composerInput, 'Composer text input to be present');
-  await evaluate(sidebar, `(() => {
-      const input = document.querySelector(${JSON.stringify(SELECTORS.composerInput)});
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-      setter.call(input, ${JSON.stringify(promptText)});
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    })()`
-  );
-  await waitForSelector(sidebar, SELECTORS.sendButton, 'Toolbar button to switch to aria-label="send"');
+export async function submitPromptInSidebar(sidebar: Page, promptText: string): Promise<void> {
+  const input = await sidebar.waitForSelector(SELECTORS.composerInput);
+  assert.ok(input, 'Composer text input is missing');
+  await input.evaluate((el, value) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, promptText);
+  await sidebar.waitForSelector(SELECTORS.sendButton);
   await clickOrThrow(sidebar, SELECTORS.sendButton);
 }
 
-export async function readPermissionCard(
-  sidebar: Page,
-  description: string
-): Promise<PermissionCardSnapshot> {
-  return waitForCondition(async () => {
-    return await evaluate<PermissionCardSnapshot | null>(sidebar, `(() => {
-        const card = document.querySelector(${JSON.stringify(SELECTORS.permissionCard)});
-        if (!card) return null;
-        const allow = card.querySelector(${JSON.stringify(SELECTORS.permissionAllow)});
-        const deny = card.querySelector(${JSON.stringify(SELECTORS.permissionDeny)});
-        const always = card.querySelector(${JSON.stringify(SELECTORS.permissionAlwaysAllow)});
-        return {
-          title: card.querySelector('.tool-permission-card__title')?.textContent?.trim() || '',
-          toolName: card.querySelector('.tool-permission-card__tool-name')?.textContent?.trim() || '',
-          hasAllow: Boolean(allow),
-          hasDeny: Boolean(deny),
-          denyText: deny?.textContent?.trim() || '',
-          alwaysAllowText: always?.textContent?.trim() || null,
-          isConsequential: card.classList.contains('tool-permission-card--consequential'),
-          warningText: card.querySelector('#permission-warning')?.textContent?.trim() || '',
-          inputHidden: !document.querySelector(${JSON.stringify(SELECTORS.composerInput)}),
-          actionLogWaiting: document.body.innerText.includes('Waiting for permission'),
-        };
-      })()`
-    );
-  }, description);
+/** Waits for the permission card and reads what it shows. */
+export async function readPermissionCard(sidebar: Page): Promise<PermissionCardSnapshot> {
+  const card = await sidebar.waitForSelector(SELECTORS.permissionCard);
+  assert.ok(card, 'Permission card is missing');
+  return card.evaluate((card, selectors) => {
+    const deny = card.querySelector(selectors.permissionDeny);
+    const always = card.querySelector(selectors.permissionAlwaysAllow);
+    return {
+      title: card.querySelector('.tool-permission-card__title')?.textContent?.trim() || '',
+      toolName: card.querySelector('.tool-permission-card__tool-name')?.textContent?.trim() || '',
+      hasAllow: Boolean(card.querySelector(selectors.permissionAllow)),
+      hasDeny: Boolean(deny),
+      denyText: deny?.textContent?.trim() || '',
+      alwaysAllowText: always?.textContent?.trim() || null,
+      isConsequential: card.classList.contains('tool-permission-card--consequential'),
+      warningText: card.querySelector('#permission-warning')?.textContent?.trim() || '',
+      inputHidden: !document.querySelector(selectors.composerInput),
+      actionLogWaiting: document.body.innerText.includes('Waiting for permission'),
+    };
+  }, SELECTORS);
 }
 
 /** Opens Settings from the toolbar and waits for the screen to mount. */
 export async function openSettings(sidebar: Page): Promise<void> {
   await clickOrThrow(sidebar, SELECTORS.settingsButton);
-  await waitForSelector(sidebar, SELECTORS.closeSettingsButton, 'SettingsScreen to open');
+  await sidebar.waitForSelector(SELECTORS.closeSettingsButton);
 }
 
 /** Closes Settings and waits for the chat view (composer) to come back. */
 export async function closeSettings(sidebar: Page): Promise<void> {
   await clickOrThrow(sidebar, SELECTORS.closeSettingsButton);
-  await waitForSelector(sidebar, SELECTORS.composerInput, 'chat view to return after closing settings');
+  await sidebar.waitForSelector(SELECTORS.composerInput);
 }
 
 /** The switch's `aria-checked` and the value persisted in localStorage. */
 export interface SwitchState {
-  ariaChecked: string | null;
+  ariaChecked: 'true' | 'false';
   stored: string | null;
 }
 
@@ -227,31 +206,21 @@ export function frame0ToolName(toolName: string): string {
   return `_0_${toolName}`;
 }
 
-/** Reads the Sensitive action alerts switch as the user (and the app) sees it. */
-async function readSensitiveAlertsSwitch(
-  sidebar: Page
-): Promise<SwitchState> {
-  return evaluate<SwitchState>(sidebar, `({
-      ariaChecked: document.querySelector(${JSON.stringify(SELECTORS.sensitiveAlertsSwitch)})?.getAttribute('aria-checked') ?? null,
-      stored: localStorage.getItem('sensitiveActionAlerts'),
-    })`
+/**
+ * Waits until the Sensitive action alerts switch shows `expected.ariaChecked`,
+ * then checks the value saved in localStorage. The app saves the setting while
+ * it computes the new state, before the switch re-renders, so it is already
+ * stored once the switch has flipped.
+ */
+export async function waitForSensitiveAlertsSwitch(sidebar: Page, expected: SwitchState): Promise<void> {
+  await sidebar.waitForFunction(
+    (selector, checked) => document.querySelector(selector)?.getAttribute('aria-checked') === checked,
+    SIDEBAR_POLLING,
+    SELECTORS.sensitiveAlertsSwitch,
+    expected.ariaChecked
   );
-}
-
-/** Waits until the Sensitive action alerts switch and its stored value both match `expected`. */
-export async function waitForSensitiveAlertsSwitch(
-  sidebar: Page,
-  expected: SwitchState
-): Promise<void> {
-  let last: SwitchState | null = null;
-  try {
-    await waitForCondition(async () => {
-      last = await readSensitiveAlertsSwitch(sidebar);
-      return last.ariaChecked === expected.ariaChecked && last.stored === expected.stored;
-    }, `Sensitive action alerts switch to be ${JSON.stringify(expected)}`);
-  } catch (err) {
-    throw new Error(`${(err as Error).message}; last seen ${JSON.stringify(last)}`);
-  }
+  const stored = await sidebar.evaluate(() => localStorage.getItem('sensitiveActionAlerts'));
+  assert.equal(stored, expected.stored, 'Unexpected sensitiveActionAlerts value in localStorage');
 }
 
 /**
@@ -265,12 +234,22 @@ export async function waitForToolRunOrPrompt(
   sidebar: Page,
   count: number
 ): Promise<'executed' | 'prompted'> {
-  return waitForCondition(async () => {
-    if ((await readExecutedTools(page)).length >= count) return 'executed' as const;
-    const prompted = await evaluate<boolean>(
-      sidebar,
-      `Boolean(document.querySelector(${JSON.stringify(SELECTORS.permissionCard)}))`
-    );
-    return prompted ? ('prompted' as const) : null;
-  }, `test page to execute ${count} tool call(s) or a permission card to appear`);
+  // Stops whichever wait loses the race.
+  const controller = new AbortController();
+  try {
+    return await Promise.race([
+      page
+        .waitForFunction(
+          (count) => (window.__executedTools?.length ?? 0) >= count,
+          { signal: controller.signal },
+          count
+        )
+        .then(() => 'executed' as const),
+      sidebar
+        .waitForSelector(SELECTORS.permissionCard, { signal: controller.signal })
+        .then(() => 'prompted' as const),
+    ]);
+  } finally {
+    controller.abort();
+  }
 }

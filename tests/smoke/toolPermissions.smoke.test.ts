@@ -5,7 +5,6 @@
 
 import { describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate, waitForCondition } from './wait.js';
 import { createSmokeSession, smokeSkipReason, SmokeSessionContext } from './chromeHarness.js';
 import { createSequentialSteps } from './sequentialSteps.js';
 import {
@@ -18,6 +17,7 @@ import {
   waitForSidebarText,
   waitForToolRunOrPrompt,
   SELECTORS,
+  SIDEBAR_POLLING,
 } from './sidebarHelpers.js';
 import { FunctionResponse, NAMED_TOOLS, SmokeServer } from './smokeServer.js';
 
@@ -47,13 +47,14 @@ function lastFunctionResponse(server: SmokeServer): FunctionResponse {
 /** Waits until the permission card is gone and the model's closing reply has rendered. */
 async function waitForTurnToFinish(session: SmokeSessionContext, reply: string): Promise<void> {
   const { sidebar } = session;
-  await waitForCondition(
-    () =>
-      evaluate<boolean>(sidebar, `!document.querySelector(${JSON.stringify(SELECTORS.permissionCard)}) &&
-         Boolean(document.querySelector(${JSON.stringify(SELECTORS.composerInput)})) &&
-         document.body.innerText.includes(${JSON.stringify(reply)})`
-      ),
-    `permission card to close and "${reply}" to render`
+  await sidebar.waitForFunction(
+    (selectors, reply) =>
+      !document.querySelector(selectors.permissionCard) &&
+      Boolean(document.querySelector(selectors.composerInput)) &&
+      document.body.innerText.includes(reply),
+    SIDEBAR_POLLING,
+    SELECTORS,
+    reply
   );
 }
 
@@ -84,10 +85,7 @@ describe('Smoke — Tool Permission Prompts', { skip: smokeSkipReason(), timeout
     enqueueBooking(server, 'call_book_1', 'WM101', reply);
 
     await submitPromptInSidebar(sidebar, 'Book flight WM101');
-    const card = await readPermissionCard(
-      sidebar,
-      'AllowToolPermissionCard to appear for write tool book_flight'
-    );
+    const card = await readPermissionCard(sidebar);
 
     assert.equal(card.title, 'Allow tool actions');
     assert.equal(card.toolName, bookFlight.name);
@@ -126,10 +124,7 @@ describe('Smoke — Tool Permission Prompts', { skip: smokeSkipReason(), timeout
     const grantReply = 'Seat reserved with confirmation CONF-WM102.';
     enqueueBooking(server, 'call_book_2', 'WM102', grantReply);
     await submitPromptInSidebar(sidebar, 'Book flight WM102');
-    const card = await readPermissionCard(
-      sidebar,
-      'AllowToolPermissionCard to appear again after a one-off Allow'
-    );
+    const card = await readPermissionCard(sidebar);
     assert.equal(card.toolName, bookFlight.name);
     assert.notEqual(card.alwaysAllowText, null, `Permission card has no ${SELECTORS.permissionAlwaysAllow} button`);
 
@@ -172,10 +167,7 @@ describe('Smoke — Tool Permission Prompts', { skip: smokeSkipReason(), timeout
     );
 
     await submitPromptInSidebar(sidebar, 'Delete my account');
-    const card = await readPermissionCard(
-      sidebar,
-      'Consequential AllowToolPermissionCard to appear for delete_account'
-    );
+    const card = await readPermissionCard(sidebar);
 
     assert.equal(card.title, 'This action may be irreversible');
     assert.equal(card.toolName, deleteAccount.name);

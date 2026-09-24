@@ -77,6 +77,8 @@ export interface SmokeServer {
   enqueueReplies: (...replies: ChatTurnReply[]) => void;
   /** Queued replies no `/api/chat` request has consumed yet. */
   pendingReplyCount: () => number;
+  /** Resolves once at least one `/api/chat/reset` request has arrived. */
+  waitForResetRequest: () => Promise<void>;
   close: () => Promise<void>;
 }
 
@@ -93,7 +95,6 @@ const TEST_PAGE_HTML = `<!DOCTYPE html>
       window.__executedTools = [];
       const recordCall = (name, args) => {
         window.__executedTools.push({ name, args });
-        return args;
       };
 
       await document.modelContext.registerTool({
@@ -109,9 +110,9 @@ const TEST_PAGE_HTML = `<!DOCTYPE html>
           consequentialHint: false,
         },
         execute: async (inputArgs) => {
-          const parsed = recordCall(${JSON.stringify(NAMED_TOOLS.getFlights.name)}, inputArgs);
+          recordCall(${JSON.stringify(NAMED_TOOLS.getFlights.name)}, inputArgs);
           return {
-            flights: [{ code: 'WM101', destination: parsed?.destination || 'Tokyo', price: '$650' }],
+            flights: [{ code: 'WM101', destination: inputArgs?.destination || 'Tokyo', price: '$650' }],
           };
         },
       });
@@ -129,11 +130,11 @@ const TEST_PAGE_HTML = `<!DOCTYPE html>
           consequentialHint: false,
         },
         execute: async (inputArgs) => {
-          const parsed = recordCall(${JSON.stringify(NAMED_TOOLS.bookFlight.name)}, inputArgs);
+          recordCall(${JSON.stringify(NAMED_TOOLS.bookFlight.name)}, inputArgs);
           return {
             status: 'confirmed',
-            confirmationCode: 'CONF-' + (parsed?.flightCode || 'WM101'),
-            flightCode: parsed?.flightCode || 'WM101',
+            confirmationCode: 'CONF-' + (inputArgs?.flightCode || 'WM101'),
+            flightCode: inputArgs?.flightCode || 'WM101',
           };
         },
       });
@@ -190,6 +191,7 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
   const chatRequests: ChatRequestBody[] = [];
   const resetRequests: ResetRequestBody[] = [];
   const replyQueue: ChatTurnReply[] = [];
+  const resetListeners: Array<() => void> = [];
 
   const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -232,6 +234,7 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
 
         if (req.url === '/api/chat/reset') {
           resetRequests.push(body);
+          resetListeners.splice(0).forEach((notify) => notify());
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true }));
           return;
@@ -288,6 +291,10 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
       replyQueue.push(...replies);
     },
     pendingReplyCount: () => replyQueue.length,
+    waitForResetRequest: () =>
+      resetRequests.length > 0
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => resetListeners.push(resolve)),
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

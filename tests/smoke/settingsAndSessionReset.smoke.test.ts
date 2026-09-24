@@ -5,7 +5,6 @@
 
 import { describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForCondition } from './wait.js';
 import { createSmokeSession, smokeSkipReason, SmokeSessionContext } from './chromeHarness.js';
 import { createSequentialSteps } from './sequentialSteps.js';
 import {
@@ -16,7 +15,6 @@ import {
   readExecutedTools,
   readPermissionCard,
   submitPromptInSidebar,
-  waitForSelector,
   waitForSensitiveAlertsSwitch,
   waitForSidebarText,
   waitForToolRunOrPrompt,
@@ -47,7 +45,7 @@ describe('Smoke — Settings & New Chat Reset', { skip: smokeSkipReason(), timeo
     const greeting = 'Ready to help with your travel plans.';
     server.enqueueReplies({ chatId: CHAT_ID, text: greeting });
     await submitPromptInSidebar(sidebar, 'Hello travel assistant');
-    await waitForSidebarText(sidebar, greeting, 'initial chat reply to render');
+    await waitForSidebarText(sidebar, greeting);
   });
 
   after(async () => {
@@ -103,10 +101,7 @@ describe('Smoke — Settings & New Chat Reset', { skip: smokeSkipReason(), timeo
     );
     await submitPromptInSidebar(sidebar, 'Delete my account');
 
-    const card = await readPermissionCard(
-      sidebar,
-      'consequential permission card to appear even with alerts off'
-    );
+    const card = await readPermissionCard(sidebar);
     assert.equal(card.isConsequential, true);
     assert.equal(card.toolName, deleteAccount.name);
 
@@ -141,10 +136,7 @@ describe('Smoke — Settings & New Chat Reset', { skip: smokeSkipReason(), timeo
     );
     await submitPromptInSidebar(sidebar, 'Book flight WM202');
 
-    const card = await readPermissionCard(
-      sidebar,
-      'write-tool permission card to return after alerts are turned back on'
-    );
+    const card = await readPermissionCard(sidebar);
     assert.equal(card.toolName, bookFlight.name);
     assert.equal(card.isConsequential, false);
 
@@ -162,13 +154,10 @@ describe('Smoke — Settings & New Chat Reset', { skip: smokeSkipReason(), timeo
     assert.equal(server.resetRequests.length, 0);
 
     await clickOrThrow(sidebar, SELECTORS.newChatButton);
-    await waitForSelector(sidebar, '#welcomeCard', '#welcomeCard to reappear after starting a new chat');
+    await sidebar.waitForSelector('#welcomeCard');
 
     // The reset POST is fire-and-forget, so wait for it rather than reading at once.
-    await waitForCondition(
-      async () => server.resetRequests.length > 0,
-      '/api/chat/reset to be called'
-    );
+    await server.waitForResetRequest();
     // Give a duplicate call time to arrive before asserting there was exactly one.
     // This wait can only hide a very late duplicate; it cannot make the test flaky.
     await new Promise((resolve) => setTimeout(resolve, 300));

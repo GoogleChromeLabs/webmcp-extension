@@ -11,7 +11,6 @@ import { execFileSync } from 'node:child_process';
 import esbuild from 'esbuild';
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { createSidebarBuildOptions } from '../../scripts/sidebarBuildConfig.js';
-import { evaluate, waitForCondition } from './wait.js';
 import { startSmokeServer, SmokeServer, TEST_PAGE_TOOL_COUNT } from './smokeServer.js';
 import { dismissConsentScreen, waitForAttachedTabTools } from './sidebarHelpers.js';
 
@@ -32,6 +31,9 @@ function findProjectRoot(startDir = import.meta.dirname): string {
 }
 
 const projectRoot = findProjectRoot();
+
+/** Timeout for every Puppeteer wait in the smoke tests. */
+const WAIT_TIMEOUT_MS = 10_000;
 
 /**
  * Finds a Chrome or Chromium binary, or returns null when none is installed.
@@ -223,17 +225,17 @@ export async function createSmokeSession(options?: {
     const launched = await launchChromeWithExtension(staged.extDir);
     browser = launched.browser;
 
+    // Puppeteer waits default to 30s; fail sooner so a broken step is quick to spot.
     const page = await browser.newPage();
+    page.setDefaultTimeout(WAIT_TIMEOUT_MS);
     await page.goto(`${server.baseUrl}/test-page`);
-    await page.waitForFunction('window.__toolsRegistered === true', { timeout: 5000 });
+    await page.waitForFunction(() => window.__toolsRegistered === true);
 
     const sidebar = await browser.newPage();
+    sidebar.setDefaultTimeout(WAIT_TIMEOUT_MS);
     await sidebar.setViewport({ width: 360, height: 520 });
     await sidebar.goto(`chrome-extension://${launched.extensionId}/sidebar.html`);
-    const runtimeId = await waitForCondition(
-      () => evaluate<string>(sidebar, `globalThis.chrome?.runtime?.id ?? ''`).then((id) => id || null),
-      'sidebar.html to load with chrome.runtime.id'
-    );
+    const runtimeId = await sidebar.evaluate(() => chrome.runtime.id);
     if (runtimeId !== launched.extensionId) {
       throw new Error(`sidebar.html runs as ${runtimeId}, expected ${launched.extensionId}`);
     }
