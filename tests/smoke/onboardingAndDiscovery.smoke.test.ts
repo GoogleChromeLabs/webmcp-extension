@@ -12,7 +12,7 @@ import {
   dismissConsentScreen,
   waitForAttachedTabTools,
   SIDEBAR_POLLING,
-} from './sidebarHelpers.js';
+} from './sidePanelHelpers.js';
 import { TEST_PAGE_TOOL_COUNT, TEST_PAGE_TOOLS } from './smokeServer.js';
 
 /**
@@ -34,12 +34,12 @@ describe('Smoke — Onboarding & Tool Discovery', { skip: smokeSkipReason(), tim
 
   step('loads the bundled sidebar stylesheet into the side panel', async () => {
     const { sidebar } = session;
-    // sidebar.css is emitted by the shared esbuild config from src/styles.css;
-    // it has to be linked by sidebar.html and actually carry rules.
+    // sidepanel/index.css is emitted by the shared esbuild config from
+    // src/sidepanel/styles.css; the page has to link it and it has to carry rules.
     await sidebar.waitForFunction(
       () =>
         [...document.styleSheets].some(
-          (sheet) => sheet.href?.endsWith('/sidebar.css') && sheet.cssRules.length > 0
+          (sheet) => sheet.href?.endsWith('/sidepanel/index.css') && sheet.cssRules.length > 0
         ),
       SIDEBAR_POLLING
     );

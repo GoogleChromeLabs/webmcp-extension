@@ -14,8 +14,23 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
-    "types": ["chrome", "node"]
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
+    "types": [
+      "chrome",
+      "node",
+      "webmcp-types"
+    ],
+    "checkJs": true
   },
-  "include": ["src/**/*", "tests/**/*", "extension/**/*"]
+  "include": [
+    "src/**/*",
+    "tests/**/*",
+    "shared/**/*",
+    "server/**/*",
+    "scripts/**/*"
+  ]
 }

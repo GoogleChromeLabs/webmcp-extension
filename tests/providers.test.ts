@@ -16,8 +16,6 @@ import { describeModel, loadProviders, parseModelSpec } from '../server/provider
 const ENV_NAMES = [
   'GEMINI_API_KEY',
   'GOOGLE_GENERATIVE_AI_API_KEY',
-  'API_KEY',
-  'apiKey',
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'GOOGLE_GENERATIVE_AI_BASE_URL',
@@ -25,7 +23,6 @@ const ENV_NAMES = [
   'ANTHROPIC_BASE_URL',
   'OLLAMA_HOST',
   'MODEL',
-  'model',
 ];
 
 /** Loads a configuration from `env` alone, with the shell out of the picture. */
@@ -130,11 +127,25 @@ test('loadProviders falls back to Gemini when .env names no model, or auto-selec
   assert.equal(describeModel(anthropicOnly), 'anthropic:claude-sonnet-4-5');
 });
 
-test('loadProviders still reads the older key names', () => {
-  // These are what .env files in the wild already say.
-  assert.deepEqual(load({ API_KEY: 'g-test' }).configured, ['google']);
-  assert.deepEqual(load({ apiKey: 'g-test' }).configured, ['google']);
+test('loadProviders reads the AI SDK key name for Google too', () => {
   assert.deepEqual(load({ GOOGLE_GENERATIVE_AI_API_KEY: 'g-test' }).configured, ['google']);
+});
+
+test('loadProviders ignores key names the README does not document', () => {
+  assert.deepEqual(load({ API_KEY: 'g-test' }).configured, []);
+  assert.deepEqual(load({ apiKey: 'g-test' }).configured, []);
+});
+
+test('a variable in the real environment wins over the same key in .env', () => {
+  const saved = process.env.MODEL;
+  process.env.MODEL = 'openai:gpt-4o';
+  try {
+    const config = loadProviders({ OPENAI_API_KEY: 'sk-test', MODEL: 'openai:gpt-4.1' });
+    assert.equal(describeModel(config), 'openai:gpt-4o');
+  } finally {
+    if (saved === undefined) delete process.env.MODEL;
+    else process.env.MODEL = saved;
+  }
 });
 
 test('loadProviders says what is wrong instead of failing later', () => {

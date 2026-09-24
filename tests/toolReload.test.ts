@@ -5,9 +5,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildToolDecls, decodeToolName } from '../src/services/toolEncoder.js';
-import { executeTabTool } from '../src/services/extensionBridge.js';
-import { WebMCPTool } from '../src/types/index.js';
+import { buildToolDecls, decodeToolName } from '../src/sidepanel/services/toolEncoder.js';
+import { executeTabTool } from '../src/sidepanel/services/extensionBridge.js';
+import { WebMCPTool } from '../src/sidepanel/types/index.js';
 
 test('toolEncoder - resolves same-name tools across multiple frames without collision', () => {
   const tools: WebMCPTool[] = [
@@ -99,7 +99,7 @@ test('executeTabTool recovers and fetches cross-document result when tool trigge
   } as typeof chrome;
 
   try {
-    const result = await executeTabTool('navigate_to_checkout', '{}', 0);
+    const result = await executeTabTool('navigate_to_checkout', {}, 0, 10);
     assert.deepEqual(result, { navigated: true, page: 'confirmation' });
     assert.equal(sentMessages.length, 2);
     assert.equal((sentMessages[0].message as { action: string }).action, 'EXECUTE_TOOL');

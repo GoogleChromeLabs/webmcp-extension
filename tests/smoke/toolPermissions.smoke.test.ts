@@ -18,7 +18,7 @@ import {
   waitForToolRunOrPrompt,
   SELECTORS,
   SIDEBAR_POLLING,
-} from './sidebarHelpers.js';
+} from './sidePanelHelpers.js';
 import { FunctionResponse, NAMED_TOOLS, SmokeServer } from './smokeServer.js';
 
 const CHAT_ID = 'smoke-perm-1';

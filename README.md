@@ -11,7 +11,7 @@ own agent.
 
 ## What it does
 
-- **Finds tools on the page.** Reads `document.modelContext.getTools()` and listens for `ontoolchange`, in the top page and in same-origin and cross-origin iframes. Tools that appear during a conversation (for example after a navigation) are picked up before the next model turn.
+- **Finds tools on the page.** Reads `document.modelContext.getTools()` and listens for `ontoolchange`, in the top page and in same-origin and cross-origin iframes. Tools that appear during a conversation (for example after a navigation) are picked up before the next model turn. A cross-origin iframe's tools only show up if the page embeds it with `allow="tools"` and the iframe registers them with `exposedTo` set to the page's origin.
 - **Chats with a model that can call those tools.** The side panel sends your prompt to a model. When the model calls a tool, the side panel asks for permission if needed, runs the tool on the page and sends the result back.
 - **Two backends:**
   - **Local server** (default): a small Node.js server that talks to Google, OpenAI, Anthropic or Ollama through the [AI SDK](https://ai-sdk.dev). API keys stay on the local server.
@@ -78,8 +78,9 @@ MODEL=google:gemini-3.6-flash
 # Optional settings. Remove the leading "#" to use one.
 # Comments must be on their own line, not after a value.
 
-# Port of the model server.
+# Port and address of the model server.
 # PORT=3000
+# HOST=127.0.0.1
 
 # Auth token. Created and saved for you if left out.
 # WEBMCP_AUTH_TOKEN=your_secure_auth_token_here
@@ -90,6 +91,9 @@ MODEL=google:gemini-3.6-flash
 # Set to 1 to keep request/response bodies out of the log dashboard.
 # WEBMCP_LOG_REDACT_BODIES=1
 ```
+
+A variable set in your shell wins over the same key in `.env`, so
+`PORT=4000 npm run server` works without editing the file.
 
 ### 2. Install, start the server, and build
 
@@ -126,6 +130,7 @@ MODEL=ollama:llama3.2
 ```
 
 - A name without a prefix is read as a Google model, so `MODEL=gemini-3.6-flash` still works.
+- For Google, `GOOGLE_GENERATIVE_AI_API_KEY` (the AI SDK's own name) works as well as `GEMINI_API_KEY`.
 - A provider only works if its API key is set. If it is missing, the server says so when it starts. Ollama runs on your machine and needs no key.
 - Restart the server after changing `MODEL`.
 - The side panel only picks *on-device* or *server*. It never picks the server's model, so keys, cost and model choice stay on the server.
@@ -148,8 +153,8 @@ through `openai` with `OPENAI_BASE_URL`.
 ## How the server is protected
 
 - Every `/api/*` request must come from a `chrome-extension://` origin and carry the shared `WEBMCP_AUTH_TOKEN`. The token is compared in constant time, and a server with no token rejects every request.
-- The token is built into `sidebar.js`. It keeps web pages and other local programs away from the server, but anyone with the built extension can read it, so treat it as an access key, not a secret.
-- The server keeps chat history in memory (up to 100 chats). The side panel sends only the new prompt or tool results each turn.
+- The token is built into the side panel bundle (`dist/sidepanel/index.js`). It keeps web pages and other local programs away from the server, but anyone with the built extension can read it, so treat it as an access key, not a secret.
+- The server keeps chat history in memory (up to 100 chats). The side panel sends only the new prompt or tool results each turn. If the server restarts mid-chat, it answers `409` and the side panel asks you to start a new chat.
 - The server never runs tools itself. Each model turn stops at the tool call, and the side panel asks for permission and runs the tool on the page.
 
 ---
@@ -195,26 +200,30 @@ CHROME_BIN=$(npx @puppeteer/browsers install chrome@stable --format "{{path}}") 
 ```
 webmcp-extension/
 ├── .env               # API key, MODEL, WEBMCP_AUTH_TOKEN
-├── scripts/           # Build scripts (bundle the side panel, inject the auth token)
-├── server/            # Node.js model server
+├── public/            # Copied into dist/ as is
+│   ├── manifest.json  # Manifest V3
+│   └── icons/
+├── src/               # The extension (TypeScript, bundled by esbuild)
+│   ├── background.ts  # Service worker: tab tracking, tool count badge
+│   ├── content.ts     # Content script: talks to document.modelContext on the page
+│   ├── frameOrigins.ts # Lists the origins of a tab's frames
+│   └── sidepanel/     # React side panel
+│       ├── index.html
+│       ├── index.tsx
+│       ├── App.tsx
+│       ├── components/ # UI parts (chat bubbles, permission card, switches, ...)
+│       ├── screens/   # Consent and settings screens
+│       ├── services/  # Server, on-device model and extension bridges; permissions; tool results
+│       └── hooks/     # Active tab, its tools, and the agent loop
+├── server/            # Node.js model server (plain JS with JSDoc types, no build step)
 │   ├── server.js      # Chat API and log dashboard (port 3000)
 │   ├── providers.js   # Reads MODEL and the provider keys
-│   ├── tools.js       # Turns page tools into model tool declarations
-│   ├── security.js    # Origin, CORS and token checks
+│   ├── tools.js       # Page tools as model tools, and the chat history each turn adds to
+│   ├── security.js    # .env loading, origin, CORS and token checks
 │   └── logs.html      # Log dashboard page
-├── extension/         # Manifest V3 files
-│   ├── manifest.json
-│   ├── sidebar.html   # Side panel page
-│   ├── background.js  # Service worker: tab tracking, tool count badge
-│   ├── content.js     # Talks to document.modelContext on the page
-│   └── utils.js       # Navigation and iframe origin helpers
-├── src/               # React side panel
-│   ├── components/    # UI parts (chat bubbles, permission card, switches, ...)
-│   ├── screens/       # Consent and settings screens
-│   ├── services/      # Server, on-device model and extension bridges; permissions
-│   ├── hooks/         # Active tab, its tools, and the agent loop
-│   ├── App.tsx
-│   └── index.tsx
+├── shared/            # Code used by both the server and the side panel
+│   └── systemPrompt.js # The system prompt both backends give the model
+├── scripts/           # Build: bundles src/, copies public/, injects the auth token
 └── tests/             # Unit tests, and smoke tests in tests/smoke/
 ```
 

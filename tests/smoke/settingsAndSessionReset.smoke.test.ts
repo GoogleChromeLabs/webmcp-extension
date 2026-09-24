@@ -19,7 +19,7 @@ import {
   waitForSidebarText,
   waitForToolRunOrPrompt,
   SELECTORS,
-} from './sidebarHelpers.js';
+} from './sidePanelHelpers.js';
 import { NAMED_TOOLS } from './smokeServer.js';
 
 const CHAT_ID = 'smoke-reset-1';

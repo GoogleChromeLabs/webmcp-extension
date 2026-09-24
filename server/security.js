@@ -8,8 +8,12 @@ import crypto, { randomUUID } from 'node:crypto';
 
 /**
  * Loads key-value pairs from a plain .env file.
+ *
+ * @param {string} filePath
+ * @returns {Record<string, string>}
  */
 export function loadDotEnv(filePath) {
+  /** @type {Record<string, string>} */
   const envVars = {};
   if (!fs.existsSync(filePath)) return envVars;
   try {
@@ -32,9 +36,25 @@ export function loadDotEnv(filePath) {
       }
     }
   } catch (e) {
-    console.warn('Could not load .env file:', e.message);
+    console.warn('Could not load .env file:', e instanceof Error ? e.message : String(e));
   }
   return envVars;
+}
+
+/**
+ * Reads one setting. A variable set in the real environment wins over the
+ * same key in `.env`, the usual dotenv rule, so a one-off
+ * `PORT=4000 npm run server` works without editing the file.
+ *
+ * @param {Record<string, string>} env Values loaded from `.env`.
+ * @param {string} name
+ * @returns {string | null} The trimmed value, or null when unset or blank.
+ */
+export function getEnv(env, name) {
+  for (const raw of [process.env[name], env[name]]) {
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  }
+  return null;
 }
 
 /**
@@ -45,11 +65,7 @@ export function loadDotEnv(filePath) {
  * @returns {string}
  */
 export function ensureAuthToken(env, envPath) {
-  let token =
-    env.WEBMCP_AUTH_TOKEN ||
-    env.AUTH_TOKEN ||
-    process.env.WEBMCP_AUTH_TOKEN ||
-    process.env.AUTH_TOKEN;
+  let token = getEnv(env, 'WEBMCP_AUTH_TOKEN');
 
   if (!token) {
     token = randomUUID();
@@ -63,7 +79,7 @@ export function ensureAuthToken(env, envPath) {
       env.WEBMCP_AUTH_TOKEN = token;
       console.log('🔐 Generated and saved new WEBMCP_AUTH_TOKEN in .env');
     } catch (e) {
-      console.warn('Could not persist WEBMCP_AUTH_TOKEN in .env:', e.message);
+      console.warn('Could not persist WEBMCP_AUTH_TOKEN in .env:', e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -283,9 +299,4 @@ export function authorizeLogsRequest({ headers = {}, queryToken = null }, expect
   }
 
   return { authorized: false, viaSession: false };
-}
-
-/** Test-only helper to reset in-memory session state. */
-export function __clearLogsSessions() {
-  logsSessions.clear();
 }

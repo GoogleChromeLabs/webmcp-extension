@@ -5,8 +5,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildToolDecls, decodeToolName } from '../src/services/toolEncoder.js';
-import { WebMCPTool } from '../src/types/index.js';
+import { buildToolDecls, decodeToolName } from '../src/sidepanel/services/toolEncoder.js';
+import { WebMCPTool } from '../src/sidepanel/types/index.js';
 
 test('buildToolDecls encodes tool names with frameIDs', () => {
   const mockTools: WebMCPTool[] = [

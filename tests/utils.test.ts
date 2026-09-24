@@ -5,7 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getAllFrameOrigins } from '../extension/utils.js';
+import { getAllFrameOrigins } from '../src/frameOrigins.js';
 
 test('getAllFrameOrigins returns empty array when webNavigation is unavailable', async () => {
   const origins = await getAllFrameOrigins(123);

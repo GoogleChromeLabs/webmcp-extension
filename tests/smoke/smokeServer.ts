@@ -61,6 +61,8 @@ export interface ChatRequestBody {
   message?: string;
   chatId?: string;
   toolResponses?: Array<{ functionResponse: FunctionResponse }>;
+  /** The tools the side panel declared to the model for this turn. */
+  tools?: Array<{ name: string; description: string }>;
   [key: string]: unknown;
 }
 
@@ -72,6 +74,8 @@ export interface ResetRequestBody {
 
 export interface SmokeServer {
   baseUrl: string;
+  /** Same handler on another port, so pages loaded from it are cross-origin to `baseUrl`. */
+  frameBaseUrl: string;
   chatRequests: ChatRequestBody[];
   resetRequests: ResetRequestBody[];
   enqueueReplies: (...replies: ChatTurnReply[]) => void;
@@ -179,11 +183,54 @@ const TEST_PAGE_HTML = `<!DOCTYPE html>
   </body>
 </html>`;
 
+/** The tool registered inside the cross-origin iframe of `/frame-host`. */
+export const FRAME_TOOL = {
+  name: 'frame_echo',
+  description: 'Echo text back from inside an embedded frame',
+} as const satisfies TestPageTool;
+
+/** A page with no tools of its own, embedding `/frame-tool` from another origin. */
+function frameHostHtml(frameBaseUrl: string): string {
+  return `<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8" /><title>WebMCP Smoke Test Frame Host</title></head>
+  <body>
+    <h1>WebMCP Smoke Test Frame Host</h1>
+    <!-- Cross-origin frames may only register tools when allowed to by permissions policy. -->
+    <iframe src="${frameBaseUrl}/frame-tool" allow="tools" title="Embedded tool frame"></iframe>
+  </body>
+</html>`;
+}
+
+const FRAME_TOOL_HTML = `<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8" /><title>WebMCP Smoke Test Frame Tool</title></head>
+  <body>
+    <script type="module">
+      window.__executedTools = [];
+      await document.modelContext.registerTool({
+        name: ${JSON.stringify(FRAME_TOOL.name)},
+        description: ${JSON.stringify(FRAME_TOOL.description)},
+        inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+        annotations: { readOnlyHint: true, untrustedContentHint: false, consequentialHint: false },
+        execute: async (inputArgs) => {
+          window.__executedTools.push({ name: ${JSON.stringify(FRAME_TOOL.name)}, args: inputArgs });
+          return { echoed: inputArgs?.text ?? '', from: location.origin };
+        },
+      // A cross-origin tool is only listed to the origins it is exposed to.
+      }, { exposedTo: [location.ancestorOrigins[0]] });
+      window.__toolsRegistered = true;
+    </script>
+  </body>
+</html>`;
+
 /**
  * Starts a local HTTP server that:
  * 1. Serves a test web page at `/test-page` with `document.modelContext` exposing
  *    read-only, write, and consequential WebMCP tools.
- * 2. Implements `/api/chat` (NDJSON streaming) and `/api/chat/reset` with
+ * 2. Serves `/frame-host`, which embeds `/frame-tool` from a second port, so
+ *    its one tool lives in a cross-origin iframe.
+ * 3. Implements `/api/chat` (NDJSON streaming) and `/api/chat/reset` with
  *    `X-WebMCP-Auth` header validation so the extension side panel can make real
  *    network calls.
  */
@@ -193,7 +240,8 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
   const replyQueue: ChatTurnReply[] = [];
   const resetListeners: Array<() => void> = [];
 
-  const server = http.createServer((req, res) => {
+  let frameBaseUrl = '';
+  const handler: http.RequestListener = (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-WebMCP-Auth');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -204,9 +252,15 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
       return;
     }
 
-    if (req.method === 'GET' && req.url === '/test-page') {
+    const pages: Record<string, () => string> = {
+      '/test-page': () => TEST_PAGE_HTML,
+      '/frame-host': () => frameHostHtml(frameBaseUrl),
+      '/frame-tool': () => FRAME_TOOL_HTML,
+    };
+    const page = req.method === 'GET' && req.url ? pages[req.url] : undefined;
+    if (page) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(TEST_PAGE_HTML);
+      res.end(page());
       return;
     }
 
@@ -249,12 +303,11 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
 
         res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
         const streamParts = nextReply.textChunks || (nextReply.text ? [nextReply.text] : []);
-        let streamedText = '';
+        // Like the real server: each line carries only the new piece of text.
         for (const chunk of streamParts) {
-          streamedText += chunk;
-          res.write(JSON.stringify({ text: streamedText }) + '\n');
+          res.write(JSON.stringify({ delta: chunk }) + '\n');
         }
-        const finalText = nextReply.text ?? streamedText;
+        const finalText = nextReply.text ?? streamParts.join('');
         res.write(
           JSON.stringify({
             done: true,
@@ -274,17 +327,36 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
 
     res.writeHead(404);
     res.end('Not Found');
-  });
+  };
 
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address();
-  if (!address || typeof address !== 'object') {
-    server.close();
-    throw new Error(`Smoke server did not report a TCP address (got ${String(address)})`);
+  const server = http.createServer(handler);
+  const frameServer = http.createServer(handler);
+  const listen = async (srv: http.Server): Promise<string> => {
+    await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', () => resolve()));
+    const address = srv.address();
+    if (!address || typeof address !== 'object') {
+      throw new Error(`Smoke server did not report a TCP address (got ${String(address)})`);
+    }
+    return `http://127.0.0.1:${address.port}`;
+  };
+  const closeServer = (srv: http.Server) =>
+    new Promise<void>((resolve) => {
+      srv.closeAllConnections();
+      srv.close(() => resolve());
+    });
+
+  let baseUrl: string;
+  try {
+    baseUrl = await listen(server);
+    frameBaseUrl = await listen(frameServer);
+  } catch (err) {
+    await Promise.all([closeServer(server), closeServer(frameServer)]);
+    throw err;
   }
 
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl,
+    frameBaseUrl,
     chatRequests,
     resetRequests,
     enqueueReplies: (...replies: ChatTurnReply[]) => {
@@ -295,10 +367,8 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
       resetRequests.length > 0
         ? Promise.resolve()
         : new Promise<void>((resolve) => resetListeners.push(resolve)),
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.closeAllConnections();
-        server.close(() => resolve());
-      }),
+    close: async () => {
+      await Promise.all([closeServer(server), closeServer(frameServer)]);
+    },
   };
 }

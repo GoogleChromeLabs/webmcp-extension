@@ -15,12 +15,10 @@ import {
   hasValidLogsSession,
   buildLogsSessionCookie,
   LOGS_SESSION_COOKIE,
-  __clearLogsSessions,
 } from '../server/security.js';
 import {
   streamChat,
-  getAuthToken,
-} from '../src/services/backendBridge.js';
+} from '../src/sidepanel/services/backendBridge.js';
 
 test('security - isAllowedOrigin rejects untrusted web origins for /api endpoints', () => {
   assert.equal(isAllowedOrigin('https://evil.com', '/api/chat'), false);
@@ -123,7 +121,6 @@ test('security - parseCookies handles absent, malformed and multi-value headers'
 });
 
 test('security - authorizeLogsRequest requires a token and then accepts the issued session', () => {
-  __clearLogsSessions();
   const secret = 'logs-dashboard-secret';
 
   // No credentials at all -> rejected (this is the local-process bypass).
@@ -174,7 +171,6 @@ test('security - log session cookie is HttpOnly, SameSite=Strict and scoped to /
 });
 
 test('security - expired log sessions are rejected', () => {
-  __clearLogsSessions();
   const sessionId = createLogsSession();
   const cookieHeader = `${LOGS_SESSION_COOKIE}=${sessionId}`;
 
@@ -221,7 +217,7 @@ test('security - log dashboard renders payloads without innerHTML or inline hand
 
   // The server substitutes this placeholder with a per-response nonce.
   assert.ok(
-    dashboard.includes('<script nonce="__CSP_NONCE__">'),
+    /<script [^>]*nonce="__CSP_NONCE__">/.test(dashboard),
     'logs.html script tag must carry the CSP nonce placeholder'
   );
 });
@@ -233,7 +229,6 @@ test('security - backendBridge includes X-WebMCP-Auth header when auth token is 
 
   try {
     process.env.WEBMCP_AUTH_TOKEN = 'unit-test-secret-token';
-    assert.equal(getAuthToken(), 'unit-test-secret-token');
 
     globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
       capturedHeaders = new Headers(init?.headers);

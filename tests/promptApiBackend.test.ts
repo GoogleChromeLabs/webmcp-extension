@@ -15,10 +15,10 @@ import {
   resetOnDeviceChat,
   sendOnDeviceChat,
   setOnDeviceModelUi,
-} from '../src/services/promptApiBackend.js';
-import { getSpotlighting, resetChatSession, sendChatTurn } from '../src/services/chatBridge.js';
-import { applySpotlighting } from '../src/hooks/useAgentSession.js';
-import { buildToolDecls } from '../src/services/toolEncoder.js';
+} from '../src/sidepanel/services/promptApiBackend.js';
+import { endAllChats, endChat, getSpotlighting, sendChatTurn } from '../src/sidepanel/services/chatBridge.js';
+import { applySpotlighting } from '../src/sidepanel/services/toolResults.js';
+import { buildToolDecls } from '../src/sidepanel/services/toolEncoder.js';
 
 Object.defineProperty(globalThis, 'navigator', {
   value: { language: 'en-US', languages: ['en-US'], userActivation: { isActive: true } },
@@ -852,7 +852,7 @@ test('chatBridge routes a turn to the on-device model, and to the server otherwi
     assert.deepEqual(calls, ['http://localhost:3000/api/chat']);
 
     // Resetting the on-device conversation ends its session.
-    resetChatSession({ onDevice: true });
+    endAllChats({ onDevice: true });
     assert.equal(stub.destroyed, 1);
   } finally {
     uninstallPromptApiStub();
@@ -869,12 +869,7 @@ test('resetting one tab’s chat leaves the on-device session another tab is hol
 
     // A second tab resetting its own conversation, which was never the one
     // loaded, must not destroy the session this one is using.
-    resetChatSession({ chatId: 'a-conversation-from-another-tab', onDevice: true });
-    assert.equal(stub.destroyed, 0);
-
-    // Another tab pressing "new chat" before having a conversation (chatId: undefined)
-    // must also not touch the live session.
-    resetChatSession({ chatId: undefined, onDevice: true });
+    endChat('a-conversation-from-another-tab', { onDevice: true });
     assert.equal(stub.destroyed, 0);
 
     // ...and the live conversation carries on in the same session.
@@ -884,7 +879,7 @@ test('resetting one tab’s chat leaves the on-device session another tab is hol
     assert.equal(stub.creates.length, 1);
 
     // Naming the conversation that is loaded does end it.
-    resetChatSession({ chatId: live.chatId, onDevice: true });
+    endChat(live.chatId!, { onDevice: true });
     assert.equal(stub.destroyed, 1);
   } finally {
     uninstallPromptApiStub();
@@ -919,7 +914,7 @@ test('resetting active on-device chat does not leak or replay history if chatId 
     assert.ok(a.chatId);
 
     // Reset tab a's conversation while it is the active on-device session.
-    resetChatSession({ chatId: a.chatId, onDevice: true });
+    endChat(a.chatId!, { onDevice: true });
 
     // If a turn is sent with the same chatId or another message, it should start fresh without replaying history.
     await sendChatTurn({ message: 'What is my secret code?', tools: [], chatId: a.chatId }, { onDevice: true });
@@ -980,11 +975,11 @@ test('resetting the active tab preserves the spotlighting fence while another ta
     assert.equal(getSpotlightFence(), initialFence);
 
     // Resetting Tab B (currently active) must NOT wipe the fence needed by Tab A's saved history.
-    resetChatSession({ chatId: b.chatId, onDevice: true });
+    endChat(b.chatId!, { onDevice: true });
     assert.equal(getSpotlightFence(), initialFence);
 
     // Once Tab A is also reset and no conversations remain, the next conversation gets a fresh fence.
-    resetChatSession({ chatId: a.chatId, onDevice: true });
+    endChat(a.chatId!, { onDevice: true });
     const freshFence = getSpotlightFence();
     assert.notEqual(freshFence, initialFence);
   } finally {

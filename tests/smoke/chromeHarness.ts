@@ -10,20 +10,20 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import esbuild from 'esbuild';
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
-import { createSidebarBuildOptions } from '../../scripts/sidebarBuildConfig.js';
+import { copyStaticFiles, createBuildOptions } from '../../scripts/buildConfig.js';
 import { startSmokeServer, SmokeServer, TEST_PAGE_TOOL_COUNT } from './smokeServer.js';
-import { dismissConsentScreen, waitForAttachedTabTools } from './sidebarHelpers.js';
+import { dismissConsentScreen, waitForAttachedTabTools } from './sidePanelHelpers.js';
 
 function findProjectRoot(startDir = import.meta.dirname): string {
   let current = startDir;
   while (true) {
-    if (fs.existsSync(path.join(current, 'extension/manifest.json'))) {
+    if (fs.existsSync(path.join(current, 'public/manifest.json'))) {
       return current;
     }
     const parent = path.dirname(current);
     if (parent === current) {
       throw new Error(
-        `Could not locate project root containing extension/manifest.json from ${startDir}`
+        `Could not locate project root containing public/manifest.json from ${startDir}`
       );
     }
     current = parent;
@@ -117,10 +117,11 @@ interface StagedExtension {
  */
 async function buildStagedExtension(serverUrl: string, authToken: string): Promise<StagedExtension> {
   const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webmcp-smoke-ext-'));
-  fs.cpSync(path.join(projectRoot, 'extension'), extDir, { recursive: true });
-
-  await esbuild.build(
-    createSidebarBuildOptions({ rootDir: projectRoot, outDir: extDir, authToken, serverUrl })
+  copyStaticFiles(projectRoot, extDir);
+  await Promise.all(
+    createBuildOptions({ rootDir: projectRoot, outDir: extDir, authToken, serverUrl }).map((options) =>
+      esbuild.build(options)
+    )
   );
 
   return {
@@ -181,12 +182,23 @@ async function launchChromeWithExtension(
   }
 }
 
+/**
+ * Pages a smoke session can open, with the path of the frame that registers
+ * their tools and how many tools that frame registers.
+ */
+const TEST_PAGES = {
+  '/test-page': { toolFramePath: '/test-page', toolCount: TEST_PAGE_TOOL_COUNT },
+  '/frame-host': { toolFramePath: '/frame-tool', toolCount: 1 },
+} as const;
+
+export type TestPagePath = keyof typeof TEST_PAGES;
+
 export interface SmokeSessionContext {
   server: SmokeServer;
   browser: Browser;
-  /** The `/test-page` tab exposing the WebMCP tools. */
+  /** The tab exposing the WebMCP tools (`/test-page` unless another page was asked for). */
   page: Page;
-  /** The extension's `sidebar.html`, sized like the side panel. */
+  /** The extension's `sidepanel/index.html`, sized like the side panel. */
   sidebar: Page;
   close: () => Promise<void>;
 }
@@ -195,14 +207,18 @@ export interface SmokeSessionContext {
  * Boots a complete end-to-end smoke environment:
  * - Local companion server + `/test-page` registering every tool in TEST_PAGE_TOOLS
  * - Temporary bundled extension + headless Chrome with `--enable-features=WebMCP`
- * - Opens `/test-page` and `sidebar.html` (sized to 360x520) and makes the test
- *   page the active tab, as it is when a user opens the side panel on it
+ * - Opens `testPage` (`/test-page` by default) and `sidepanel/index.html` (sized
+ *   to 360x520) and makes the test page the active tab, as it is when a user
+ *   opens the side panel on it
  * - Optionally dismisses the initial ConsentScreen and waits for every tool to attach
  */
 export async function createSmokeSession(options?: {
   dismissConsent?: boolean;
+  testPage?: TestPagePath;
 }): Promise<SmokeSessionContext> {
   const dismissConsent = options?.dismissConsent ?? true;
+  const testPage = options?.testPage ?? '/test-page';
+  const { toolFramePath, toolCount } = TEST_PAGES[testPage];
   const authToken = `smoke-test-${randomUUID()}`;
   const server = await startSmokeServer(authToken);
   let staged: StagedExtension | null = null;
@@ -228,25 +244,26 @@ export async function createSmokeSession(options?: {
     // Puppeteer waits default to 30s; fail sooner so a broken step is quick to spot.
     const page = await browser.newPage();
     page.setDefaultTimeout(WAIT_TIMEOUT_MS);
-    await page.goto(`${server.baseUrl}/test-page`);
-    await page.waitForFunction(() => window.__toolsRegistered === true);
+    await page.goto(`${server.baseUrl}${testPage}`);
+    const toolFrame = await page.waitForFrame((frame) => new URL(frame.url()).pathname === toolFramePath);
+    await toolFrame.waitForFunction(() => window.__toolsRegistered === true);
 
     const sidebar = await browser.newPage();
     sidebar.setDefaultTimeout(WAIT_TIMEOUT_MS);
     await sidebar.setViewport({ width: 360, height: 520 });
-    await sidebar.goto(`chrome-extension://${launched.extensionId}/sidebar.html`);
+    await sidebar.goto(`chrome-extension://${launched.extensionId}/sidepanel/index.html`);
     const runtimeId = await sidebar.evaluate(() => chrome.runtime.id);
     if (runtimeId !== launched.extensionId) {
-      throw new Error(`sidebar.html runs as ${runtimeId}, expected ${launched.extensionId}`);
+      throw new Error(`The side panel runs as ${runtimeId}, expected ${launched.extensionId}`);
     }
 
     // The side panel follows chrome.tabs.query({ active: true, currentWindow: true }),
-    // so make the test page the active tab again after opening sidebar.html.
+    // so make the test page the active tab again after opening the side panel.
     await page.bringToFront();
 
     if (dismissConsent) {
       await dismissConsentScreen(sidebar);
-      await waitForAttachedTabTools(sidebar, TEST_PAGE_TOOL_COUNT);
+      await waitForAttachedTabTools(sidebar, toolCount);
     }
 
     return { server, browser, page, sidebar, close };

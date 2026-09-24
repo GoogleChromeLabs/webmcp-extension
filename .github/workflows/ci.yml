@@ -36,10 +36,6 @@ jobs:
 
       - run: npm run typecheck
 
-      # tsc only covers src, tests and extension typings, so nothing above
-      # would catch a syntax error in the server or the build script.
-      - run: npm run check:syntax
-
       # The build generates a throwaway auth token into .env when one is
       # missing, so this proves the extension bundle compiles cleanly before
       # running unit and Chrome MV3 smoke tests. Nothing here is a real

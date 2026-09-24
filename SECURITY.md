@@ -24,7 +24,7 @@ Two things follow from that, and neither is a vulnerability:
 - **The companion server binds to `127.0.0.1` and is meant to stay there.** It
   has no user accounts and no rate limiting. Exposing it to a network or the
   internet is not supported.
-- **The auth token is inlined into the built `sidebar.js`.** The build step
+- **The auth token is inlined into the built side panel (`sidepanel/index.js`).** The build step
   substitutes it as a string literal so the side panel can call the server. It
   keeps other local pages from reaching the server; it is not a secret that
   survives someone reading your `dist/` folder.

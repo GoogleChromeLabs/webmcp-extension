@@ -11,8 +11,9 @@ import {
   getTabInfo,
   requestTabTools,
   executeTabTool,
-} from '../src/services/extensionBridge.js';
-import { waitForToolsToSettle } from '../src/hooks/useAgentSession.js';
+} from '../src/sidepanel/services/extensionBridge.js';
+import { waitForToolsToSettle } from '../src/sidepanel/services/toolResults.js';
+import { buildContentScript } from './contentScriptSource.js';
 
 function setupTestChrome() {
   const listeners: Array<(message: unknown, sender: unknown) => void> = [];
@@ -37,6 +38,7 @@ function setupTestChrome() {
         },
       },
       sendMessage: async () => {},
+      getURL: (path: string) => `chrome-extension://test-extension-id${path}`,
     } as unknown as typeof chrome.runtime,
     webNavigation: {
       getAllFrames: async () => [{ frameId: 0, url: 'https://example.com' }],
@@ -55,8 +57,9 @@ test('extensionBridge - getTabInfo, domainFor, and faviconFor return tab metadat
   assert.equal(domainFor(''), 'New Tab');
   assert.equal(
     faviconFor('https://shop.example/path'),
-    'https://www.google.com/s2/favicons?domain=shop.example&sz=32'
+    'chrome-extension://test-extension-id/_favicon/?pageUrl=https%3A%2F%2Fshop.example%2Fpath&size=32'
   );
+  assert.equal(faviconFor(''), '');
 });
 
 test('extensionBridge - requestTabTools dispatches LIST_TOOLS message to active tab', async () => {
@@ -67,14 +70,14 @@ test('extensionBridge - requestTabTools dispatches LIST_TOOLS message to active 
     return { success: true };
   };
 
-  await requestTabTools();
+  await requestTabTools(1);
   assert.ok(dispatchedMessage);
   assert.equal((dispatchedMessage as { action: string }).action, 'LIST_TOOLS');
 });
 
 
 test('backendBridge - streamChat supports AbortSignal cancellation', async () => {
-  const { streamChat } = await import('../src/services/backendBridge.js');
+  const { streamChat } = await import('../src/sidepanel/services/backendBridge.js');
   const controller = new AbortController();
   controller.abort();
 
@@ -87,7 +90,7 @@ test('backendBridge - streamChat supports AbortSignal cancellation', async () =>
 });
 
 test('backendBridge - formatErrorMessage unwraps nested JSON error strings and strips debug details', async () => {
-  const { formatErrorMessage } = await import('../src/services/backendBridge.js');
+  const { formatErrorMessage } = await import('../src/sidepanel/services/backendBridge.js');
 
   // Plain strings remain unchanged
   assert.equal(formatErrorMessage('Backend server error'), 'Backend server error');
@@ -121,15 +124,15 @@ test('extensionBridge - executeTabTool dispatches message to tab with appropriat
       return { success: true, count: 42 };
     };
 
-    // 1. Execute tool in main frame with string inputArgs
-    const resMain = await executeTabTool('search_hotels', '{"query":"hotel"}', 0);
+    // 1. Execute tool in the main frame
+    const resMain = await executeTabTool('search_hotels', { query: 'hotel' }, 0, 1);
     assert.deepEqual(resMain, { success: true, count: 42 });
     assert.equal(sentMessages[0].tabId, 1);
     assert.deepEqual(sentMessages[0].options, { frameId: 0 });
-    assert.deepEqual((sentMessages[0].message as any).inputArgs, '{"query":"hotel"}');
+    assert.deepEqual((sentMessages[0].message as any).inputArgs, { query: 'hotel' });
 
-    // 2. Execute tool in cross-origin iframe with object inputArgs
-    const resIframe = await executeTabTool('submit_booking', { id: 123 }, 1);
+    // 2. Execute tool in a cross-origin iframe
+    const resIframe = await executeTabTool('submit_booking', { id: 123 }, 1, 1);
     assert.deepEqual(resIframe, { success: true, count: 42 });
     assert.deepEqual(sentMessages[1].options, { frameId: 1 });
     assert.deepEqual((sentMessages[1].message as any).inputArgs, { id: 123 });
@@ -150,7 +153,7 @@ test('extensionBridge - executeTabTool throws error when chrome.tabs is unavaila
     (globalThis.chrome as { tabs?: unknown }).tabs = undefined;
     await assert.rejects(
       async () => {
-        await executeTabTool('search', '{}', 0);
+        await executeTabTool('search', {}, 0, 1);
       },
       { message: 'No active tab available for tool execution.' }
     );
@@ -214,9 +217,7 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
   } as unknown as Document;
 
   try {
-    const fs = await import('node:fs');
-    const contentScript = fs.readFileSync(new URL('../../extension/content.js', import.meta.url), 'utf-8');
-    new Function(contentScript)();
+    new Function(buildContentScript())();
     assert.ok(messageListener, 'Content script should register an onMessage listener');
 
     // 1. Object-first path succeeds directly without fallback
@@ -347,15 +348,15 @@ function ndjsonStreamResponse(chunks: unknown[]): Response {
 }
 
 test('backendBridge - streamChat reports text as it arrives and resolves with the turn response', async () => {
-  const { streamChat } = await import('../src/services/backendBridge.js');
+  const { streamChat } = await import('../src/sidepanel/services/backendBridge.js');
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; body: unknown; headers: Headers }> = [];
   try {
     globalThis.fetch = (async (url: string, init: RequestInit) => {
       requests.push({ url: String(url), body: JSON.parse(String(init.body)), headers: new Headers(init.headers) });
       return ndjsonStreamResponse([
-        { text: 'Hello, ' },
-        { text: 'Hello, wörld.' },
+        { delta: 'Hello, ' },
+        { delta: 'wörld.' },
         { done: true, chatId: 'chat-1', text: 'Hello, wörld.', functionCalls: [] },
       ]);
     }) as typeof fetch;
@@ -363,8 +364,7 @@ test('backendBridge - streamChat reports text as it arrives and resolves with th
     const seen: string[] = [];
     const reply = await streamChat('/api/chat', { message: 'Hi', tools: [] }, { onText: (text) => seen.push(text) });
 
-    assert.deepEqual(seen.at(-1), 'Hello, wörld.');
-    assert.ok(seen.length > 1, 'the reply was reported more than once');
+    assert.deepEqual(seen, ['Hello, ', 'Hello, wörld.']);
     assert.equal(reply.text, 'Hello, wörld.');
     assert.equal(reply.chatId, 'chat-1');
     assert.deepEqual(requests[0].body, { message: 'Hi', tools: [] });
@@ -384,7 +384,7 @@ test('backendBridge - streamChat reports text as it arrives and resolves with th
 
     globalThis.fetch = (async () =>
       ndjsonStreamResponse([
-        { text: 'Hel' },
+        { delta: 'Hel' },
         { error: 'Quota exceeded' },
       ])) as typeof fetch;
     await assert.rejects(() => streamChat('/api/chat', { message: 'Hi' }), { message: 'Quota exceeded' });
@@ -393,7 +393,7 @@ test('backendBridge - streamChat reports text as it arrives and resolves with th
       new Response(
         new ReadableStream({
           start(controller) {
-            controller.enqueue(new TextEncoder().encode('{"text":"Hel"}\n'));
+            controller.enqueue(new TextEncoder().encode('{"delta":"Hel"}\n'));
             controller.error(error);
           },
         }),

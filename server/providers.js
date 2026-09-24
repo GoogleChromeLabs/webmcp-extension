@@ -7,8 +7,25 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 
+import { getEnv } from './security.js';
+
 const IMPLIED_PROVIDER = 'google';
 
+/** @typedef {{ apiKey?: string, baseURL?: string }} ProviderOptions */
+/** @typedef {ReturnType<ReturnType<typeof createOpenAI>['chat']>} ChatModel What every provider hands back. */
+
+/**
+ * @typedef {object} ProviderSpec
+ * @property {string[]} keys Env names of the API key, in order of preference.
+ * @property {string} baseUrl Env name of an optional base URL override.
+ * @property {string} [defaultModel] Model used when `MODEL` is unset.
+ * @property {(options: ProviderOptions) => (modelId: string) => ChatModel} open
+ */
+
+/**
+ * @param {string | undefined} rawUrl
+ * @returns {string}
+ */
 function normalizeOllamaUrl(rawUrl) {
   if (!rawUrl) return 'http://127.0.0.1:11434/v1';
   let url = rawUrl.trim().replace(/\/+$/, '');
@@ -16,9 +33,10 @@ function normalizeOllamaUrl(rawUrl) {
   return /\/v1$/i.test(url) ? url : `${url}/v1`;
 }
 
+/** @type {Record<string, ProviderSpec>} */
 const PROVIDERS = {
   google: {
-    keys: ['GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'API_KEY', 'apiKey'],
+    keys: ['GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     baseUrl: 'GOOGLE_GENERATIVE_AI_BASE_URL',
     defaultModel: 'google:gemini-3.6-flash',
     open: (options) => createGoogleGenerativeAI(options),
@@ -43,10 +61,15 @@ const PROVIDERS = {
   },
 };
 
+/**
+ * @param {Record<string, string>} env
+ * @param {string[]} names
+ * @returns {string | null} The first of `names` that is set.
+ */
 function readEnv(env, names) {
   for (const name of names) {
-    const raw = process.env[name] || (typeof env[name] === 'string' && env[name].trim());
-    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    const value = getEnv(env, name);
+    if (value) return value;
   }
   return null;
 }
@@ -54,6 +77,9 @@ function readEnv(env, names) {
 /**
  * Splits `openai:gpt-4o` into `{ providerId, modelId }`. A bare model name
  * defaults to `google` so older `.env` files continue to work.
+ *
+ * @param {unknown} spec
+ * @returns {{ providerId: string, modelId: string } | null}
  */
 export function parseModelSpec(spec) {
   if (typeof spec !== 'string' || !spec.trim()) return null;
@@ -68,17 +94,30 @@ export function parseModelSpec(spec) {
 }
 
 /**
+ * @typedef {object} ProviderConfig
+ * @property {string[]} configured Providers that have what they need to run.
+ * @property {string} requestedSpec The `MODEL` value, or the default.
+ * @property {{ providerId: string, modelId: string } | null} spec
+ * @property {string | null} problem Why no model could be made, if so.
+ * @property {ChatModel | null} model
+ */
+
+/**
  * Reads provider credentials and model choice from `env` / `process.env`
  * and instantiates the active language model.
+ *
+ * @param {Record<string, string>} [env] Values loaded from `.env`.
+ * @returns {ProviderConfig}
  */
 export function loadProviders(env = {}) {
   const configured = Object.entries(PROVIDERS)
     .filter(([, p]) => readEnv(env, p.keys))
     .map(([id]) => id);
 
-  const defaultSpec = PROVIDERS[configured[0]]?.defaultModel ?? PROVIDERS.google.defaultModel;
+  const defaultSpec =
+    PROVIDERS[configured[0]]?.defaultModel ?? /** @type {string} */ (PROVIDERS.google.defaultModel);
 
-  const requested = readEnv(env, ['MODEL', 'model']) || defaultSpec;
+  const requested = getEnv(env, 'MODEL') || defaultSpec;
   const parsed = parseModelSpec(requested);
 
   if (parsed && PROVIDERS[parsed.providerId]?.keys.length === 0 && !configured.includes(parsed.providerId)) {
@@ -99,8 +138,8 @@ export function loadProviders(env = {}) {
   if (!problem && parsed) {
     const provider = PROVIDERS[parsed.providerId];
     const apiKey = readEnv(env, provider.keys);
-    const baseURL = readEnv(env, [provider.baseUrl]) || undefined;
-    model = provider.open({ apiKey, baseURL })(parsed.modelId);
+    const baseURL = getEnv(env, provider.baseUrl) || undefined;
+    model = provider.open({ apiKey: apiKey ?? undefined, baseURL })(parsed.modelId);
   }
 
   return {
@@ -112,7 +151,10 @@ export function loadProviders(env = {}) {
   };
 }
 
+/**
+ * @param {ProviderConfig} config
+ * @returns {string} The model in `provider:model` form.
+ */
 export function describeModel(config) {
   return config.spec ? `${config.spec.providerId}:${config.spec.modelId}` : config.requestedSpec;
 }
-

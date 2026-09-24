@@ -6,8 +6,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { ModelMessage } from 'ai';
 import { appendTurnMessages } from '../server/tools.js';
-import { resetChatSession, sendChatTurn } from '../src/services/chatBridge.js';
+import { endAllChats, endChat, sendChatTurn } from '../src/sidepanel/services/chatBridge.js';
 
 function stubServer(replies: Array<Record<string, unknown> | Error>) {
   const original = globalThis.fetch;
@@ -63,26 +64,32 @@ test('sendChatTurn forwards requests to /api/chat and returns text and functionC
   }
 });
 
-test('resetChatSession sends /api/chat/reset with optional chatId', async () => {
+test('endChat ends one server chat, endAllChats ends them all', async () => {
   const server = stubServer([]);
   try {
-    resetChatSession({ chatId: 'tab-99', onDevice: false });
+    endChat('tab-99');
     await new Promise((r) => setTimeout(r, 10));
     assert.equal(server.sent.length, 1);
     assert.ok(server.sent[0].url.endsWith('/api/chat/reset'));
     assert.deepEqual(server.sent[0].body, { chatId: 'tab-99' });
 
-    // Empty chatId is a no-op so it does not wipe other tabs' sessions
-    resetChatSession({ chatId: undefined, onDevice: false });
+    endAllChats();
     await new Promise((r) => setTimeout(r, 10));
-    assert.equal(server.sent.length, 1);
+    assert.equal(server.sent.length, 2);
+    assert.deepEqual(server.sent[1].body, {});
+
+    // The on-device backend never calls the server.
+    endChat('tab-99', { onDevice: true });
+    endAllChats({ onDevice: true });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(server.sent.length, 2);
   } finally {
     server.restore();
   }
 });
 
 test('appendTurnMessages pairs tool results by toolCallId and preserves providerOptions', () => {
-  const history = [
+  const history: ModelMessage[] = [
     { role: 'user', content: [{ type: 'text', text: 'What is in my cart?' }] },
     {
       role: 'assistant',
@@ -120,7 +127,7 @@ test('appendTurnMessages pairs tool results by toolCallId and preserves provider
 });
 
 test('appendTurnMessages records failed tool calls, JSON object results, and empty results', () => {
-  const history = [
+  const history: ModelMessage[] = [
     { role: 'user', content: [{ type: 'text', text: 'Go' }] },
     {
       role: 'assistant',
@@ -147,7 +154,7 @@ test('appendTurnMessages records failed tool calls, JSON object results, and emp
 });
 
 test('appendTurnMessages settles unanswered tool calls before appending a new user message', () => {
-  const history = [
+  const history: ModelMessage[] = [
     { role: 'user', content: [{ type: 'text', text: 'First' }] },
     {
       role: 'assistant',
@@ -169,7 +176,7 @@ test('appendTurnMessages settles unanswered tool calls before appending a new us
 });
 
 test('appendTurnMessages does not reuse an ID-matched response for a second call to the same tool', () => {
-  const history = [
+  const history: ModelMessage[] = [
     { role: 'user', content: [{ type: 'text', text: 'Book two rooms' }] },
     {
       role: 'assistant',

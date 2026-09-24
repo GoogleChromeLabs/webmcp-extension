@@ -15,7 +15,7 @@ import {
   waitForExecutedToolCount,
   SELECTORS,
   SIDEBAR_POLLING,
-} from './sidebarHelpers.js';
+} from './sidePanelHelpers.js';
 import { NAMED_TOOLS } from './smokeServer.js';
 
 const CHAT_ID = 'smoke-session-1';

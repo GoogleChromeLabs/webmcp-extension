@@ -8,24 +8,25 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
-import { Switch } from '../src/components/Switch.js';
-import { SettingsScreen } from '../src/screens/SettingsScreen.js';
-import { AllowToolPermissionCard } from '../src/components/AllowToolPermissionCard.js';
-import { Toolbar } from '../src/components/Toolbar.js';
-import { ChatBubble } from '../src/components/ChatBubble.js';
+import { Switch } from '../src/sidepanel/components/Switch.js';
+import { SettingsScreen } from '../src/sidepanel/screens/SettingsScreen.js';
+import { AllowToolPermissionCard } from '../src/sidepanel/components/AllowToolPermissionCard.js';
+import { Toolbar } from '../src/sidepanel/components/Toolbar.js';
+import { ChatBubble } from '../src/sidepanel/components/ChatBubble.js';
 import {
   allowToolForSession,
   applyToolPermissionDecision,
   clearSessionToolPermissions,
   isGrantEligible,
   isToolAllowedForSession,
-  listSessionToolPermissions,
   needsToolPermission,
   originOfUrl,
-  revokeSessionToolPermission,
-} from '../src/services/toolPermissions.js';
-import { useAgentSession, UseAgentSessionReturn } from '../src/hooks/useAgentSession.js';
-import { WebMCPTool } from '../src/types/index.js';
+} from '../src/sidepanel/services/toolPermissions.js';
+import { useAgentSession, UseAgentSessionReturn } from '../src/sidepanel/hooks/useAgentSession.js';
+import { WebMCPTool } from '../src/sidepanel/types/index.js';
+
+/** The tab whose chat owns the grants in the tests that need only one. */
+const TAB = 1;
 
 test('Switch toggles properly on click', () => {
   let toggledValue: boolean | null = null;
@@ -192,7 +193,7 @@ test('ChatBubble swaps input field with AllowToolPermissionCard when permissionP
 
   const bubbleWithPermission = React.createElement(ChatBubble, {
     showTab: true,
-    tabProps: { domain: 'shopping.com', toolsCountLabel: '2 tools' },
+    tabProps: { domain: 'shopping.com', toolsCountLabel: '2 tools', hasTools: true },
     permissionProps: {
       toolName: 'checkout_cart',
       toolDescription: 'Purchases all items in your cart.',
@@ -264,6 +265,7 @@ test('Readonly tools vs non-readonly tools distinction follows WebMCP readOnlyHi
       sensitiveActionAlerts,
       origin: 'https://mail.example',
       toolName: tool.name,
+      tabId: TAB,
       readOnlyHint: tool.readOnlyHint,
     });
 
@@ -282,60 +284,53 @@ test('Readonly tools vs non-readonly tools distinction follows WebMCP readOnlyHi
   assert.equal(requiresPermissionPrompt(tools[2], false), false);
 });
 
-test('session grants are scoped to one tool of one origin', () => {
+test('session grants are scoped to one tool of one origin in one tab', () => {
   clearSessionToolPermissions();
 
-  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart'), false);
-  assert.equal(allowToolForSession('https://shop.example', 'checkout_cart'), true);
-  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart'), true);
+  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart', TAB), false);
+  assert.equal(allowToolForSession('https://shop.example', 'checkout_cart', TAB), true);
+  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart', TAB), true);
 
   // Another tool of the same site is still asked about.
-  assert.equal(isToolAllowedForSession('https://shop.example', 'delete_account'), false);
+  assert.equal(isToolAllowedForSession('https://shop.example', 'delete_account', TAB), false);
   // So is the same tool name on another site, and on another scheme or port
   // of the same host, which are separate origins.
-  assert.equal(isToolAllowedForSession('https://evil.example', 'checkout_cart'), false);
-  assert.equal(isToolAllowedForSession('http://shop.example', 'checkout_cart'), false);
-  assert.equal(isToolAllowedForSession('https://shop.example:8443', 'checkout_cart'), false);
-
-  assert.deepEqual(listSessionToolPermissions(), [
-    { origin: 'https://shop.example', toolName: 'checkout_cart' },
-  ]);
-
-  revokeSessionToolPermission('https://shop.example', 'checkout_cart');
-  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart'), false);
+  assert.equal(isToolAllowedForSession('https://evil.example', 'checkout_cart', TAB), false);
+  assert.equal(isToolAllowedForSession('http://shop.example', 'checkout_cart', TAB), false);
+  assert.equal(isToolAllowedForSession('https://shop.example:8443', 'checkout_cart', TAB), false);
+  // And the same tool of the same site in another tab's chat.
+  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart', TAB + 1), false);
 });
 
 test('a grant cannot be made or matched without an origin', () => {
   clearSessionToolPermissions();
 
-  assert.equal(allowToolForSession('', 'checkout_cart'), false);
-  assert.equal(isToolAllowedForSession('', 'checkout_cart'), false);
-  assert.equal(listSessionToolPermissions().length, 0);
+  assert.equal(allowToolForSession('', 'checkout_cart', TAB), false);
+  assert.equal(isToolAllowedForSession('', 'checkout_cart', TAB), false);
 
   // A tool with no name cannot be granted either.
-  assert.equal(allowToolForSession('https://shop.example', ''), false);
-  assert.equal(listSessionToolPermissions().length, 0);
+  assert.equal(allowToolForSession('https://shop.example', '', TAB), false);
+  assert.equal(isToolAllowedForSession('https://shop.example', '', TAB), false);
 });
 
 test('keys keep the origin and the tool name apart whatever they contain', () => {
   clearSessionToolPermissions();
 
   // A naive `origin + separator + toolName` key would make these two the same.
-  allowToolForSession('https://a.example', '|weird|tool');
-  assert.equal(isToolAllowedForSession('https://a.example|', 'weird|tool'), false);
-  assert.equal(isToolAllowedForSession('https://a.example', '|weird|tool'), true);
+  allowToolForSession('https://a.example', '|weird|tool', TAB);
+  assert.equal(isToolAllowedForSession('https://a.example|', 'weird|tool', TAB), false);
+  assert.equal(isToolAllowedForSession('https://a.example', '|weird|tool', TAB), true);
 });
 
 test('clearSessionToolPermissions drops every grant', () => {
   clearSessionToolPermissions();
 
-  allowToolForSession('https://a.example', 'tool_one');
-  allowToolForSession('https://b.example', 'tool_two');
-  assert.equal(listSessionToolPermissions().length, 2);
+  allowToolForSession('https://a.example', 'tool_one', 1);
+  allowToolForSession('https://b.example', 'tool_two', 2);
 
   clearSessionToolPermissions();
-  assert.equal(listSessionToolPermissions().length, 0);
-  assert.equal(isToolAllowedForSession('https://a.example', 'tool_one'), false);
+  assert.equal(isToolAllowedForSession('https://a.example', 'tool_one', 1), false);
+  assert.equal(isToolAllowedForSession('https://b.example', 'tool_two', 2), false);
 });
 
 test('originOfUrl keeps real origins and rejects the ones that cannot be scoped', () => {
@@ -358,13 +353,14 @@ test('the permission gate skips the prompt once a tool is granted for the origin
       sensitiveActionAlerts,
       origin,
       toolName: tool.name,
+      tabId: TAB,
       readOnlyHint: tool.readOnlyHint,
     });
 
   const tool: WebMCPTool = { name: 'checkout_cart', description: 'Buys the cart.' };
 
   assert.equal(ask('https://shop.example', tool, true), true);
-  allowToolForSession('https://shop.example', tool.name);
+  allowToolForSession('https://shop.example', tool.name, TAB);
   assert.equal(ask('https://shop.example', tool, true), false);
   // The grant does not leak to another site.
   assert.equal(ask('https://other.example', tool, true), true);
@@ -382,10 +378,11 @@ test('a grant for the page never covers a tool inside a cross-origin iframe', ()
     sensitiveActionAlerts: true,
     origin: 'https://shop.example',
     toolName: 'submit_form',
+    tabId: TAB,
     toolFrameId,
   });
 
-  allowToolForSession('https://shop.example', 'submit_form');
+  allowToolForSession('https://shop.example', 'submit_form', TAB);
 
   // The page's own tool is covered...
   assert.equal(needsToolPermission(query(0)), false);
@@ -399,7 +396,7 @@ test('a grant for the page never covers a tool inside a cross-origin iframe', ()
 });
 
 test('grants are only eligible where they would mean what the button says', () => {
-  const base = { origin: 'https://shop.example', toolName: 'checkout_cart' };
+  const base = { origin: 'https://shop.example', toolName: 'checkout_cart', tabId: TAB };
 
   assert.equal(isGrantEligible(base), true);
   // No origin to scope it to.
@@ -416,6 +413,7 @@ test('the gate stays shut for read-only tools and open when alerts are off', () 
   const base = {
     origin: 'https://shop.example',
     toolName: 'get_weather',
+    tabId: TAB,
     sensitiveActionAlerts: true,
   };
 
@@ -423,40 +421,43 @@ test('the gate stays shut for read-only tools and open when alerts are off', () 
   assert.equal(needsToolPermission({ ...base, readOnlyHint: true }), false);
   // Alerts off never prompts, and must not quietly record a grant either.
   assert.equal(needsToolPermission({ ...base, sensitiveActionAlerts: false }), false);
-  assert.deepEqual(listSessionToolPermissions(), []);
+  assert.equal(isToolAllowedForSession(base.origin, base.toolName, TAB), false);
 });
 
 test('only the always choice earns a standing grant', () => {
-  const query = { origin: 'https://shop.example', toolName: 'checkout_cart' };
+  const query = { origin: 'https://shop.example', toolName: 'checkout_cart', tabId: TAB };
+  const granted = () => isToolAllowedForSession(query.origin, query.toolName, TAB);
 
   clearSessionToolPermissions();
   assert.equal(applyToolPermissionDecision('deny', query), false);
-  assert.deepEqual(listSessionToolPermissions(), [], 'deny must not grant');
+  assert.equal(granted(), false, 'deny must not grant');
 
   clearSessionToolPermissions();
   assert.equal(applyToolPermissionDecision('allow', query), true);
-  assert.deepEqual(listSessionToolPermissions(), [], 'a one-off allow must not grant');
+  assert.equal(granted(), false, 'a one-off allow must not grant');
 
   clearSessionToolPermissions();
   assert.equal(applyToolPermissionDecision('allowAlways', query), true);
-  assert.deepEqual(listSessionToolPermissions(), [
-    { origin: 'https://shop.example', toolName: 'checkout_cart' },
-  ]);
+  assert.equal(granted(), true);
 });
 
 test('an always choice records nothing where a grant would not be eligible', () => {
   // The button is not offered in these cases, but the rule is enforced here too
   // so that the two can never drift apart.
   for (const ineligible of [
-    { origin: '', toolName: 'checkout_cart' },
-    { origin: 'https://shop.example', toolName: 'checkout_cart', toolFrameId: 7 },
-    { origin: 'https://shop.example', toolName: 'checkout_cart', consequentialHint: true },
+    { origin: '', toolName: 'checkout_cart', tabId: TAB },
+    { origin: 'https://shop.example', toolName: 'checkout_cart', tabId: TAB, toolFrameId: 7 },
+    { origin: 'https://shop.example', toolName: 'checkout_cart', tabId: TAB, consequentialHint: true },
   ]) {
     clearSessionToolPermissions();
     // The call is still allowed to run this once...
     assert.equal(applyToolPermissionDecision('allowAlways', ineligible), true);
     // ...but nothing is remembered.
-    assert.deepEqual(listSessionToolPermissions(), [], JSON.stringify(ineligible));
+    assert.equal(
+      isToolAllowedForSession(ineligible.origin, ineligible.toolName, TAB),
+      false,
+      JSON.stringify(ineligible)
+    );
   }
 });
 
@@ -466,6 +467,7 @@ test('a consequential tool always asks, whatever the settings say', () => {
   const consequential = {
     origin: 'https://bank.example',
     toolName: 'transfer_funds',
+    tabId: TAB,
     consequentialHint: true,
   };
 
@@ -488,6 +490,7 @@ test('a consequential tool can never be granted for the session', () => {
     sensitiveActionAlerts: true,
     origin: 'https://bank.example',
     toolName: 'transfer_funds',
+    tabId: TAB,
     consequentialHint: true,
   };
 
@@ -495,11 +498,11 @@ test('a consequential tool can never be granted for the session', () => {
   assert.equal(isGrantEligible(consequential), false);
   // ...choosing it anyway records nothing...
   assert.equal(applyToolPermissionDecision('allowAlways', consequential), true);
-  assert.deepEqual(listSessionToolPermissions(), []);
+  assert.equal(isToolAllowedForSession('https://bank.example', 'transfer_funds', TAB), false);
 
   // ...and a grant that somehow exists for that name is ignored, so a tool that
   // becomes consequential after being granted starts asking again.
-  allowToolForSession('https://bank.example', 'transfer_funds');
+  allowToolForSession('https://bank.example', 'transfer_funds', TAB);
   assert.equal(needsToolPermission(consequential), true);
   // The same name without the hint is still covered by that grant.
   assert.equal(
@@ -516,6 +519,7 @@ test('a non-consequential tool keeps the session grant behaviour', () => {
     sensitiveActionAlerts: true,
     origin: 'https://shop.example',
     toolName: 'add_to_cart',
+    tabId: TAB,
   };
 
   assert.equal(isGrantEligible(ordinary), true);
@@ -620,7 +624,7 @@ test('ChatBubble forwards the session choice to the permission card', () => {
   const html = renderToString(
     React.createElement(ChatBubble, {
       showTab: true,
-      tabProps: { domain: 'shopping.com', toolsCountLabel: '2 tools' },
+      tabProps: { domain: 'shopping.com', toolsCountLabel: '2 tools', hasTools: true },
       permissionProps,
     })
   );
@@ -779,25 +783,30 @@ function withAgentSession(run: (session: UseAgentSessionReturn) => void): void {
   }
 }
 
-test('starting a new chat forgets every tool granted for the session', () => {
+test('starting a new chat forgets the tools granted in that tab only', () => {
   clearSessionToolPermissions();
-  allowToolForSession('https://shop.example', 'checkout_cart');
-  allowToolForSession('https://other.example', 'send_message');
-  assert.equal(listSessionToolPermissions().length, 2, 'the grants should be in place first');
+  allowToolForSession('https://shop.example', 'checkout_cart', 1);
+  allowToolForSession('https://other.example', 'send_message', 1);
+  allowToolForSession('https://shop.example', 'checkout_cart', 2);
 
+  // The hook is bound to tab 1.
   withAgentSession((session) => {
     session.handleReset();
   });
 
   // Permission was given for the conversation the user was having, not for
   // every one that follows it.
-  assert.deepEqual(listSessionToolPermissions(), []);
+  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart', 1), false);
+  assert.equal(isToolAllowedForSession('https://other.example', 'send_message', 1), false);
+  // Another tab's chat keeps its own grants.
+  assert.equal(isToolAllowedForSession('https://shop.example', 'checkout_cart', 2), true);
   // And the gate agrees, rather than just the bookkeeping.
   assert.equal(
     needsToolPermission({
       sensitiveActionAlerts: true,
       origin: 'https://shop.example',
       toolName: 'checkout_cart',
+      tabId: 1,
     }),
     true
   );
