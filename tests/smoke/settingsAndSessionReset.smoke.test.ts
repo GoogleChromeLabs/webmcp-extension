@@ -5,7 +5,7 @@
 
 import { describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSmokeSession, smokeSkipReason, SmokeSessionContext } from './chromeHarness.js';
+import { createSmokeSession, smokeSkipReason, type SmokeSessionContext } from './chromeHarness.js';
 import { createSequentialSteps } from './sequentialSteps.js';
 import {
   clickOrThrow,

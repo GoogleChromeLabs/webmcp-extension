@@ -7,8 +7,10 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "allowJs": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -23,14 +25,13 @@
       "chrome",
       "node",
       "webmcp-types"
-    ],
-    "checkJs": true
+    ]
   },
   "include": [
-    "src/**/*",
-    "tests/**/*",
-    "shared/**/*",
+    "extension/**/*",
     "server/**/*",
-    "scripts/**/*"
+    "shared/**/*",
+    "scripts/**/*",
+    "tests/**/*"
   ]
 }

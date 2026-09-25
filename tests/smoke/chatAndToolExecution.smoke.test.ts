@@ -6,7 +6,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Page } from 'puppeteer-core';
-import { createSmokeSession, smokeSkipReason, SmokeSessionContext } from './chromeHarness.js';
+import { createSmokeSession, smokeSkipReason, type SmokeSessionContext } from './chromeHarness.js';
 import {
   clickOrThrow,
   frame0ToolName,

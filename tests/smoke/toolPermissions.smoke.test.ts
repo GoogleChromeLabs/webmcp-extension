@@ -5,7 +5,7 @@
 
 import { describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSmokeSession, smokeSkipReason, SmokeSessionContext } from './chromeHarness.js';
+import { createSmokeSession, smokeSkipReason, type SmokeSessionContext } from './chromeHarness.js';
 import { createSequentialSteps } from './sequentialSteps.js';
 import {
   clickOrThrow,
@@ -19,7 +19,7 @@ import {
   SELECTORS,
   SIDEBAR_POLLING,
 } from './sidePanelHelpers.js';
-import { FunctionResponse, NAMED_TOOLS, SmokeServer } from './smokeServer.js';
+import { type FunctionResponse, NAMED_TOOLS, type SmokeServer } from './smokeServer.js';
 
 const CHAT_ID = 'smoke-perm-1';
 const { bookFlight, deleteAccount } = NAMED_TOOLS;
