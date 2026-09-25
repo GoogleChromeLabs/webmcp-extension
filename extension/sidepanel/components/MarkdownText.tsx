@@ -48,10 +48,18 @@ function openLinksInATabOfTheirOwn(element: HTMLElement): void {
 
 /** Exported for the tests, which drive it without React. */
 export function createMarkdownStream(element: HTMLElement): MarkdownStream {
+  // Each parser writes into a wrapper of its own rather than into the element
+  // itself. Chunks reach the DOM through a stream, so they land a task after
+  // they were parsed, and a parser that has been replaced still has some in
+  // flight. Clearing the element detaches this wrapper with them, so what a
+  // dead parser has left to say goes nowhere instead of being shown twice.
+  const wrapper = element.ownerDocument.createElement('div');
+  wrapper.className = 'markdown__stream';
+  element.append(wrapper);
+
   // Chunks are single tokens, which the sink turns into nodes with
   // createElement and append: no HTML string is ever parsed.
-  const writer = renderStreamingHTML(element).getWriter();
-  const ignore = () => {};
+  const writer = renderStreamingHTML(wrapper).getWriter();
   const streamer = createHtmlTokenStreamer({
     onHtml: (html) =>
       void writer
@@ -59,9 +67,14 @@ export function createMarkdownStream(element: HTMLElement): MarkdownStream {
         .then(() => {
           // An anchor arrives complete, with its href, so it is ready to mark
           // as soon as the sink has appended it.
-          if (html.startsWith('<a ')) openLinksInATabOfTheirOwn(element);
+          if (html.startsWith('<a ')) openLinksInATabOfTheirOwn(wrapper);
         })
-        .catch(ignore),
+        .catch(() => {
+          // The sink refuses everything after an error, which would drop the
+          // rest of the reply. Retiring the parser has the next render build
+          // the whole reply again, in a wrapper of its own.
+          stream.ended = true;
+        }),
     onUnsafe: ({ attribute, value }) =>
       console.warn(`[WebMCP] A model's reply linked to ${value}, which was dropped from ${attribute}.`),
   });
@@ -79,7 +92,7 @@ export function createMarkdownStream(element: HTMLElement): MarkdownStream {
       if (stream.ended) return;
       stream.ended = true;
       streamer.end();
-      void writer.close().catch(ignore);
+      void writer.close().catch(() => {});
     },
   };
   return stream;

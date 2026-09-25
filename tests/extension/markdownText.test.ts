@@ -143,5 +143,41 @@ test('ending the stream closes what the last chunk left open', async () => {
 
   stream.end();
   await settle();
-  assert.match(element.innerHTML, /^<p>A reply that stops mid<\/p>$/);
+  assert.equal(element.querySelectorAll('p').length, 1, element.innerHTML);
+  assert.equal(element.querySelector('p')?.textContent, 'A reply that stops mid');
+});
+
+test('a parser that has been replaced cannot put its reply on screen a second time', async () => {
+  // What StrictMode does on mount: the effect runs, is torn down, and runs
+  // again. The chunks of the first parser are still in flight while the second
+  // one starts, and both would land in the element.
+  const element = host();
+  const first = createMarkdownStream(element);
+  first.write('# Heading\n\nThe reply.');
+  first.end();
+
+  element.replaceChildren();
+  const second = createMarkdownStream(element);
+  second.write('# Heading\n\nThe reply.');
+  second.end();
+
+  await settle();
+  assert.equal((element.textContent?.match(/The reply\./g) ?? []).length, 1, element.innerHTML);
+  assert.equal(element.querySelectorAll('h1').length, 1, element.innerHTML);
+});
+
+test('a reply that grows keeps the parser it started with', async () => {
+  const element = host();
+  const stream = createMarkdownStream(element);
+
+  stream.write('One.\n\nTwo.');
+  await settle();
+  const wrappers = element.querySelectorAll('.markdown__stream').length;
+
+  stream.write('\n\nThree.');
+  stream.end();
+  await settle();
+
+  assert.equal(element.querySelectorAll('.markdown__stream').length, wrappers);
+  assert.equal(element.querySelectorAll('p').length, 3, element.innerHTML);
 });

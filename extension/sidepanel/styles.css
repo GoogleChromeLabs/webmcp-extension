@@ -581,6 +581,12 @@ main {
   gap: 8px;
 }
 
+/* The wrapper one parser writes into. It lays nothing out of its own: the
+   blocks inside it are the container's children as far as the layout goes. */
+.markdown__stream {
+  display: contents;
+}
+
 .markdown h1,
 .markdown h2,
 .markdown h3,
