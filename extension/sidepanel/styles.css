@@ -572,34 +572,50 @@ main {
   white-space: pre-wrap;
 }
 
-/* Markdown Elements */
+/* Markdown Elements
+   The parser emits plain tags, so everything here is scoped to the container
+   rather than hung on classes. */
 .markdown {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.md-h1, .md-h2, .md-h3 {
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
   margin: 8px 0 4px;
   font-family: var(--font-headline);
   color: var(--color-blue-title);
+  font-weight: 600;
 }
 
-.md-h1 { font-size: 18px; font-weight: 600; }
-.md-h2 { font-size: 16px; font-weight: 600; }
-.md-h3 { font-size: 14px; font-weight: 600; }
+.markdown h1 { font-size: 18px; }
+.markdown h2 { font-size: 16px; }
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 { font-size: 14px; }
 
-.md-p {
+.markdown p {
   margin: 0;
   line-height: 20px;
 }
 
-.md-ul, .md-ol {
+.markdown ul,
+.markdown ol {
   margin: 4px 0;
   padding-left: 20px;
 }
 
-.md-inline-code {
+.markdown li {
+  line-height: 20px;
+}
+
+.markdown code {
   background: var(--color-surface-container);
   padding: 2px 6px;
   border-radius: 4px;
@@ -607,7 +623,7 @@ main {
   font-size: 12px;
 }
 
-.md-code-block {
+.markdown pre {
   background: var(--color-surface-container);
   border-radius: 8px;
   padding: 10px;
@@ -617,9 +633,54 @@ main {
   margin: 4px 0;
 }
 
-.md-link {
+/* The block already has the background and the padding of a code block. */
+.markdown pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.markdown a {
   color: var(--color-primary);
   text-decoration: underline;
+}
+
+.markdown blockquote {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--color-surface-container);
+  color: var(--color-on-surface-variant);
+}
+
+.markdown hr {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--color-surface-container);
+  margin: 4px 0;
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* A table is the one construct that can be wider than the panel. */
+.markdown table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.markdown th,
+.markdown td {
+  padding: 4px 8px;
+  border: 1px solid var(--color-surface-container);
+  text-align: left;
+}
+
+.markdown th {
+  font-weight: 600;
 }
 
 /* ==========================================================================
