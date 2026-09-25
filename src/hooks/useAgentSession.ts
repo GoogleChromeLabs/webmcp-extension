@@ -9,11 +9,20 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import { formatErrorMessage } from '../services/backendBridge.js';
 import { getSpotlighting, resetChatSession, sendChatTurn } from '../services/chatBridge.js';
+import { syncDirectGeminiHistory } from '../services/directGeminiBackend.js';
 import { executeTabTool, getTabInfo, requestTabTools } from '../services/extensionBridge.js';
+import {
+  GeminiLiveSession,
+  LIVE_MODEL_ID_DEFAULT,
+  LiveFunctionResponse,
+  LiveToolCall,
+  VoiceStatus,
+} from '../services/geminiLive.js';
 import { tabSessions } from '../services/tabSessionStore.js';
 import { buildToolDecls, decodeToolName, isToolUntrusted } from '../services/toolEncoder.js';
 import {
@@ -59,6 +68,16 @@ export interface UseAgentSessionReturn {
   handleSendPrompt: () => Promise<void>;
   handleStop: () => void;
   handleReset: () => void;
+  voiceActive: boolean;
+  voiceStatus: VoiceStatus;
+  voiceMuted: boolean;
+  voiceInterimText: string;
+  voiceLevel: number;
+  voiceModel: string;
+  toggleVoiceMode: () => Promise<void>;
+  stopVoiceMode: () => Promise<void>;
+  toggleVoiceMute: () => void;
+  interruptVoice: () => void;
 }
 
 export const MAX_TOOL_RESPONSE_CHARS = 8000;
@@ -223,10 +242,47 @@ export function useAgentSession(
     originRef.current = options?.origin ?? '';
   }, [options?.origin]);
 
+  // Gemini Live Voice Session state
+  const liveSessionRef = useRef<GeminiLiveSession | null>(null);
+  const liveTabIdRef = useRef<number | null>(null);
+  const [voiceActive, setVoiceActive] = useState<boolean>(false);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>('idle');
+  const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
+  const [voiceInterimText, setVoiceInterimText] = useState<string>('');
+  const [voiceLevel, setVoiceLevel] = useState<number>(0);
+  const [voiceModel, setVoiceModel] = useState<string>(LIVE_MODEL_ID_DEFAULT);
+
+  const stopVoiceMode = useCallback(async () => {
+    const currentSession = liveSessionRef.current;
+    liveSessionRef.current = null;
+    const pinnedTabId = liveTabIdRef.current;
+    liveTabIdRef.current = null;
+    if (currentSession) {
+      await currentSession.disconnect();
+    }
+    if (pinnedTabId != null) {
+      tabSessions.update(pinnedTabId, { streamingText: '', pendingPermission: null, busy: false });
+    }
+    setVoiceActive(false);
+    setVoiceStatus('idle');
+    setVoiceMuted(false);
+    setVoiceInterimText('');
+    setVoiceLevel(0);
+  }, []);
+
+  // Keep Live session notified when the active tab's WebMCP tools change dynamically
+  useEffect(() => {
+    if (voiceActive && liveSessionRef.current && activeTabId != null) {
+      liveSessionRef.current.notifyToolsUpdated(session.tools);
+    }
+  }, [voiceActive, activeTabId, session.tools]);
+
   // Cleanup in-flight requests on unmount: the panel is closing, and nothing
   // is left to show a reply to.
   useEffect(() => {
     return () => {
+      void liveSessionRef.current?.disconnect();
+      liveSessionRef.current = null;
       for (const tabId of tabSessions.tabIds()) {
         tabSessions.getInternals(tabId).abortController?.abort();
         tabSessions.update(tabId, { pendingPermission: null, busy: false });
@@ -247,6 +303,9 @@ export function useAgentSession(
 
   // Dedicated cancellation handler
   const handleStop = useCallback(() => {
+    if (liveSessionRef.current) {
+      liveSessionRef.current.interrupt();
+    }
     if (activeTabId == null) return;
     const internals = tabSessions.getInternals(activeTabId);
     if (internals.abortController) {
@@ -273,11 +332,327 @@ export function useAgentSession(
   const handleReset = useCallback(() => {
     // A new chat asks again: permission was given for the conversation the
     // user was having, not for every one that follows it.
+    if (liveSessionRef.current) {
+      void stopVoiceMode();
+    }
     if (activeTabId == null) return;
     tabSessions.resetChat(activeTabId, { onDevice: onDeviceModelRef.current });
+  }, [activeTabId, stopVoiceMode]);
+
+  const toggleVoiceMute = useCallback(() => {
+    if (!liveSessionRef.current) return;
+    const nextMuted = !liveSessionRef.current.isMuted();
+    liveSessionRef.current.setMuted(nextMuted);
+    setVoiceMuted(nextMuted);
+  }, []);
+
+  const interruptVoice = useCallback(() => {
+    liveSessionRef.current?.interrupt();
+    if (activeTabId != null) {
+      tabSessions.update(activeTabId, { streamingText: '' });
+    }
   }, [activeTabId]);
 
-  // Main prompt sending logic via backend
+  const createTurnToolExecutor = useCallback(
+    (options: {
+      tabId: number;
+      startOrigin: string;
+      onDevice: boolean;
+      signal?: AbortSignal;
+    }) => {
+      const { tabId, startOrigin, onDevice, signal } = options;
+      const internals = tabSessions.getInternals(tabId);
+      let turnTabId = tabId;
+      const toolsView = toolsViewFor(() => turnTabId);
+
+      const currentOrigin = () => {
+        const tabState = tabSessions.getState(turnTabId);
+        if (tabState.origin || tabState.domain) return tabState.origin;
+        return turnTabId === tabId ? startOrigin : '';
+      };
+
+      const logActivity = (name: string): ActivityEntry => {
+        const entry: ActivityEntry = {
+          id: generateId(),
+          name,
+          done: false,
+        };
+        internals.turnLogs = [entry, ...internals.turnLogs];
+        tabSessions.update(tabId, (previous) => ({ activityLog: [entry, ...previous.activityLog] }));
+        return entry;
+      };
+
+      const completeActivity = (entry: ActivityEntry) => {
+        const update = (item: ActivityEntry) => (item.id === entry.id ? { ...item, done: true } : item);
+        internals.turnLogs = internals.turnLogs.map(update);
+        tabSessions.update(tabId, (previous) => ({ activityLog: previous.activityLog.map(update) }));
+      };
+
+      const executeCalls = async (
+        calls: Array<{ id?: string; name: string; args: Record<string, unknown> }>
+      ): Promise<LiveFunctionResponse[]> => {
+        const responses: LiveFunctionResponse[] = [];
+        for (const call of calls) {
+          if (signal?.aborted) break;
+          const { name, frameId } = decodeToolName(call.name);
+          const targetTool =
+            frameId !== undefined
+              ? toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === frameId)
+              : toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === 0) ||
+                toolsView.current.find((t) => t.name === name);
+
+          if (!targetTool) {
+            responses.push({
+              id: call.id || call.name,
+              name: call.name,
+              response: { error: `Tool "${name}" is not available on this page.` },
+            });
+            continue;
+          }
+
+          const entry = logActivity(name);
+          const toolName = targetTool.name;
+          const origin = currentOrigin();
+          const toolFrameId = frameId ?? targetTool.frameId ?? 0;
+          const permissionQuery = {
+            sensitiveActionAlerts: sensitiveActionAlertsRef.current,
+            origin,
+            toolName,
+            tabId,
+            readOnlyHint: targetTool.readOnlyHint,
+            consequentialHint: targetTool.consequentialHint,
+            toolFrameId,
+          };
+          const grantEligible = isGrantEligible(permissionQuery);
+          const needsPermission = needsToolPermission(permissionQuery);
+
+          if (needsPermission) {
+            const decision = await new Promise<ToolPermissionDecision>((resolve) => {
+              const clearPrompt = () => tabSessions.update(tabId, { pendingPermission: null });
+              const onAbort = () => {
+                signal?.removeEventListener('abort', onAbort);
+                clearPrompt();
+                resolve('deny');
+              };
+
+              if (signal?.aborted) {
+                resolve('deny');
+                return;
+              }
+
+              signal?.addEventListener('abort', onAbort, { once: true });
+
+              const settle = (outcome: ToolPermissionDecision) => () => {
+                signal?.removeEventListener('abort', onAbort);
+                clearPrompt();
+                resolve(outcome);
+              };
+
+              tabSessions.update(tabId, {
+                pendingPermission: {
+                  toolName,
+                  toolDescription: targetTool?.description,
+                  origin: origin || undefined,
+                  consequential: targetTool?.consequentialHint === true,
+                  allow: settle('allow'),
+                  allowAlways: grantEligible ? settle('allowAlways') : undefined,
+                  deny: settle('deny'),
+                },
+              });
+            });
+
+            if (signal?.aborted) break;
+
+            const latestOrigin = currentOrigin();
+            if (latestOrigin !== origin) {
+              completeActivity(entry);
+              responses.push({
+                id: call.id || call.name,
+                name: call.name,
+                response: { error: 'Page origin changed before tool execution was approved.' },
+              });
+              continue;
+            }
+
+            if (!applyToolPermissionDecision(decision, permissionQuery)) {
+              completeActivity(entry);
+              responses.push({
+                id: call.id || call.name,
+                name: call.name,
+                response: { error: 'User denied permission to execute this tool.' },
+              });
+              continue;
+            }
+          }
+
+          try {
+            let movedToNewTab = false;
+            const rawRes = await executeTabTool(name, call.args, toolFrameId, turnTabId, {
+              onTabChanged: (movedTabId) => {
+                turnTabId = movedTabId;
+                movedToNewTab = true;
+              },
+            });
+            if (signal?.aborted) break;
+            if (movedToNewTab) {
+              const movedInfo = await getTabInfo(turnTabId);
+              if (movedInfo) {
+                tabSessions.update(turnTabId, (prev) => ({
+                  domain: movedInfo.domain || prev.domain,
+                  origin: movedInfo.url ? originOfUrl(movedInfo.url) : prev.origin,
+                  favicon: movedInfo.favicon || prev.favicon,
+                }));
+              }
+            }
+
+            const limitedRes = applyTokenLimit(rawRes);
+            const res = applySpotlighting(limitedRes, targetTool, getSpotlighting(onDevice));
+            completeActivity(entry);
+            responses.push({
+              id: call.id || call.name,
+              name: call.name,
+              response: { result: res },
+            });
+          } catch (err: unknown) {
+            if (signal?.aborted) break;
+            const errorMsg = (err as Error)?.message || String(err);
+            completeActivity(entry);
+            responses.push({
+              id: call.id || call.name,
+              name: call.name,
+              response: { error: errorMsg },
+            });
+          }
+        }
+
+        if (!signal?.aborted) {
+          await waitForToolsToSettle(toolsView, {
+            requestTools: () => requestTabTools(turnTabId),
+            signal,
+          });
+        }
+        return responses;
+      };
+
+      return { toolsView, executeCalls };
+    },
+    []
+  );
+
+  const toggleVoiceMode = useCallback(async () => {
+    if (liveSessionRef.current || voiceActive) {
+      await stopVoiceMode();
+      return;
+    }
+
+    const tabId = activeTabId;
+    if (tabId == null) return;
+
+    const internals = tabSessions.getInternals(tabId);
+    if (!internals.chatId) {
+      internals.chatId = crypto.randomUUID();
+    }
+
+    const { toolsView, executeCalls } = createTurnToolExecutor({
+      tabId,
+      startOrigin: originRef.current,
+      onDevice: false,
+    });
+
+    const executeLiveTools = async (calls: LiveToolCall[]): Promise<LiveFunctionResponse[]> => {
+      const responses = await executeCalls(calls);
+      liveSessionRef.current?.notifyToolsUpdated(toolsView.current);
+      return responses;
+    };
+
+    const liveSession = new GeminiLiveSession({
+      onStatusChange: (nextStatus) => {
+        setVoiceStatus(nextStatus);
+        setVoiceActive(nextStatus !== 'idle' && nextStatus !== 'error');
+      },
+      onUserInterim: (text) => {
+        setVoiceInterimText(text);
+      },
+      onUserCommit: (text) => {
+        setVoiceInterimText('');
+        tabSessions.update(tabId, (previous) => ({
+          activityLog: [],
+          messages: [...previous.messages, { id: generateId(), role: 'user', text }],
+        }));
+        internals.chatId = syncDirectGeminiHistory(internals.chatId, [{ role: 'user', content: text }]);
+      },
+      onAgentStream: (text) => {
+        tabSessions.update(tabId, { streamingText: text });
+      },
+      onAgentCommit: (text) => {
+        const logs = [...internals.turnLogs];
+        internals.turnLogs = [];
+        tabSessions.update(tabId, (previous) => ({
+          streamingText: '',
+          messages: [
+            ...previous.messages,
+            {
+              id: generateId(),
+              role: 'ai',
+              text,
+              activityLogs: logs,
+              onDevice: false,
+            },
+          ],
+        }));
+        internals.chatId = syncDirectGeminiHistory(internals.chatId, [
+          { role: 'assistant', content: text },
+        ]);
+      },
+      onToolCall: executeLiveTools,
+      onLevelChange: (level) => {
+        setVoiceLevel(level);
+      },
+      onError: (errorMessage) => {
+        tabSessions.update(tabId, (previous) => ({
+          streamingText: '',
+          messages: [
+            ...previous.messages,
+            {
+              id: generateId(),
+              role: 'error',
+              text: formatErrorMessage(errorMessage),
+            },
+          ],
+        }));
+        void stopVoiceMode();
+      },
+    });
+
+    liveSessionRef.current = liveSession;
+    liveTabIdRef.current = tabId;
+    setVoiceActive(true);
+    setVoiceStatus('connecting');
+
+    try {
+      const currentState = tabSessions.getState(tabId);
+      await liveSession.connect({
+        tools: currentState.tools,
+        priorMessages: currentState.messages,
+      });
+      setVoiceModel(liveSession.getModel());
+    } catch (err: unknown) {
+      const errorText = formatErrorMessage(err);
+      tabSessions.update(tabId, (previous) => ({
+        messages: [
+          ...previous.messages,
+          {
+            id: generateId(),
+            role: 'error',
+            text: `Voice Mode error: ${errorText}`,
+          },
+        ],
+      }));
+      await stopVoiceMode();
+    }
+  }, [activeTabId, createTurnToolExecutor, stopVoiceMode, voiceActive]);
+
+  // Main prompt sending logic via backend (or into active Gemini Live session)
   const handleSendPrompt = useCallback(async () => {
     // The tab is pinned for the whole turn. Everything below writes to it and
     // runs tools against it, however many times the user switches tabs while
@@ -290,6 +665,21 @@ export function useAgentSession(
 
     const textToSend = state.userPrompt.trim();
     if (!textToSend) return;
+
+    // If Gemini Live voice mode is active, send the typed turn directly into the
+    // active Live session so voice and text share the exact same live conversation.
+    if (liveSessionRef.current && liveSessionRef.current.sendText(textToSend)) {
+      const internals = tabSessions.getInternals(tabId);
+      tabSessions.update(tabId, (previous) => ({
+        userPrompt: '',
+        activityLog: [],
+        messages: [...previous.messages, { id: generateId(), role: 'user', text: textToSend }],
+      }));
+      internals.chatId = syncDirectGeminiHistory(internals.chatId, [
+        { role: 'user', content: textToSend },
+      ]);
+      return;
+    }
 
     // The browser holds a single on-device session, so two tabs cannot be
     // mid-turn on it at once. Saying so beats quietly wrecking both.
@@ -308,18 +698,6 @@ export function useAgentSession(
     }
 
     const internals = tabSessions.getInternals(tabId);
-    // The conversation stays on `tabId`, where the user can see it, but the
-    // page being worked on can move: a tool may open a tab of its own and the
-    // flow carries on there.
-    let turnTabId = tabId;
-    const startOrigin = originRef.current;
-    const toolsView = toolsViewFor(() => turnTabId);
-    const currentOrigin = () => {
-      const tabState = tabSessions.getState(turnTabId);
-      if (tabState.origin || tabState.domain) return tabState.origin;
-      return turnTabId === tabId ? startOrigin : '';
-    };
-
     // Initialize turn abort controller
     internals.abortController?.abort();
     const abortController = new AbortController();
@@ -331,24 +709,12 @@ export function useAgentSession(
       if (!signal.aborted) showStreamingText(text);
     };
 
-    // Activity logger helpers, scoped to this turn's tab.
-    const logActivity = (name: string): ActivityEntry => {
-      const entry: ActivityEntry = {
-        id: generateId(),
-        name,
-        done: false,
-      };
-      internals.turnLogs = [entry, ...internals.turnLogs];
-      tabSessions.update(tabId, (previous) => ({ activityLog: [entry, ...previous.activityLog] }));
-      return entry;
-    };
-
-    const completeActivity = (entry: ActivityEntry) => {
-      const update = (item: ActivityEntry) => (item.id === entry.id ? { ...item, done: true } : item);
-
-      internals.turnLogs = internals.turnLogs.map(update);
-      tabSessions.update(tabId, (previous) => ({ activityLog: previous.activityLog.map(update) }));
-    };
+    const { toolsView, executeCalls } = createTurnToolExecutor({
+      tabId,
+      startOrigin: originRef.current,
+      onDevice: onDeviceModelRef.current,
+      signal,
+    });
 
     const addMessage = (message: ChatMessage) =>
       tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
@@ -408,169 +774,16 @@ export function useAgentSession(
           messageRendered = true;
         }
 
-        const toolResponses = [];
-        for (const call of currentResult.functionCalls) {
-          if (signal.aborted) break;
-          const { name, frameId } = decodeToolName(call.name);
-          // Find the tool declaration among this tab's tools without crossing frame boundaries
-          const targetTool =
-            frameId !== undefined
-              ? toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === frameId)
-              : toolsView.current.find((t) => t.name === name && (t.frameId ?? 0) === 0) ||
-                toolsView.current.find((t) => t.name === name);
-
-          if (!targetTool) {
-            const errorMsg = `Tool "${name}" is not available on this page.`;
-            toolResponses.push({
-              functionResponse: {
-                id: call.id,
-                name: call.name,
-                response: { error: errorMsg },
-              },
-            });
-            continue;
-          }
-
-          const entry = logActivity(name);
-
-          const toolName = targetTool.name;
-          const origin = currentOrigin();
-          // Explicit frameId from the tool call takes precedence over fallback tool metadata.
-          const toolFrameId = frameId ?? targetTool.frameId ?? 0;
-          const permissionQuery = {
-            sensitiveActionAlerts: sensitiveActionAlertsRef.current,
-            origin,
-            toolName,
-            tabId,
-            readOnlyHint: targetTool.readOnlyHint,
-            consequentialHint: targetTool.consequentialHint,
-            toolFrameId,
-          };
-          const grantEligible = isGrantEligible(permissionQuery);
-          const needsPermission = needsToolPermission(permissionQuery);
-
-          // If sensitive action alerts is enabled and tool is not readonly, prompt the user before execution
-          if (needsPermission) {
-            const decision = await new Promise<ToolPermissionDecision>((resolve) => {
-              const clearPrompt = () => tabSessions.update(tabId, { pendingPermission: null });
-              const onAbort = () => {
-                signal.removeEventListener('abort', onAbort);
-                clearPrompt();
-                resolve('deny');
-              };
-
-              if (signal.aborted) {
-                resolve('deny');
-                return;
-              }
-
-              signal.addEventListener('abort', onAbort, { once: true });
-
-              const settle = (outcome: ToolPermissionDecision) => () => {
-                signal.removeEventListener('abort', onAbort);
-                clearPrompt();
-                resolve(outcome);
-              };
-
-              // Filed under this turn's tab, so it is only on screen while
-              // that tab is in front.
-              tabSessions.update(tabId, {
-                pendingPermission: {
-                  toolName,
-                  toolDescription: targetTool?.description,
-                  origin: origin || undefined,
-                  consequential: targetTool?.consequentialHint === true,
-                  allow: settle('allow'),
-                  // Only offered where the grant would mean what the button says:
-                  // a known tool, in the top frame, of a page with an origin, and
-                  // never for something that may be irreversible.
-                  allowAlways: grantEligible ? settle('allowAlways') : undefined,
-                  deny: settle('deny'),
-                },
-              });
-            });
-
-            if (signal.aborted) break;
-
-            // Verify that the tab has not navigated to a different origin while awaiting permission.
-            const latestOrigin = currentOrigin();
-            if (latestOrigin !== origin) {
-              completeActivity(entry);
-              toolResponses.push({
-                functionResponse: {
-                  id: call.id,
-                  name: call.name,
-                  response: { error: 'Page origin changed before tool execution was approved.' },
-                },
-              });
-              continue;
-            }
-
-            if (!applyToolPermissionDecision(decision, permissionQuery)) {
-              completeActivity(entry);
-              toolResponses.push({
-                functionResponse: {
-                  id: call.id,
-                  name: call.name,
-                  response: { error: 'User denied permission to execute this tool.' },
-                },
-              });
-              continue;
-            }
-          }
-
-          try {
-            // Security Note: This is where you might utilize a critic to check that the
-            // tool call and parameters align with the user's intent before execution.
-            let movedToNewTab = false;
-            const rawRes = await executeTabTool(name, call.args, toolFrameId, turnTabId, {
-              onTabChanged: (movedTabId) => {
-                turnTabId = movedTabId;
-                movedToNewTab = true;
-              },
-            });
-            if (signal.aborted) break;
-            if (movedToNewTab) {
-              const movedInfo = await getTabInfo(turnTabId);
-              if (movedInfo) {
-                tabSessions.update(turnTabId, (prev) => ({
-                  domain: movedInfo.domain || prev.domain,
-                  origin: movedInfo.url ? originOfUrl(movedInfo.url) : prev.origin,
-                  favicon: movedInfo.favicon || prev.favicon,
-                }));
-              }
-            }
-
-            const limitedRes = applyTokenLimit(rawRes);
-            const res = applySpotlighting(
-              limitedRes,
-              targetTool,
-              getSpotlighting(onDeviceModelRef.current)
-            );
-
-            // Security Note: This is where you might utilize a prompt injection classifier to
-            // detect any prompt injection in the tool output before returning it to the model.
-            completeActivity(entry);
-            toolResponses.push({
-              functionResponse: { id: call.id, name: call.name, response: { result: res } },
-            });
-          } catch (err: unknown) {
-            if (signal.aborted) break;
-            const errorMsg = (err as Error)?.message || String(err);
-            completeActivity(entry);
-            toolResponses.push({
-              functionResponse: { id: call.id, name: call.name, response: { error: errorMsg } },
-            });
-          }
-        }
-
+        const executedResponses = await executeCalls(currentResult.functionCalls);
         if (signal.aborted) break;
 
-        await waitForToolsToSettle(toolsView, {
-          requestTools: () => requestTabTools(turnTabId),
-          signal,
-        });
-        if (signal.aborted) break;
+        const toolResponses = executedResponses.map((r) => ({
+          functionResponse: {
+            id: r.id,
+            name: r.name,
+            response: r.response,
+          },
+        }));
 
         const updatedTools = buildToolDecls(toolsView.current);
 
@@ -627,7 +840,8 @@ export function useAgentSession(
     } catch (err: unknown) {
       if (signal.aborted) return;
       showStreamingText('');
-      console.error('[WebMCP] Error during chat turn:', formatErrorMessage(err), err);
+      const formatted = formatErrorMessage(err);
+      console.error('[WebMCP] Error during chat turn:', formatted, err);
       addMessage({
         id: generateId(),
         role: 'error',
@@ -662,5 +876,16 @@ export function useAgentSession(
     handleSendPrompt,
     handleStop,
     handleReset,
+    voiceActive,
+    voiceStatus,
+    voiceMuted,
+    voiceInterimText,
+    voiceLevel,
+    voiceModel,
+    toggleVoiceMode,
+    stopVoiceMode,
+    toggleVoiceMute,
+    interruptVoice,
   };
 }
+

@@ -36,5 +36,16 @@
       "run_at": "document_start",
       "js": ["content.js"]
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "pcm-capture-processor.js",
+        "pcm-playback-processor.js",
+        "permission.html",
+        "permission.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
   ]
 }

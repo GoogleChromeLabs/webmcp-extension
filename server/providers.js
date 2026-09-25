@@ -21,6 +21,7 @@ const PROVIDERS = {
     keys: ['GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'API_KEY', 'apiKey'],
     baseUrl: 'GOOGLE_GENERATIVE_AI_BASE_URL',
     defaultModel: 'google:gemini-3.6-flash',
+    defaultLiveModel: 'google:gemini-3.8-live',
     open: (options) => createGoogleGenerativeAI(options),
   },
   openai: {
@@ -115,4 +116,7 @@ export function loadProviders(env = {}) {
 export function describeModel(config) {
   return config.spec ? `${config.spec.providerId}:${config.spec.modelId}` : config.requestedSpec;
 }
+
+export const DEFAULT_LIVE_MODEL = parseModelSpec(PROVIDERS.google.defaultLiveModel).modelId;
+
 

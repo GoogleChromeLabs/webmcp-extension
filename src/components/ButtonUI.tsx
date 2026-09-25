@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { PlayArrowIcon, SquareStopIcon } from './Icons.js';
+import { LiveWaveIcon, PlayArrowIcon, SquareStopIcon } from './Icons.js';
 
 export type ButtonVariant = 'live' | 'send' | 'stop';
 
@@ -27,8 +27,10 @@ export function ButtonUI({
   ...restProps
 }: ButtonUIProps) {
   const isStop = variant === 'stop';
+  const isLive = variant === 'live';
 
   const classNames = ['button-ui'];
+  if (isLive) classNames.push('button-ui--live');
   if (pressed) classNames.push('button-ui--pressed');
   if (className) classNames.push(className);
 
@@ -43,6 +45,8 @@ export function ButtonUI({
       <div className="button-ui__icon-wrapper">
         {isStop ? (
           <SquareStopIcon size={12} color="#ffffff" />
+        ) : isLive ? (
+          <LiveWaveIcon size={14} color="#ffffff" />
         ) : (
           <PlayArrowIcon size={14} color="#ffffff" />
         )}
@@ -52,4 +56,5 @@ export function ButtonUI({
 }
 
 export default ButtonUI;
+
 

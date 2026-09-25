@@ -74,6 +74,16 @@ export function App() {
     handleSendPrompt,
     handleStop,
     handleReset,
+    voiceActive,
+    voiceStatus,
+    voiceMuted,
+    voiceInterimText,
+    voiceLevel,
+    voiceModel,
+    toggleVoiceMode,
+    stopVoiceMode,
+    toggleVoiceMute,
+    interruptVoice,
   } = useAgentSession(activeTabId, { sensitiveActionAlerts, onDeviceModel, origin });
 
   const handleToggleOnDeviceModel = () => {
@@ -164,7 +174,7 @@ export function App() {
           <section className="view chat-view">
             {/* Chat Stream Area */}
             <div id="chatStream">
-              {messages.length === 0 && (
+              {messages.length === 0 && !streamingText && !(voiceActive && activityLog.length > 0) && (
                 <div id="welcomeCard" className="welcome-card">
                   <div className="welcome-card__header">
                     <h1 className="welcome-title">Hi there!</h1>
@@ -190,7 +200,7 @@ export function App() {
               )}
 
               {/* Chat Messages Card */}
-              {messages.length > 0 && (
+              {(messages.length > 0 || Boolean(streamingText) || (voiceActive && activityLog.length > 0)) && (
                 <div className="chat-card">
                   <div className="chat-card__header">
                     {onDeviceModel && contextUsage && <ContextMeter {...contextUsage} />}
@@ -244,7 +254,7 @@ export function App() {
                     })}
 
                     {/* Pending/Running Action Log */}
-                    {busy && (
+                    {(busy || voiceStatus === 'tool' || (voiceActive && Boolean(pendingPermission))) && (
                       <ActionLog
                         status={
                           pendingPermission
@@ -258,8 +268,8 @@ export function App() {
                       />
                     )}
 
-                    {/* The reply as it is written. Not a live region: announcing every chunk would be noise, and the finished message is what gets read. */}
-                    {busy && streamingText && (
+                    {/* The reply as it is written or spoken. */}
+                    {(busy || voiceActive) && streamingText && (
                       <div className="ai-response">
                         <MarkdownText content={streamingText} />
                       </div>
@@ -310,15 +320,40 @@ export function App() {
                 }}
                 textProps={{
                   value: userPrompt,
-                  placeholder: 'Ask Agent anything',
+                  placeholder: voiceActive
+                    ? 'Speak or type a message…'
+                    : 'Ask Agent anything',
                   onChange: (e) => setUserPrompt(e.target.value),
                   onSubmit: handleSendPrompt,
                 }}
                 toolbarProps={{
                   actionVariant: busy ? 'stop' : userPrompt.trim() ? 'send' : 'live',
-                  onActionClick: busy ? handleStop : handleSendPrompt,
+                  onActionClick: busy
+                    ? handleStop
+                    : userPrompt.trim()
+                      ? handleSendPrompt
+                      : () => {
+                          void toggleVoiceMode();
+                        },
+                  voiceActive,
                   onSettingsClick: () => setShowSettings(true),
                 }}
+                voiceProps={
+                  voiceActive
+                    ? {
+                        status: voiceStatus,
+                        muted: voiceMuted,
+                        interimText: voiceInterimText,
+                        level: voiceLevel,
+                        model: voiceModel,
+                        onToggleMute: toggleVoiceMute,
+                        onInterrupt: interruptVoice,
+                        onStop: () => {
+                          void stopVoiceMode();
+                        },
+                      }
+                    : null
+                }
                 permissionProps={
                   pendingPermission
                     ? {

@@ -91,6 +91,31 @@ export const ArrowDownIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_d
 export const ArrowUpIcon = (p: IconProp) => <SymbolIcon name="keyboard_arrow_up" size={16} {...p} />;
 export const ShieldIcon = (p: IconProp) => <SymbolIcon name="shield" size={20} {...p} />;
 export const DeviceIcon = (p: IconProp) => <SymbolIcon name="devices" size={20} {...p} />;
+export const MicIcon = (p: IconProp) => <SymbolIcon name="mic" size={18} {...p} />;
+export const MicOffIcon = (p: IconProp) => <SymbolIcon name="mic_off" size={18} {...p} />;
+
+export function LiveWaveIcon({ size = 14, color = 'currentColor', className = '' }: LogoProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+      style={{ display: 'block' }}
+    >
+      <path
+        d="M2.5 6.5V9.5M6.16667 3.5V12.5M9.83333 5V11M13.5 6.5V9.5"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 export function PlayArrowIcon({ size = 14, color = 'currentColor', className = '' }: LogoProps) {
   return (
@@ -131,3 +156,4 @@ export function SquareStopIcon({ size = 12, color = 'currentColor', className = 
     </svg>
   );
 }
+

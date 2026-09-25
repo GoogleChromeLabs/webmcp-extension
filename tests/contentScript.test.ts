@@ -129,17 +129,25 @@ test('content script forwards every annotation hint the permission gate relies o
   assert.equal(message.url, 'https://shop.example/checkout');
   // Round-tripped through JSON because the sandbox has its own realm, so its
   // objects fail `deepStrictEqual`'s prototype check despite being identical.
-  assert.deepEqual(JSON.parse(JSON.stringify(message.tools)), [
-    {
-      description: 'Places the order and charges the card.',
-      inputSchema: { type: 'object', properties: {} },
-      readOnlyHint: false,
-      untrustedContentHint: true,
-      consequentialHint: true,
-      name: 'place_order',
-      frameId: 0,
-    },
-  ]);
+  const tools = JSON.parse(JSON.stringify(message.tools)) as Array<Record<string, unknown>>;
+  const placeOrder = tools.find((t) => t.name === 'place_order');
+  assert.deepEqual(placeOrder, {
+    description: 'Places the order and charges the card.',
+    inputSchema: { type: 'object', properties: {} },
+    readOnlyHint: false,
+    untrustedContentHint: true,
+    consequentialHint: true,
+    name: 'place_order',
+    frameId: 0,
+  });
+
+  const readPageContent = tools.find((t) => t.name === 'read_page_content');
+  assert.ok(readPageContent);
+  assert.equal(readPageContent.readOnlyHint, true);
+
+  const queryDom = tools.find((t) => t.name === 'query_dom_elements');
+  assert.ok(queryDom);
+  assert.equal(queryDom.readOnlyHint, true);
 });
 
 test('content script preserves a false consequentialHint rather than dropping it', async () => {
@@ -159,7 +167,9 @@ test('content script preserves a false consequentialHint rather than dropping it
   listener({ action: 'LIST_TOOLS' }, {}, () => {});
   const message = await waitForTools(sent);
 
-  const [tool] = message.tools as Array<Record<string, unknown>>;
+  const tools = message.tools as Array<Record<string, unknown>>;
+  const tool = tools.find((t) => t.name === 'search_products');
+  assert.ok(tool);
   assert.equal(tool.consequentialHint, false);
   assert.equal(tool.readOnlyHint, true);
 });
@@ -180,9 +190,81 @@ test('content script leaves consequentialHint undefined when a page omits annota
   listener({ action: 'LIST_TOOLS' }, {}, () => {});
   const message = await waitForTools(sent);
 
-  const [tool] = message.tools as Array<Record<string, unknown>>;
+  const tools = message.tools as Array<Record<string, unknown>>;
+  const tool = tools.find((t) => t.name === 'legacy_tool');
+  assert.ok(tool);
   // Undefined, not `false`: the side panel must be able to tell "the page said
   // this is safe" apart from "the page said nothing".
   assert.equal(tool.consequentialHint, undefined);
   assert.ok('consequentialHint' in tool);
+});
+
+test('content script executes read_page_content and query_dom_elements built-in tools', async () => {
+  const { listener } = loadContentScript([], 'https://example.com/article');
+
+  // Test read_page_content execution
+  const readResult = await new Promise<Record<string, unknown>>((resolve) => {
+    listener({ action: 'EXECUTE_TOOL', name: 'read_page_content', inputArgs: { maxCharacters: 5000 } }, {}, resolve);
+  });
+  assert.equal(readResult.url, 'https://example.com/article');
+  assert.equal(typeof readResult.content, 'string');
+  assert.equal(readResult.truncated, false);
+
+  // Test query_dom_elements execution
+  const queryResult = await new Promise<Record<string, unknown>>((resolve) => {
+    listener({ action: 'EXECUTE_TOOL', name: 'query_dom_elements', inputArgs: { selector: 'h1' } }, {}, resolve);
+  });
+  assert.equal(queryResult.selector, 'h1');
+  assert.ok(Array.isArray(queryResult.results));
+});
+
+test('content script provides built-in tools on regular websites without document.modelContext', async () => {
+  const source = fs.readFileSync(CONTENT_SCRIPT_PATH, 'utf8');
+  const sent: SentMessage[] = [];
+  let listener: ((message: unknown, sender: unknown, reply: unknown) => unknown) | undefined;
+
+  const win: Record<string, unknown> = {
+    location: { href: 'https://en.wikipedia.org/wiki/Web_browser' },
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  win.top = win;
+
+  const sandbox: Record<string, unknown> = {
+    window: win,
+    console: { debug() {}, log() {}, warn() {}, error() {} },
+    setTimeout,
+    clearTimeout,
+    document: {
+      title: 'Web browser - Wikipedia',
+      // No modelContext at all
+    },
+    chrome: {
+      runtime: {
+        onMessage: {
+          addListener(fn: (message: unknown, sender: unknown, reply: unknown) => unknown) {
+            listener = fn;
+          },
+        },
+        sendMessage(message: SentMessage) {
+          sent.push(message);
+          return Promise.resolve();
+        },
+      },
+    },
+  };
+  sandbox.globalThis = sandbox;
+
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox, { filename: CONTENT_SCRIPT_PATH });
+
+  assert.ok(listener);
+  listener({ action: 'LIST_TOOLS' }, {}, () => {});
+  const message = await waitForTools(sent);
+
+  assert.equal(message.url, 'https://en.wikipedia.org/wiki/Web_browser');
+  const tools = message.tools as Array<Record<string, unknown>>;
+  assert.equal(tools.length, 2);
+  assert.equal(tools[0].name, 'read_page_content');
+  assert.equal(tools[1].name, 'query_dom_elements');
 });

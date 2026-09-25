@@ -10,6 +10,7 @@ export interface ToolbarProps {
   actionVariant?: ButtonVariant;
   onActionClick?: () => void;
   onSettingsClick?: () => void;
+  voiceActive?: boolean;
   className?: string;
 }
 
@@ -21,6 +22,7 @@ export function Toolbar({
   actionVariant = 'live',
   onActionClick,
   onSettingsClick,
+  voiceActive = false,
   className = '',
 }: ToolbarProps) {
   return (
@@ -38,9 +40,27 @@ export function Toolbar({
       )}
       <ButtonUI
         variant={actionVariant}
+        pressed={voiceActive && actionVariant === 'live'}
+        aria-label={
+          actionVariant === 'live'
+            ? voiceActive
+              ? 'Stop voice mode'
+              : 'Start Gemini Live voice mode'
+            : actionVariant
+        }
+        aria-pressed={actionVariant === 'live' ? voiceActive : undefined}
+        title={
+          actionVariant === 'live'
+            ? voiceActive
+              ? 'Stop voice mode'
+              : 'Gemini Live voice mode'
+            : undefined
+        }
         onClick={onActionClick}
       />
     </div>
   );
 }
+
+
 

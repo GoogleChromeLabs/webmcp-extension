@@ -5,24 +5,175 @@
 
 console.debug(`[WebMCP] Content script injected in ${window.location.href}`);
 
-chrome.runtime.onMessage.addListener((message, _, reply) => {
-  if (!document.modelContext) {
-    chrome.runtime.sendMessage({
-      message:
-        'Turn on the "WebMCP for testing" flag in about://flags and restart browser to use tools exposed by this website.',
-    });
-    return;
+const BUILT_IN_PAGE_TOOLS = [
+  {
+    name: 'read_page_content',
+    description: 'Read the title, URL, outline, and visible text content of the current web page.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        maxCharacters: {
+          type: 'number',
+          description: 'Maximum characters to retrieve (default 12000, max 30000)',
+        },
+      },
+    },
+    readOnlyHint: true,
+    untrustedContentHint: true,
+    frameId: 0,
+  },
+  {
+    name: 'query_dom_elements',
+    description: 'Query specific elements on the current page using a CSS selector to inspect tables, lists, forms, or text sections.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'CSS selector (e.g. "table", "h1, h2, h3", "article", ".product-specs", "form")',
+        },
+      },
+      required: ['selector'],
+    },
+    readOnlyHint: true,
+    untrustedContentHint: true,
+    frameId: 0,
+  },
+];
+
+function executeReadPageContent(args) {
+  const maxCharacters = Math.min(
+    Math.max(Number(args?.maxCharacters) || 12000, 500),
+    30000,
+  );
+
+  const title = document?.title || '';
+  const url = window?.location?.href || '';
+  const description =
+    document?.querySelector?.('meta[name="description"]')?.getAttribute?.('content') ||
+    document?.querySelector?.('meta[property="og:description"]')?.getAttribute?.('content') ||
+    '';
+
+  const headings = document?.querySelectorAll
+    ? Array.from(document.querySelectorAll('h1, h2, h3'))
+        .slice(0, 30)
+        .map((el) => {
+          const tag = (el.tagName || '').toLowerCase();
+          const text = (el.innerText || el.textContent || '').trim();
+          return text ? `${tag}: ${text}` : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  const mainEl =
+    document?.querySelector?.('main, article, [role="main"]') ||
+    document?.body ||
+    null;
+
+  let textContent = '';
+  if (mainEl) {
+    if (typeof mainEl.cloneNode === 'function') {
+      const clone = mainEl.cloneNode(true);
+      if (clone.querySelectorAll) {
+        const removals = clone.querySelectorAll(
+          'script, style, noscript, svg, nav, footer, iframe, template, [hidden], [aria-hidden="true"]',
+        );
+        removals.forEach((el) => el.remove?.());
+      }
+      textContent = clone.innerText || clone.textContent || '';
+    } else {
+      textContent = mainEl.innerText || mainEl.textContent || '';
+    }
+    textContent = textContent
+      .replace(/\r\n/g, '\n')
+      .replace(/\n\s*\n\s*\n+/g, '\n\n')
+      .replace(/[ \t]+/g, ' ')
+      .trim();
   }
+
+  const truncated = textContent.length > maxCharacters;
+  const content = truncated
+    ? textContent.slice(0, maxCharacters) + '\n... [content truncated]'
+    : textContent;
+
+  return {
+    title,
+    url,
+    description: description || undefined,
+    headingsOutline: headings.length > 0 ? headings : undefined,
+    content,
+    characterCount: content.length,
+    totalCharacters: textContent.length,
+    truncated,
+  };
+}
+
+function executeQueryDomElements(args) {
+  const selector = args?.selector;
+  if (!selector || typeof selector !== 'string') {
+    return { error: 'selector argument is required and must be a string' };
+  }
+
+  let elements = [];
+  try {
+    if (document?.querySelectorAll) {
+      elements = Array.from(document.querySelectorAll(selector));
+    }
+  } catch (err) {
+    return { error: `Invalid CSS selector: ${toMessage(err)}` };
+  }
+
+  const matches = elements.slice(0, 20).map((el, index) => {
+    const attrs = {};
+    for (const attr of ['id', 'class', 'name', 'type', 'href', 'src', 'alt', 'role', 'aria-label']) {
+      if (typeof el?.hasAttribute === 'function' && el.hasAttribute(attr)) {
+        attrs[attr] = el.getAttribute(attr);
+      }
+    }
+    const text = (el?.innerText || el?.textContent || '').trim().slice(0, 500);
+    return {
+      index,
+      tagName: (el?.tagName || '').toLowerCase(),
+      attributes: Object.keys(attrs).length > 0 ? attrs : undefined,
+      text: text || undefined,
+    };
+  });
+
+  return {
+    selector,
+    totalFound: elements.length,
+    showingCount: matches.length,
+    results: matches,
+  };
+}
+
+chrome.runtime.onMessage.addListener((message, _, reply) => {
   const { action, name, inputArgs, fromOrigins } = message;
   try {
     if (action == 'LIST_TOOLS') {
       debouncedListTools(fromOrigins);
-      document.modelContext.ontoolchange = debouncedListTools.bind(null, fromOrigins);
+      if (document.modelContext) {
+        document.modelContext.ontoolchange = debouncedListTools.bind(null, fromOrigins);
+      }
     }
     if (action == 'EXECUTE_TOOL') {
       console.debug(
         `[WebMCP] Execute tool "${name}" with ${JSON.stringify(inputArgs)} in ${window.location.href}`,
       );
+      if (name === 'read_page_content') {
+        reply(executeReadPageContent(inputArgs));
+        return true;
+      }
+      if (name === 'query_dom_elements') {
+        reply(executeQueryDomElements(inputArgs));
+        return true;
+      }
+
+      if (!document.modelContext) {
+        reply(JSON.stringify('WebMCP modelContext is not supported on this page'));
+        return true;
+      }
+
       let targetFrame, loadPromise;
       // Check if this tool is associated with a form target.
       // The tool name comes from the page, so it is compared as a value rather
@@ -99,18 +250,30 @@ function debouncedListTools(fromOrigins) {
 }
 
 async function listTools(fromOrigins) {
-  let tools = [];
-  for (const tool of await document.modelContext.getTools({ fromOrigins })) {
-    const frameId = tool.window == window ? 0 : await getFrameId(tool.window);
-    tools.push({
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      readOnlyHint: tool.annotations?.readOnlyHint,
-      untrustedContentHint: tool.annotations?.untrustedContentHint,
-      consequentialHint: tool.annotations?.consequentialHint,
-      name: tool.name,
-      frameId,
-    });
+  const tools = [];
+  if (window === window.top) {
+    tools.push(...BUILT_IN_PAGE_TOOLS);
+  }
+  if (document?.modelContext?.getTools) {
+    try {
+      for (const tool of await document.modelContext.getTools({ fromOrigins })) {
+        const frameId = tool.window == window ? 0 : await getFrameId(tool.window);
+        if (tools.some((existing) => existing.name === tool.name && existing.frameId === frameId)) {
+          continue;
+        }
+        tools.push({
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          readOnlyHint: tool.annotations?.readOnlyHint,
+          untrustedContentHint: tool.annotations?.untrustedContentHint,
+          consequentialHint: tool.annotations?.consequentialHint,
+          name: tool.name,
+          frameId,
+        });
+      }
+    } catch (e) {
+      console.debug('[WebMCP] Failed to get tools from modelContext:', e);
+    }
   }
   console.debug(`[WebMCP] Got ${tools.length} tools`, tools);
   chrome.runtime.sendMessage({ tools, url: window.location.href });

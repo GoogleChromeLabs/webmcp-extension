@@ -892,13 +892,192 @@ main {
   width: 100%;
 }
 
-.chat-bubble--with-tab .chat-bubble__input-field {
+.chat-bubble--with-tab .chat-bubble__input-field,
+.chat-bubble--voice-active .chat-bubble__input-field {
   border-top: none;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   border-bottom-left-radius: 16px;
   border-bottom-right-radius: 16px;
   padding-top: 8px;
+}
+
+/* Gemini Live Voice Active Bar */
+.voice-active-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 12px;
+  background-color: color-mix(in oklch, var(--color-primary) 7%, var(--color-surface));
+  border: 1px solid var(--color-outline);
+  border-bottom: 1px solid color-mix(in oklch, var(--color-outline) 70%, transparent);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  transition: background-color 0.2s ease, opacity 0.18s ease, transform 0.18s ease;
+  @starting-style {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.chat-bubble--with-tab .voice-active-bar {
+  border-top: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.voice-active-bar--speaking {
+  background-color: color-mix(in oklch, var(--color-primary) 12%, var(--color-surface));
+}
+
+.voice-active-bar--muted {
+  background-color: var(--color-surface-container);
+}
+
+.voice-active-bar__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.voice-active-bar__text {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--color-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-active-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.voice-active-bar__pill-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklch, var(--color-primary) 30%, var(--color-outline));
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.voice-active-bar__pill-btn:hover {
+  background-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.voice-active-bar__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.voice-active-bar__icon-btn:hover {
+  background-color: var(--color-surface-container);
+  color: var(--color-on-surface);
+}
+
+.voice-active-bar__icon-btn--muted {
+  background-color: color-mix(in oklch, var(--color-error) 14%, var(--color-surface));
+  color: var(--color-error);
+}
+
+.voice-active-bar__icon-btn--end:hover {
+  background-color: color-mix(in oklch, var(--color-error) 14%, var(--color-surface));
+  color: var(--color-error);
+}
+
+/* 4-Bar Acoustic Waveform Indicator */
+.voice-wave-container {
+  --voice-level: 0.25;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2.5px;
+  width: 18px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.voice-wave-bar {
+  display: block;
+  width: 2.5px;
+  height: 5px;
+  border-radius: 999px;
+  background-color: var(--color-primary);
+  transition: height 0.12s ease, background-color 0.15s ease;
+}
+
+.voice-wave-container.muted .voice-wave-bar {
+  height: 3px;
+  background-color: var(--color-on-surface-variant);
+  animation: none;
+}
+
+.voice-wave-container.listening .voice-wave-bar,
+.voice-wave-container.speaking .voice-wave-bar,
+.voice-wave-container.tool .voice-wave-bar {
+  animation: webmcp-voice-wave 0.9s ease-in-out infinite alternate;
+}
+
+.voice-wave-container.speaking .voice-wave-bar {
+  animation-duration: 0.55s;
+}
+
+.voice-wave-container .voice-wave-bar:nth-child(1) {
+  animation-delay: 0s;
+}
+.voice-wave-container .voice-wave-bar:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.voice-wave-container .voice-wave-bar:nth-child(3) {
+  animation-delay: 0.32s;
+}
+.voice-wave-container .voice-wave-bar:nth-child(4) {
+  animation-delay: 0.12s;
+}
+
+@keyframes webmcp-voice-wave {
+  0% {
+    height: 4px;
+  }
+  100% {
+    height: calc(7px + (var(--voice-level, 0.35) * 9px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-wave-container.listening .voice-wave-bar,
+  .voice-wave-container.speaking .voice-wave-bar,
+  .voice-wave-container.tool .voice-wave-bar {
+    animation: none;
+    height: 8px;
+  }
 }
 
 /* Text Input */
@@ -936,10 +1115,6 @@ main {
   justify-content: space-between;
   width: 100%;
   height: 36px;
-}
-
-.toolbar .button-ui {
-  margin-left: auto;
 }
 
 .toolbar__settings-btn {
@@ -1635,3 +1810,41 @@ main {
 .tool-permission-card--consequential .tool-permission-card__btn--allow:active {
   background-color: #6d1611;
 }
+
+.settings-item--stacked {
+  align-items: flex-start;
+}
+
+.settings-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.settings-field-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-on-surface-variant);
+}
+
+.settings-text-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-outline-strong);
+  background-color: var(--color-surface);
+  color: var(--color-on-surface);
+  font-family: var(--font-body);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.settings-text-input:focus {
+  border-color: var(--color-primary);
+}
+

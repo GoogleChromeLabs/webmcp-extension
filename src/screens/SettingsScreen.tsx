@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useId } from 'react';
-import { CloseIcon, DeviceIcon, ShieldIcon } from '../components/Icons.js';
+import { useId, useState } from 'react';
+import { CloseIcon, DeviceIcon, LiveWaveIcon, ShieldIcon } from '../components/Icons.js';
 import { Switch } from '../components/Switch.js';
+import { getGeminiApiKey, getLiveModel, LIVE_MODEL_ID_DEFAULT } from '../services/geminiLive.js';
 
 export interface SettingsScreenProps {
   sensitiveActionAlerts: boolean;
@@ -20,7 +21,8 @@ export interface SettingsScreenProps {
 
 /**
  * SettingsScreen Component
- * Presents settings options, currently featuring the Sensitive action alerts permission toggle.
+ * Presents settings options, including Sensitive action alerts, On-device model,
+ * and direct in-extension Gemini API Key / Live Model configuration for serverless operation.
  */
 export function SettingsScreen({
   sensitiveActionAlerts,
@@ -34,7 +36,48 @@ export function SettingsScreen({
   const alertsDescId = useId();
   const modelDescId = useId();
   const modelLockedId = useId();
+  const geminiKeyInputId = useId();
+  const geminiLiveModelInputId = useId();
   const modelLocked = onDeviceModelSupported && responseInProgress;
+
+  const [apiKeyInput, setApiKeyInput] = useState<string>(() => {
+    try {
+      return globalThis.localStorage?.getItem('geminiApiKey') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [liveModelInput, setLiveModelInput] = useState<string>(() => getLiveModel());
+  const hasBuildEnvKey = Boolean((process.env.WEBMCP_GEMINI_API_KEY || '').trim());
+  const effectiveKeyPresent = Boolean(getGeminiApiKey());
+
+  const handleApiKeyChange = (value: string) => {
+    setApiKeyInput(value);
+    try {
+      const trimmed = value.trim();
+      if (trimmed) {
+        globalThis.localStorage?.setItem('geminiApiKey', trimmed);
+      } else {
+        globalThis.localStorage?.removeItem('geminiApiKey');
+      }
+    } catch {
+      // ignore storage write errors
+    }
+  };
+
+  const handleLiveModelChange = (value: string) => {
+    setLiveModelInput(value);
+    try {
+      const trimmed = value.trim();
+      if (trimmed) {
+        globalThis.localStorage?.setItem('geminiLiveModel', trimmed);
+      } else {
+        globalThis.localStorage?.removeItem('geminiLiveModel');
+      }
+    } catch {
+      // ignore storage write errors
+    }
+  };
 
   return (
     <div className="settings-view">
@@ -91,7 +134,7 @@ export function SettingsScreen({
               <p id={modelDescId} className="settings-item__desc">
                 {onDeviceModelSupported
                   ? 'Run the model in your browser with the Prompt API, instead of sending prompts and page data to the backend server. No API key needed.'
-                  : 'Unavailable: this browser does not expose the Prompt API. Prompts go to the backend server.'}
+                  : 'Unavailable: this browser does not expose the Prompt API. Prompts go to the backend server or direct Gemini API.'}
               </p>
               {modelLocked && (
                 <p id={modelLockedId} className="settings-item__desc">
@@ -109,6 +152,53 @@ export function SettingsScreen({
               />
             </div>
           </div>
+
+          <div className="settings-item settings-item--stacked">
+            <div className="settings-item__icon">
+              <LiveWaveIcon size={22} color="var(--color-on-surface-variant)" />
+            </div>
+            <div className="settings-item__content">
+              <span className="settings-item__title">Gemini API &amp; Live Voice (Serverless)</span>
+              <p className="settings-item__desc">
+                Connects directly to Gemini from the extension (mints ephemeral <code>v1beta/auth_tokens</code> for{' '}
+                <code>{LIVE_MODEL_ID_DEFAULT}</code>) with no local server required.
+              </p>
+              <div className="settings-field-group">
+                <label htmlFor={geminiKeyInputId} className="settings-field-label">
+                  Gemini API key {effectiveKeyPresent ? '(Configured)' : '(Not set)'}
+                </label>
+                <input
+                  id={geminiKeyInputId}
+                  type="password"
+                  className="settings-text-input"
+                  value={apiKeyInput}
+                  onChange={(e) => handleApiKeyChange(e.target.value)}
+                  placeholder={
+                    hasBuildEnvKey
+                      ? 'Using GEMINI_API_KEY from .env (enter to override)'
+                      : 'AIzaSy...'
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+              <div className="settings-field-group">
+                <label htmlFor={geminiLiveModelInputId} className="settings-field-label">
+                  Gemini Live voice model
+                </label>
+                <input
+                  id={geminiLiveModelInputId}
+                  type="text"
+                  className="settings-text-input"
+                  value={liveModelInput}
+                  onChange={(e) => handleLiveModelChange(e.target.value)}
+                  placeholder={LIVE_MODEL_ID_DEFAULT}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -116,3 +206,4 @@ export function SettingsScreen({
 }
 
 export default SettingsScreen;
+

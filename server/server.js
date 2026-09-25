@@ -106,8 +106,10 @@ function getFormattedDate() {
 function getSystemInstruction() {
   const formattedDate = getFormattedDate();
   return [
-    'You are an assistant embedded in a browser tab interacting with WebMCP tools on web pages.',
+    'You are an assistant embedded in a browser tab interacting with WebMCP tools and web pages.',
     'User prompts typically refer to the current tab unless stated otherwise.',
+    'You have direct perception of the current web page via the built-in `read_page_content` and `query_dom_elements` tools.',
+    'When the user asks what is on the page, requests a summary, or asks questions about content on screen, call `read_page_content` (or `query_dom_elements` for targeted CSS selectors) to inspect the live page content.',
     'Use the provided tools to query page content when you need it.',
     'When new tools become available after an action (such as search filter tools on updated search results), continue executing the appropriate tools to fulfill the user request in full before responding.',
     `Today's date is: ${formattedDate}`,
