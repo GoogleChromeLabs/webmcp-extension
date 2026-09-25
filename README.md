@@ -59,7 +59,7 @@ feedback in [GitHub issues](https://github.com/GoogleChromeLabs/webmcp-extension
 
 ### Requirements
 
-- Node.js 22 or newer
+- Node.js 22.18 or newer (it runs the TypeScript server and build scripts directly)
 - Google Chrome 150 or newer, with the **WebMCP for testing** flag turned on in `chrome://flags`
 
 ### 1. Configure `.env`
@@ -200,10 +200,9 @@ CHROME_BIN=$(npx @puppeteer/browsers install chrome@stable --format "{{path}}") 
 ```
 webmcp-extension/
 ├── .env               # API key, MODEL, WEBMCP_AUTH_TOKEN
-├── public/            # Copied into dist/ as is
-│   ├── manifest.json  # Manifest V3
-│   └── icons/
-├── src/               # The extension (TypeScript, bundled by esbuild)
+├── extension/         # The extension (TypeScript, bundled by esbuild into dist/)
+│   ├── manifest.json  # Manifest V3, copied into dist/ as is
+│   ├── icons/         # Copied into dist/ as is
 │   ├── background.ts  # Service worker: tab tracking, tool count badge
 │   ├── content.ts     # Content script: talks to document.modelContext on the page
 │   ├── frameOrigins.ts # Lists the origins of a tab's frames
@@ -215,16 +214,19 @@ webmcp-extension/
 │       ├── screens/   # Consent and settings screens
 │       ├── services/  # Server, on-device model and extension bridges; permissions; tool results
 │       └── hooks/     # Active tab, its tools, and the agent loop
-├── server/            # Node.js model server (plain JS with JSDoc types, no build step)
-│   ├── server.js      # Chat API and log dashboard (port 3000)
-│   ├── providers.js   # Reads MODEL and the provider keys
-│   ├── tools.js       # Page tools as model tools, and the chat history each turn adds to
-│   ├── security.js    # .env loading, origin, CORS and token checks
+├── server/            # Node.js model server (TypeScript, run directly by Node, no build step)
+│   ├── server.ts      # Chat API and log dashboard (port 3000)
+│   ├── providers.ts   # Reads MODEL and the provider keys
+│   ├── tools.ts       # Page tools as model tools, and the chat history each turn adds to
+│   ├── security.ts    # .env loading, origin, CORS and token checks
 │   └── logs.html      # Log dashboard page
 ├── shared/            # Code used by both the server and the side panel
-│   └── systemPrompt.js # The system prompt both backends give the model
-├── scripts/           # Build: bundles src/, copies public/, injects the auth token
-└── tests/             # Unit tests, and smoke tests in tests/smoke/
+│   └── systemPrompt.ts # The system prompt both backends give the model
+├── scripts/           # Build: bundles extension/, copies its static files, injects the auth token
+└── tests/
+    ├── extension/     # Unit tests for the extension
+    ├── server/        # Unit tests for the server
+    └── smoke/         # End-to-end tests that load the built extension in Chrome
 ```
 
 ---

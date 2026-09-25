@@ -5,7 +5,7 @@
 
 import { describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSmokeSession, smokeSkipReason, SmokeSessionContext } from './chromeHarness.js';
+import { createSmokeSession, smokeSkipReason, type SmokeSessionContext } from './chromeHarness.js';
 import { createSequentialSteps } from './sequentialSteps.js';
 import {
   clickOrThrow,
@@ -35,7 +35,7 @@ describe('Smoke — Onboarding & Tool Discovery', { skip: smokeSkipReason(), tim
   step('loads the bundled sidebar stylesheet into the side panel', async () => {
     const { sidebar } = session;
     // sidepanel/index.css is emitted by the shared esbuild config from
-    // src/sidepanel/styles.css; the page has to link it and it has to carry rules.
+    // extension/sidepanel/styles.css; the page has to link it and it has to carry rules.
     await sidebar.waitForFunction(
       () =>
         [...document.styleSheets].some(

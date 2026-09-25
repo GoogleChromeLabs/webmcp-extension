@@ -10,20 +10,20 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import esbuild from 'esbuild';
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
-import { copyStaticFiles, createBuildOptions } from '../../scripts/buildConfig.js';
-import { startSmokeServer, SmokeServer, TEST_PAGE_TOOL_COUNT } from './smokeServer.js';
+import { copyStaticFiles, createBuildOptions } from '../../scripts/buildConfig.ts';
+import { startSmokeServer, type SmokeServer, TEST_PAGE_TOOL_COUNT } from './smokeServer.js';
 import { dismissConsentScreen, waitForAttachedTabTools } from './sidePanelHelpers.js';
 
 function findProjectRoot(startDir = import.meta.dirname): string {
   let current = startDir;
   while (true) {
-    if (fs.existsSync(path.join(current, 'public/manifest.json'))) {
+    if (fs.existsSync(path.join(current, 'extension/manifest.json'))) {
       return current;
     }
     const parent = path.dirname(current);
     if (parent === current) {
       throw new Error(
-        `Could not locate project root containing public/manifest.json from ${startDir}`
+        `Could not locate project root containing extension/manifest.json from ${startDir}`
       );
     }
     current = parent;

@@ -23,7 +23,7 @@ This project follows
 
 ## Getting set up
 
-You need Node.js 20 or later and a Chrome build that supports WebMCP.
+You need Node.js 22.18 or later and a Chrome build that supports WebMCP.
 
 ```bash
 npm install
@@ -40,16 +40,20 @@ changes to take effect.
 
 ## Before you send a pull request
 
-Run all three checks and make sure they pass:
+Run both checks and make sure they pass:
 
 ```bash
 npm run typecheck
 npm test
 ```
 
-`npm run typecheck` checks everything: the TypeScript in `src/` and `tests/`,
-and the plain JavaScript in `server/`, `scripts/` and `shared/` through its
-JSDoc types.
+`npm run typecheck` checks everything: `extension/`, `server/`, `shared/`,
+`scripts/` and `tests/`. The server and build scripts have no build step; Node
+runs their `.ts` files directly by stripping the types. So code there has to
+use only erasable TypeScript syntax (no `enum` or `namespace`), import local
+files with their `.ts` extension, and bring in types with `import type`. The
+typecheck enforces all three: a second pass (`tsconfig.node.json`) checks
+these folders with Node's own module resolution.
 
 CI runs `npm ci`, these two checks, and `npm run build`, so anything that
 fails locally will fail there too.

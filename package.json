@@ -14,17 +14,18 @@
   },
   "homepage": "https://github.com/GoogleChromeLabs/webmcp-extension#readme",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "build": "node scripts/build.js",
-    "watch": "node scripts/build.js --watch",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "build": "node scripts/build.ts",
+    "watch": "node scripts/build.ts --watch",
     "dev": "npm run watch",
-    "test": "rm -rf dist/tests && esbuild tests/*.test.ts tests/smoke/*.smoke.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests && node --test dist/tests/*.test.js dist/tests/smoke/*.smoke.test.js; status=$?; rm -rf dist/tests; exit $status",
-    "test:smoke": "rm -rf dist/tests && esbuild tests/smoke/*.smoke.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outdir=dist/tests/smoke && node --test dist/tests/smoke/*.smoke.test.js; status=$?; rm -rf dist/tests; exit $status",
+    "test": "rm -rf dist/tests && esbuild tests/extension/*.test.ts tests/server/*.test.ts tests/smoke/*.smoke.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outbase=tests --outdir=dist/tests && node --test dist/tests/extension/*.test.js dist/tests/server/*.test.js dist/tests/smoke/*.smoke.test.js; status=$?; rm -rf dist/tests; exit $status",
+    "test:unit": "rm -rf dist/tests && esbuild tests/extension/*.test.ts tests/server/*.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outbase=tests --outdir=dist/tests && node --test dist/tests/extension/*.test.js dist/tests/server/*.test.js; status=$?; rm -rf dist/tests; exit $status",
+    "test:smoke": "rm -rf dist/tests && esbuild tests/smoke/*.smoke.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outbase=tests --outdir=dist/tests && node --test dist/tests/smoke/*.smoke.test.js; status=$?; rm -rf dist/tests; exit $status",
     "clean": "rm -rf dist",
-    "server": "node server/server.js"
+    "server": "node server/server.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.56",
