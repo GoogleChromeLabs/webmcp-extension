@@ -444,11 +444,57 @@ main {
 .chat-card__header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  gap: 8px;
   width: 100%;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--color-surface-container);
   flex-shrink: 0;
+}
+
+/* The model status sits in the header next to the context meter, where it has
+   one line to work with: a row, without the standalone card's padding, and
+   with the hint dropped, since the button beside it says the same thing. */
+.chat-card__model-status {
+  display: contents;
+}
+
+.chat-card__header .model-status {
+  margin: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  min-width: 0;
+}
+
+.chat-card__header .model-status__hint {
+  display: none;
+}
+
+.chat-card__header .model-status__btn {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.chat-card__header .model-status__progress {
+  width: 64px;
+  height: 6px;
+}
+
+.chat-card__header .model-status__compacting {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-card__header .model-status__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-card__messages {
@@ -467,7 +513,6 @@ main {
 }
 
 .context-meter {
-  margin-right: auto;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -509,6 +554,8 @@ main {
 }
 
 .chat-card__new-chat-btn {
+  /* Last in the header, however much is in front of it. */
+  margin-left: auto;
   background: transparent;
   border: none;
   cursor: pointer;

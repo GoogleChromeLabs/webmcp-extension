@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { type ContextUsage, type DownloadProgress, setOnDeviceModelUi } from '../services/promptApiBackend.js';
 
 /**
@@ -21,6 +22,12 @@ export function getCompactingFraction(status: string): number | null {
 export interface OnDeviceModelStatusProps {
   /** Called with how much of the context the conversation takes up. */
   onContextUsage?: (usage: ContextUsage | null) => void;
+  /**
+   * Where to show the status, when the chat card's header is on screen: the
+   * component stays mounted here so a download survives opening settings or
+   * the first message, and only its elements move.
+   */
+  slot?: HTMLElement | null;
 }
 
 /**
@@ -33,7 +40,7 @@ export interface OnDeviceModelStatusProps {
  * they start out hidden and React leaves their `hidden` attribute alone after
  * that.
  */
-export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps = {}) {
+export function OnDeviceModelStatus({ onContextUsage, slot }: OnDeviceModelStatusProps = {}) {
   const hintRef = useRef<HTMLParagraphElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const progressRef = useRef<HTMLProgressElement | null>(null);
@@ -71,7 +78,7 @@ export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps
     ? helperDownload.percent / 100
     : compacting && getCompactingFraction(compacting);
 
-  return (
+  const status = (
     <div className="model-status" aria-live="polite">
       <p ref={hintRef} className="model-status__hint" hidden>
         The on-device model needs to be downloaded before it can answer.
@@ -98,4 +105,8 @@ export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps
       </div>
     </div>
   );
+
+  // A portal keeps the same elements, so the refs the backend holds and a
+  // download in progress both survive the move into the header and back.
+  return slot ? createPortal(status, slot) : status;
 }
