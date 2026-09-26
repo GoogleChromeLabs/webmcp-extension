@@ -181,7 +181,7 @@ test('a permission prompt belongs to the tab that asked, and is not carried to a
   resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
-    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: { partySize: 2 } }] },
+    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: 'f0_book__table', args: { partySize: 2 } }] },
     { chatId: 'chat-tab-1', text: 'Booked.', functionCalls: [] },
   ]);
 
@@ -291,7 +291,7 @@ test('a turn keeps running in its own tab while the user works in another', asyn
   resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
-    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: {} }] },
+    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: 'f0_book__table', args: {} }] },
     { chatId: 'chat-tab-1', text: 'All done.', functionCalls: [] },
   ]);
 
@@ -310,7 +310,7 @@ test('a turn keeps running in its own tab while the user works in another', asyn
     // The tools declared on the second request are tab 1's, not those of the
     // page the user moved to.
     const declared = (backend.requests[1].tools as Array<{ name: string }>).map((tool) => tool.name);
-    assert.deepEqual(declared, ['_0_book_table']);
+    assert.deepEqual(declared, ['f0_book__table']);
 
     // Tools were listed for tab 1 as well, never for the tab in front.
     const listed = browser.sent.filter(({ message }) => message.action === 'LIST_TOOLS');
@@ -362,7 +362,7 @@ test('a tool that opens its own tab moves the work there, not the conversation',
   resetTabSessions();
   const originalChrome = globalThis.chrome;
   const backend = installBackend([
-    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: {} }] },
+    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: 'f0_book__table', args: {} }] },
     { chatId: 'chat-tab-1', text: 'Confirmed on the new page.', functionCalls: [] },
   ]);
 
@@ -419,7 +419,7 @@ test('a tool that opens its own tab moves the work there, not the conversation',
     assert.equal(collected?.tabId, 7);
     // ...and the turn went on with that page's tools.
     const declared = (backend.requests[1].tools as Array<{ name: string }>).map((tool) => tool.name);
-    assert.deepEqual(declared, ['_0_confirm_booking']);
+    assert.deepEqual(declared, ['f0_confirm__booking']);
 
     // The conversation stayed where the user started it.
     assert.equal(readSession(1).messages.at(-1)?.text, 'Confirmed on the new page.');
@@ -481,7 +481,7 @@ test('denying a permission prompt sends refusal response and does not execute to
   resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
-    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: { partySize: 2 } }] },
+    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: 'f0_book__table', args: { partySize: 2 } }] },
     { chatId: 'chat-tab-1', text: 'Understood, cancelled.', functionCalls: [] },
   ]);
 
@@ -508,7 +508,7 @@ test('denying a permission prompt sends refusal response and does not execute to
       functionResponse: { name: string; response: { error?: string } };
     }>;
     assert.equal(toolResponses.length, 1);
-    assert.equal(toolResponses[0].functionResponse.name, '_0_book_table');
+    assert.equal(toolResponses[0].functionResponse.name, 'f0_book__table');
     assert.equal(toolResponses[0].functionResponse.response.error, 'User denied permission to execute this tool.');
 
     const finished = readSession(1);
@@ -811,7 +811,7 @@ test('a call to a tool the page does not expose is rejected immediately without 
   resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
-    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_nonexistent_tool', args: {} }] },
+    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: 'f0_nonexistent__tool', args: {} }] },
     { chatId: 'chat-tab-1', text: 'That tool is unavailable.', functionCalls: [] },
   ]);
 
@@ -833,7 +833,7 @@ test('a call to a tool the page does not expose is rejected immediately without 
       functionResponse: { name: string; response: { error?: string } };
     }>;
     assert.equal(toolResponses.length, 1);
-    assert.equal(toolResponses[0].functionResponse.name, '_0_nonexistent_tool');
+    assert.equal(toolResponses[0].functionResponse.name, 'f0_nonexistent__tool');
     assert.equal(
       toolResponses[0].functionResponse.response.error,
       'Tool "nonexistent_tool" is not available on this page.'

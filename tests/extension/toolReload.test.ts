@@ -18,9 +18,9 @@ test('toolEncoder - resolves same-name tools across multiple frames without coll
 
   const decls = buildToolDecls(tools);
   assert.equal(decls.length, 3);
-  assert.equal(decls[0].name, '_0_submit_form');
-  assert.equal(decls[1].name, '_1_submit_form');
-  assert.equal(decls[2].name, '_2_submit_form');
+  assert.equal(decls[0].name, 'f0_submit__form');
+  assert.equal(decls[1].name, 'f1_submit__form');
+  assert.equal(decls[2].name, 'f2_submit__form');
 
   // Verify all 3 decode back to their exact respective frames
   const decoded0 = decodeToolName(decls[0].name);
@@ -42,7 +42,7 @@ test('toolEncoder - handles dynamic tool list transitions as page updates DOM to
 
   let decls = buildToolDecls(activeTools);
   assert.equal(decls.length, 1);
-  assert.equal(decls[0].name, '_0_searchHotels');
+  assert.equal(decls[0].name, 'f0_search_hotels');
 
   // Page navigates to results and adds filters and pagination tools
   activeTools = [
@@ -53,8 +53,8 @@ test('toolEncoder - handles dynamic tool list transitions as page updates DOM to
 
   decls = buildToolDecls(activeTools);
   assert.equal(decls.length, 3);
-  assert.equal(decls[1].name, '_0_applyFilter');
-  assert.equal(decls[2].name, '_0_nextPage');
+  assert.equal(decls[1].name, 'f0_apply_filter');
+  assert.equal(decls[2].name, 'f0_next_page');
 });
 
 test('executeTabTool recovers and fetches cross-document result when tool triggers navigation', async () => {
