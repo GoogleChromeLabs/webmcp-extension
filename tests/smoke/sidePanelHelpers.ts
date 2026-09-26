@@ -201,9 +201,14 @@ export interface SwitchState {
   stored: string | null;
 }
 
-/** Frame-0 tool name as the side panel encodes it for the model (`get_flights` -> `_0_get_flights`). */
+/** Frame-0 tool name as the side panel encodes it for the model (`get_flights` -> `f0_get__flights`). */
 export function frame0ToolName(toolName: string): string {
-  return `_0_${toolName}`;
+  // The same fold the encoder applies, so a name the on-device model can take
+  // still leads back to the tool the page declared.
+  const folded = toolName.replace(/[_A-Z]/g, (character) =>
+    character === '_' ? '__' : `_${character.toLowerCase()}`
+  );
+  return `f0_${folded}`;
 }
 
 /**
