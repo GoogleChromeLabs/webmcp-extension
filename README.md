@@ -1,11 +1,12 @@
 # WebMCP - Example Agentic Chrome Extension
 
-An example AI agent built as a Chrome extension. It chats with you in the side
-panel and gets things done on the page by calling the page's WebMCP
-tools. Use it to try out WebMCP on your own site, or as a starting point for your
-own agent.
+This repository contains an example AI agent built as a Chrome extension.
+You can interact with the agent in a side panel and complete website
+tasks by calling the page's WebMCP tools. Use this extension to understand
+how WebMCP tools work on your site.
 
-> **Disclaimer**: This is not an officially supported Google product. This project is not eligible for the [Google Open Source Software Vulnerability Rewards Program](https://bughunters.google.com/open-source-security).
+> **Disclaimer**: This is not an officially supported Google product.
+> This project is not eligible for the [Google Open Source Software Vulnerability Rewards Program](https://bughunters.google.com/open-source-security).
 
 ---
 
@@ -24,11 +25,18 @@ own agent.
 
 ## Trust boundary
 
-WebMCP tools come from web pages, and a web page is not trusted. But tools carry
-**annotations**, hints the page gives about each tool, and this version of the
-extension **trusts those hints** to decide how careful to be. That is on purpose:
-it lets website developers see how an agent treats their tools differently
-depending on the annotations they set.
+Web developers build WebMCP tools to complete tasks on web pages. However,
+the web pages and the website are likely to be untrusted by the agent.
+This trust boundary exists to prevent bad actors from using malicious
+manifests or contaminated outputs to attack the agent or user.
+
+Tools can carry _annotations_, hints that tell the agent about each tool.
+We built this extension to always trust these annotations (or hints)
+when determining how careful to be when taking actions. This is intentional,
+as we want to demonstrate how agents may treat your tools differently
+based on the annotations.
+
+There are a number of possible annotations you can set:
 
 | Annotation | What the extension does |
 |---|---|
@@ -37,30 +45,42 @@ depending on the annotations they set.
 | `consequentialHint: true` | The action may not be reversible (a payment, order, message or deletion). The user is **always** asked, even if alerts are off, even if the tool also says it is read-only, and there is no "allow for this chat" option. |
 | `untrustedContentHint: true` | The tool's result is treated as untrusted page data. Before the model sees it, it is Base64-encoded (local server) or wrapped in a random marker (on-device model), and the model is told to use it only as facts, never as instructions. This is called *spotlighting*. |
 
-Some rules apply to every tool, whatever its annotations:
+There are rules that apply to all of your tules, regardless of the annotations
+you may set:
 
-- Tool results are cut at 8,000 characters (`MAX_TOOL_RESPONSE_CHARS`), with a warning added, so a page cannot flood the model's context.
-- "Allow for this chat" is kept only until the chat is reset or the panel closes. It only applies to tools in the top frame, never to tools inside an iframe.
+- Tool results are limited to 8,000 characters (`MAX_TOOL_RESPONSE_CHARS`),
+  and a warning is shared. This prevents the page from flooding the model's
+  context
+- "Allow for this chat" is kept until the chat is reset or the panel is closed.
+  This setting applies to the tools on a parent website, never to tools within
+  an iframe.
 
 > [!IMPORTANT]
-> These are *hints* from the page, not guarantees. A page can mark a harmful tool
-> as read-only, or mark its own output as trusted. Spotlighting also lowers the
-> risk of prompt injection but does not remove it, and how well it works depends
-> on the model.
+> Annotations are *hints* from the page, not guarantees. A page can mark a harmful tool
+> as read-only, or mark its own output as trusted.
+> [Spotlighting](https://developer.chrome.com/docs/agents/security#set_probabilistic_guardrails)
+> lowers the risk of prompt injection, but cannot remove it entirely.
+> Implementation success varies on a model-by-model basis.
 
-**Building your own agent?** A production-ready agent may need a different trust boundary. For example, its own
-checks on what a tool may do, or limits that do not depend on what the page
-WebMCP tools provide. We would like to hear how you approach this. Please share your ideas and
-feedback in [GitHub issues](https://github.com/GoogleChromeLabs/webmcp-extension/issues).
+**Building your own agent?** This agent is meant to be an example, to understand how an agent
+may interpret your WebMCP tools. It is _not_ a production-ready agent, as agents
+need very clearly defined trust boundaries on website owner,  tool actions, and
+other security limitations. If you're building an agent, we want to hear how you've
+approached these boundaries&mdash;share your feedback in this repository's
+[GitHub Issues](https://github.com/GoogleChromeLabs/webmcp-extension/issues).
+
+Read more about [building safer agents](https://developer.chrome.com/docs/agents/security).
 
 ---
 
-## Getting started
-
-### Requirements
+## Requirements
 
 - Node.js 22.18 or newer (it runs the TypeScript server and build scripts directly)
-- Google Chrome 150 or newer, with the **WebMCP for testing** flag turned on in `chrome://flags`
+- Google Chrome 150+
+- Enable `chrome://flags/#enable-webmcp-testing` and learn more about
+  [how Chrome flags work](https://developer.chrome.com/docs/web-platform/chrome-flags)
+
+## Get started
 
 ### 1. Configure `.env`
 
@@ -118,7 +138,7 @@ shows how full it is, and long chats are summarized to make room.
 
 ---
 
-## Choosing a model
+## Choose a model
 
 `MODEL` is written as `provider:model`:
 
@@ -131,9 +151,11 @@ MODEL=ollama:llama3.2
 
 - A name without a prefix is read as a Google model, so `MODEL=gemini-3.6-flash` still works.
 - For Google, `GOOGLE_GENERATIVE_AI_API_KEY` (the AI SDK's own name) works as well as `GEMINI_API_KEY`.
-- A provider only works if its API key is set. If it is missing, the server says so when it starts. Ollama runs on your machine and needs no key.
+- A provider only works if its API key is set. If it is missing, the server says so when it
+  starts. Ollama runs on your machine and needs no key.
 - Restart the server after changing `MODEL`.
-- The side panel only picks *on-device* or *server*. It never picks the server's model, so keys, cost and model choice stay on the server.
+- The side panel only picks *on-device* or *server*. It never picks the server's model,
+  so keys, cost and model choice stay on the server.
 
 To send a provider to another address (a local runtime, a proxy, or a company gateway):
 
@@ -177,7 +199,7 @@ Set `WEBMCP_LOG_REDACT_BODIES=1` to record only method, path, status and timing.
 
 ---
 
-## Testing
+## Test your extension
 
 ```bash
 npm test            # unit tests and extension smoke tests
