@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { type ContextUsage, type DownloadProgress, setOnDeviceModelUi } from '../services/promptApiBackend.js';
 
@@ -48,6 +48,22 @@ export function OnDeviceModelStatus({ onContextUsage, slot }: OnDeviceModelStatu
   const [compacting, setCompacting] = useState<string | null>(null);
   const onContextUsageRef = useRef(onContextUsage);
   onContextUsageRef.current = onContextUsage;
+  // The status always renders into this one element, which moves between its
+  // own spot and `slot`: portaling straight into `slot` would have React build
+  // new elements every time `slot` comes or goes, leaving the backend driving
+  // the old ones. There is no `document` to make it with when rendering to a
+  // string.
+  const [host] = useState(() => {
+    if (typeof document === 'undefined') return null;
+    const element = document.createElement('div');
+    element.className = 'model-status-host';
+    return element;
+  });
+  const homeRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (host) (slot ?? homeRef.current)?.append(host);
+  }, [host, slot]);
 
   useEffect(() => {
     setOnDeviceModelUi({
@@ -106,7 +122,10 @@ export function OnDeviceModelStatus({ onContextUsage, slot }: OnDeviceModelStatu
     </div>
   );
 
-  // A portal keeps the same elements, so the refs the backend holds and a
-  // download in progress both survive the move into the header and back.
-  return slot ? createPortal(status, slot) : status;
+  if (!host) return status;
+  return (
+    <div ref={homeRef} className="model-status-host">
+      {createPortal(status, host)}
+    </div>
+  );
 }

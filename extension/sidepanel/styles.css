@@ -454,7 +454,8 @@ main {
 /* The model status sits in the header next to the context meter, where it has
    one line to work with: a row, without the standalone card's padding, and
    with the hint dropped, since the button beside it says the same thing. */
-.chat-card__model-status {
+.chat-card__model-status,
+.model-status-host {
   display: contents;
 }
 
