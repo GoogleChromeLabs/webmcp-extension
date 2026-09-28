@@ -45,7 +45,7 @@ There are a number of possible annotations you can set:
 | `consequentialHint: true` | The action may not be reversible (a payment, order, message or deletion). The user is **always** asked, even if alerts are off, even if the tool also says it is read-only, and there is no "allow for this chat" option. |
 | `untrustedContentHint: true` | The tool's result is treated as untrusted page data. Before the model sees it, it is Base64-encoded (local server) or wrapped in a random marker (on-device model), and the model is told to use it only as facts, never as instructions. This is called *spotlighting*. |
 
-There are rules that apply to all of your tules, regardless of the annotations
+There are rules that apply to all of your tools, regardless of the annotations
 you may set:
 
 - Tool results are limited to 8,000 characters (`MAX_TOOL_RESPONSE_CHARS`),
@@ -199,7 +199,7 @@ Set `WEBMCP_LOG_REDACT_BODIES=1` to record only method, path, status and timing.
 
 ---
 
-## Test your extension
+## Run the test suite
 
 ```bash
 npm test            # unit tests and extension smoke tests
