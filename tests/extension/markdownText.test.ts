@@ -181,3 +181,28 @@ test('a reply that grows keeps the parser it started with', async () => {
   assert.equal(element.querySelectorAll('.markdown__stream').length, wrappers);
   assert.equal(element.querySelectorAll('p').length, 3, element.innerHTML);
 });
+
+test('a reply the sink fails on is shown as text, and so is what comes after', async () => {
+  const element = host();
+  const stream = createMarkdownStream(element);
+  const wrapper = element.querySelector('.markdown__stream') as HTMLElement;
+  const append = wrapper.append.bind(wrapper);
+  let failed = false;
+  wrapper.append = (...nodes) => {
+    if (!failed) {
+      failed = true;
+      throw new Error('The sink failed.');
+    }
+    append(...nodes);
+  };
+
+  stream.write('# Heading\n\nThe reply.');
+  await settle();
+  stream.write(' More of it.');
+  stream.end();
+  await settle();
+
+  assert.ok(failed);
+  assert.equal(element.querySelector('h1'), null, element.innerHTML);
+  assert.equal(element.textContent, '# Heading\n\nThe reply. More of it.');
+});

@@ -587,6 +587,12 @@ main {
   display: contents;
 }
 
+/* A reply the sink failed on, shown as the text the model wrote. */
+.markdown__stream--plain {
+  display: block;
+  white-space: pre-wrap;
+}
+
 .markdown h1,
 .markdown h2,
 .markdown h3,

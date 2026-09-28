@@ -57,6 +57,17 @@ export function createMarkdownStream(element: HTMLElement): MarkdownStream {
   wrapper.className = 'markdown__stream';
   element.append(wrapper);
 
+  // Once the sink has failed, it refuses everything after, and a finished
+  // reply is never rendered again to rebuild it. So the wrapper shows the whole
+  // reply as the text it is, and whatever comes after is appended as text.
+  let plain = false;
+  const showAsText = () => {
+    if (plain) return;
+    plain = true;
+    wrapper.classList.add('markdown__stream--plain');
+    wrapper.textContent = stream.written;
+  };
+
   // Chunks are single tokens, which the sink turns into nodes with
   // createElement and append: no HTML string is ever parsed.
   const writer = renderStreamingHTML(wrapper).getWriter();
@@ -69,12 +80,7 @@ export function createMarkdownStream(element: HTMLElement): MarkdownStream {
           // as soon as the sink has appended it.
           if (html.startsWith('<a ')) openLinksInATabOfTheirOwn(wrapper);
         })
-        .catch(() => {
-          // The sink refuses everything after an error, which would drop the
-          // rest of the reply. Retiring the parser has the next render build
-          // the whole reply again, in a wrapper of its own.
-          stream.ended = true;
-        }),
+        .catch(showAsText),
     onUnsafe: ({ attribute, value }) =>
       console.warn(`[WebMCP] A model's reply linked to ${value}, which was dropped from ${attribute}.`),
   });
@@ -85,7 +91,8 @@ export function createMarkdownStream(element: HTMLElement): MarkdownStream {
     ended: false,
     write(markdown) {
       if (!markdown) return;
-      streamer.write(markdown);
+      if (plain) wrapper.append(markdown);
+      else streamer.write(markdown);
       stream.written += markdown;
     },
     end() {
