@@ -54,6 +54,8 @@ export function App() {
   });
 
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  /** The chat card's header, once there is one, where the model status shows. */
+  const [modelStatusSlot, setModelStatusSlot] = useState<HTMLDivElement | null>(null);
 
   const [showToolsDialogue, setShowToolsDialogue] = useState<boolean>(false);
   const [showIPHPopover, setShowIPHPopover] = useState<boolean>(false);
@@ -149,7 +151,9 @@ export function App() {
       {statusMsg && <div id="status">{statusMsg}</div>}
 
       {/* On-device model status, outside <main> so settings cannot unmount it mid-download */}
-      {onDeviceModelSupported && <OnDeviceModelStatus onContextUsage={setContextUsage} />}
+      {onDeviceModelSupported && (
+        <OnDeviceModelStatus onContextUsage={setContextUsage} slot={modelStatusSlot} />
+      )}
 
       <main>
         {showConsent ? (
@@ -201,6 +205,8 @@ export function App() {
                 <div className="chat-card">
                   <div className="chat-card__header">
                     {onDeviceModel && contextUsage && <ContextMeter {...contextUsage} />}
+                    {/* Where the model status shows while there is a chat card to put it in. */}
+                    <div className="chat-card__model-status" ref={setModelStatusSlot} />
                     <button
                       type="button"
                       className="chat-card__new-chat-btn"
