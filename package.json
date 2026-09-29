@@ -33,7 +33,7 @@
     "@ai-sdk/openai": "^4.0.69",
     "ai": "^7.0.105",
     "easy-language-model": "^0.2.1",
-    "react": "^18.3.1",
+    "react": "^19.2.8",
     "react-dom": "^18.3.1",
     "streaming-markdown-html": "^0.1.1"
   },
@@ -41,7 +41,7 @@
     "@puppeteer/browsers": "^3.2.3",
     "@types/chrome": "^0.0.310",
     "@types/node": "^22.13.1",
-    "@types/react": "^18.3.18",
+    "@types/react": "^19.2.18",
     "@types/react-dom": "^18.3.5",
     "esbuild": "^0.27.3",
     "linkedom": "^0.18.13",
