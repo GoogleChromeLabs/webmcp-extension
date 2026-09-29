@@ -34,7 +34,8 @@
     "ai": "^7.0.105",
     "easy-language-model": "^0.2.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "streaming-markdown-html": "^0.1.1"
   },
   "devDependencies": {
     "@puppeteer/browsers": "^3.2.3",
@@ -43,6 +44,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "esbuild": "^0.27.3",
+    "linkedom": "^0.18.13",
     "puppeteer-core": "^25.12.0",
     "typescript": "^5.7.3",
     "webmcp-types": "^0.1.9"

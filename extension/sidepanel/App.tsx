@@ -268,7 +268,7 @@ export function App() {
                     {/* The reply as it is written. Not a live region: announcing every chunk would be noise, and the finished message is what gets read. */}
                     {busy && streamingText && (
                       <div className="ai-response">
-                        <MarkdownText content={streamingText} />
+                        <MarkdownText content={streamingText} streaming />
                       </div>
                     )}
 

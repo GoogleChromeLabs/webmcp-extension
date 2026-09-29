@@ -75,18 +75,14 @@ test('WebMCPToolsDialogue renders tools count and tools list', () => {
   assert.ok(html.includes('Filter gym'));
 });
 
-test('MarkdownText renders formatted HTML headers, lists, code, and links', () => {
-  const markdown = '# Heading 1\n\n- Item 1\n- Item 2\n\nVisit [Example](https://example.com) `code_block`';
-  const html = renderToString(
-    React.createElement(MarkdownText, { content: markdown })
-  );
+test('MarkdownText renders the container a reply is streamed into, and nothing without one', () => {
+  // The Markdown is parsed into the DOM as it arrives rather than into a
+  // string, so the element comes out empty here. What goes in it is covered by
+  // markdownText.test.ts, which runs the parser against a document.
+  const html = renderToString(React.createElement(MarkdownText, { content: '# Heading 1\n\n- Item 1' }));
+  assert.equal(html, '<div class="markdown"></div>');
 
-  assert.ok(html.includes('Heading 1'));
-  assert.ok(html.includes('class="md-h1"'));
-  assert.ok(html.includes('<ul class="md-ul"'));
-  assert.ok(html.includes('Item 1'));
-  assert.ok(html.includes('href="https://example.com"'));
-  assert.ok(html.includes('code_block'));
+  assert.equal(renderToString(React.createElement(MarkdownText, { content: '' })), '');
 });
 
 test('formatLogLabel formats tool names into human readable labels', () => {
@@ -217,18 +213,6 @@ test('Favicon renders customSrc and fallback gracefully', () => {
 
   const fallbackHtml = renderToString(React.createElement(Favicon));
   assert.ok(fallbackHtml.includes('data:image/svg+xml'));
-});
-
-test('MarkdownText sanitizes malicious javascript links', () => {
-  const markdown = '[Click Me](javascript:alert(1)) and [Legit](https://example.com)';
-  const html = renderToString(
-    React.createElement(MarkdownText, { content: markdown })
-  );
-
-  assert.ok(!html.includes('javascript:alert(1)'));
-  assert.ok(html.includes('href="#"'));
-  assert.ok(html.includes('href="https://example.com"'));
-  assert.ok(html.includes('rel="noopener noreferrer"'));
 });
 
 test('ActionLog renders aria-expanded and aria-controls for accessibility', () => {

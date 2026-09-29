@@ -5,39 +5,204 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import React from 'react';
-import { renderToString } from 'react-dom/server';
-import { MarkdownText } from '../../extension/sidepanel/components/MarkdownText.js';
+import { parseHTML } from 'linkedom';
 
-test('parseInline parses bold, italic, code, and markdown links', () => {
-  const text = '**Bold** *Italic* `code` [Link](https://example.com)';
-  const html = renderToString(React.createElement(MarkdownText, { content: text }));
+// The parser builds nodes with `document.createElement`, so the tests need a
+// document before the component module is loaded. It also serializes tokens in
+// a document of their own, which linkedom does not offer on its own.
+const { document } = parseHTML('<!doctype html><html><body></body></html>');
+Object.defineProperty(document, 'implementation', {
+  value: {
+    createHTMLDocument: () => parseHTML('<!doctype html><html><body></body></html>').document,
+  },
+});
+// A link is resolved against the document it is going into, and linkedom has
+// no address to offer. The side panel's own page is where it resolves in
+// Chrome, so the tests stand in something a relative URL can resolve against.
+Object.defineProperty(document, 'baseURI', { value: 'https://example.test/panel.html' });
+(globalThis as unknown as { document: Document }).document = document as unknown as Document;
 
-  assert.ok(html.includes('<strong>Bold</strong>'));
-  assert.ok(html.includes('<em>Italic</em>'));
-  assert.ok(html.includes('<code class="md-inline-code">code</code>'));
-  assert.ok(html.includes('href="https://example.com"'));
-  assert.ok(html.includes('Link'));
+const { createMarkdownStream } = await import('../../extension/sidepanel/components/MarkdownText.js');
+
+/** The sink appends from a stream, so the nodes land a task later. */
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function host(): HTMLElement {
+  const element = document.createElement('div');
+  document.body.append(element);
+  return element as unknown as HTMLElement;
+}
+
+/** Renders `chunks` into a fresh element and returns it, complete. */
+async function render(chunks: string[]): Promise<HTMLElement> {
+  const element = host();
+  const stream = createMarkdownStream(element);
+  for (const chunk of chunks) stream.write(chunk);
+  stream.end();
+  await settle();
+  return element;
+}
+
+/** An anchor's attributes, whatever order the serializer puts them in. */
+function link(element: HTMLElement): Record<string, string | null> {
+  const anchor = element.querySelector('a');
+  assert.ok(anchor, element.innerHTML);
+  return {
+    href: anchor.getAttribute('href'),
+    target: anchor.getAttribute('target'),
+    rel: anchor.getAttribute('rel'),
+    text: anchor.textContent,
+  };
+}
+
+test('inline Markdown becomes the tags it names', async () => {
+  const element = await render(['**Bold** *Italic* `code` [Link](https://example.com)']);
+  const html = element.innerHTML;
+
+  assert.match(html, /<strong>Bold<\/strong>/);
+  assert.match(html, /<em>Italic<\/em>/);
+  assert.match(html, /<code>code<\/code>/);
+  // Links leave for a tab of their own, so a reply cannot navigate the panel.
+  assert.deepEqual(link(element), {
+    href: 'https://example.com',
+    target: '_blank',
+    rel: 'noopener noreferrer',
+    text: 'Link',
+  });
 });
 
-test('MarkdownText renders ordered lists with start attribute when interrupted by sub-lists', () => {
-  const text = `1. **Hotel Alpha**
-   * Rating: 4.9
-   * Price: $200
+test('an ordered list keeps its numbering, with the nested items under each entry', async () => {
+  const html = (await render([
+    '1. **Hotel Alpha**\n   * Rating: 4.9\n   * Price: $200\n',
+    '2. **Hotel Beta**\n   * Rating: 4.8\n',
+    '3. **Hotel Gamma**\n   * Rating: 4.5\n',
+  ])).innerHTML;
 
-2. **Hotel Beta**
-   * Rating: 4.8
-   * Price: $180
+  assert.match(html, /<ol[^>]*>/);
+  for (const hotel of ['Hotel Alpha', 'Hotel Beta', 'Hotel Gamma']) assert.ok(html.includes(hotel), html);
+  assert.ok(html.includes('Rating: 4.9'), html);
+  assert.equal((html.match(/<li>/g) ?? []).length, 7, html);
+});
 
-3. **Hotel Gamma**
-   * Rating: 4.5`;
+test('a construct split across chunks is held until it is whole', async () => {
+  // Where a model's chunks land has nothing to do with where constructs end.
+  const element = await render(['A **bo', 'ld** word and `co', 'de`, then [a li', 'nk](https://example.com/x).']);
 
-  const html = renderToString(React.createElement(MarkdownText, { content: text }));
+  assert.match(element.innerHTML, /<strong>bold<\/strong>/);
+  assert.match(element.innerHTML, /<code>code<\/code>/);
+  assert.equal(link(element).href, 'https://example.com/x');
+  assert.equal(link(element).text, 'a link');
+});
 
-  assert.ok(html.includes('<ol class="md-ol" start="1">'));
-  assert.ok(html.includes('<ol class="md-ol" start="2">'));
-  assert.ok(html.includes('<ol class="md-ol" start="3">'));
-  assert.ok(html.includes('Hotel Alpha'));
-  assert.ok(html.includes('Hotel Beta'));
-  assert.ok(html.includes('Hotel Gamma'));
+test('text already on screen is appended to, not rendered again', async () => {
+  const element = host();
+  const stream = createMarkdownStream(element);
+
+  stream.write('The first sentence. ');
+  await settle();
+  const paragraph = element.firstElementChild;
+  const text = paragraph?.firstChild;
+
+  stream.write('And the second one.');
+  stream.end();
+  await settle();
+
+  // The same nodes are still there: the reply grew, nothing was replaced.
+  assert.equal(element.firstElementChild, paragraph);
+  assert.equal(paragraph?.firstChild, text);
+  assert.ok(element.textContent?.includes('And the second one.'), element.innerHTML);
+});
+
+test('a link a model invents with an unsafe scheme is reported and dropped', async () => {
+  const warnings: unknown[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.join(' '));
+  try {
+    const html = (await render(['[Click me](javascript:alert(1))'])).innerHTML;
+    assert.ok(!html.includes('javascript:'), html);
+    assert.ok(html.includes('Click me'), html);
+  } finally {
+    console.warn = warn;
+  }
+
+  assert.equal(warnings.length, 1, JSON.stringify(warnings));
+  // Markdown ends the URL at the first `)`, so that is what was dropped.
+  assert.match(String(warnings[0]), /javascript:alert\(1/);
+});
+
+test('ending the stream closes what the last chunk left open', async () => {
+  const element = host();
+  const stream = createMarkdownStream(element);
+
+  stream.write('A reply that stops mid');
+  await settle();
+  // The last character is held back: it could still turn out to be a marker.
+  assert.ok(element.textContent?.includes('A reply that stops mi'), element.innerHTML);
+
+  stream.end();
+  await settle();
+  assert.equal(element.querySelectorAll('p').length, 1, element.innerHTML);
+  assert.equal(element.querySelector('p')?.textContent, 'A reply that stops mid');
+});
+
+test('a parser that has been replaced cannot put its reply on screen a second time', async () => {
+  // What StrictMode does on mount: the effect runs, is torn down, and runs
+  // again. The chunks of the first parser are still in flight while the second
+  // one starts, and both would land in the element.
+  const element = host();
+  const first = createMarkdownStream(element);
+  first.write('# Heading\n\nThe reply.');
+  first.end();
+
+  element.replaceChildren();
+  const second = createMarkdownStream(element);
+  second.write('# Heading\n\nThe reply.');
+  second.end();
+
+  await settle();
+  assert.equal((element.textContent?.match(/The reply\./g) ?? []).length, 1, element.innerHTML);
+  assert.equal(element.querySelectorAll('h1').length, 1, element.innerHTML);
+});
+
+test('a reply that grows keeps the parser it started with', async () => {
+  const element = host();
+  const stream = createMarkdownStream(element);
+
+  stream.write('One.\n\nTwo.');
+  await settle();
+  const wrappers = element.querySelectorAll('.markdown__stream').length;
+
+  stream.write('\n\nThree.');
+  stream.end();
+  await settle();
+
+  assert.equal(element.querySelectorAll('.markdown__stream').length, wrappers);
+  assert.equal(element.querySelectorAll('p').length, 3, element.innerHTML);
+});
+
+test('a reply the sink fails on is shown as text, and so is what comes after', async () => {
+  const element = host();
+  const stream = createMarkdownStream(element);
+  const wrapper = element.querySelector('.markdown__stream') as HTMLElement;
+  const append = wrapper.append.bind(wrapper);
+  let failed = false;
+  wrapper.append = (...nodes) => {
+    if (!failed) {
+      failed = true;
+      throw new Error('The sink failed.');
+    }
+    append(...nodes);
+  };
+
+  stream.write('# Heading\n\nThe reply.');
+  await settle();
+  stream.write(' More of it.');
+  stream.end();
+  await settle();
+
+  assert.ok(failed);
+  assert.equal(element.querySelector('h1'), null, element.innerHTML);
+  assert.equal(element.textContent, '# Heading\n\nThe reply. More of it.');
 });
