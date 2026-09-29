@@ -1,4 +1,4 @@
-# WebMCP - Example Agentic Chrome Extension
+# Example Agentic Chrome Extension to test WebMCP
 
 This repository contains an example AI agent built as a Chrome extension.
 You can interact with the agent in a side panel and complete website
