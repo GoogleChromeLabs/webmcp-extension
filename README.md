@@ -21,6 +21,17 @@ how WebMCP tools work on your site.
 - **One conversation per tab.** Each tab has its own chat and permission prompts. Switching tabs switches chats, and closing a tab ends its chat.
 - **Log dashboard** for looking at every request the server handles. See [Log dashboard](#log-dashboard).
 
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/tools.png" width="270" alt="The side panel listing the 10 WebMCP tools found on the page"></td>
+    <td align="center"><img src="docs/screenshots/chat.png" width="270" alt="A chat where the agent calls the get_flights tool and answers with a table of flights"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Tools found on the page</sub></td>
+    <td align="center"><sub>The agent calls a read-only tool and streams its reply</sub></td>
+  </tr>
+</table>
+
 ---
 
 ## Trust boundary
@@ -44,6 +55,17 @@ There are a number of possible annotations you can set:
 | `readOnlyHint: true` | The tool runs without asking. |
 | `consequentialHint: true` | The action may not be reversible (a payment, order, message or deletion). The user is **always** asked, even if alerts are off, even if the tool also says it is read-only, and there is no "allow for this chat" option. |
 | `untrustedContentHint: true` | The tool's result is treated as untrusted page data. Before the model sees it, it is Base64-encoded (local server) or wrapped in a random marker (on-device model), and the model is told to use it only as facts, never as instructions. This is called *spotlighting*. |
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/permission.png" width="270" alt="Permission prompt for book_flight with Don't allow, Allow and Allow for this chat buttons"></td>
+    <td align="center"><img src="docs/screenshots/consequential.png" width="270" alt="Red warning prompt for delete_account saying the action may be irreversible"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><code>readOnlyHint: false</code>: the user is asked first</sub></td>
+    <td align="center"><sub><code>consequentialHint: true</code>: the user is always asked</sub></td>
+  </tr>
+</table>
 
 There are rules that apply to all of your tools, regardless of the annotations
 you may set:
@@ -128,6 +150,10 @@ npm run build    # in a second terminal; writes the extension to dist/
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode**.
 3. Click **Load unpacked** and pick the `dist/` folder.
+4. Open the side panel on a page with WebMCP tools. The first time, it explains
+   what the agent does. Click **Got it** to start.
+
+<img src="docs/screenshots/consent.png" width="270" alt="The first-run screen of the side panel with Close and Got it buttons">
 
 ### Using the on-device model
 
@@ -135,6 +161,8 @@ Turn it on in **Settings → Model → On-device model**. Tool calling also need
 `chrome://flags/#prompt-api-tool-use`. The model downloads the first time, with
 a progress bar in the side panel. Its context is small, so a meter in the chat
 shows how full it is, and long chats are summarized to make room.
+
+<img src="docs/screenshots/settings.png" width="270" alt="The Settings screen with the Sensitive action alerts and On-device model switches">
 
 ---
 
@@ -215,6 +243,16 @@ they are skipped locally, but they fail in CI. To use a specific browser:
 CHROME_BIN=$(npx @puppeteer/browsers install chrome@stable --format "{{path}}") npm run test:smoke
 ```
 
+### Update the screenshots
+
+The screenshots in this README are made the same way as the smoke tests: the
+built extension in headless Chrome, a local test page, and scripted model
+replies, so no API key is needed. To make them again after a UI change:
+
+```bash
+npm run screenshots  # writes docs/screenshots/*.png
+```
+
 ---
 
 ## Project structure
@@ -222,6 +260,7 @@ CHROME_BIN=$(npx @puppeteer/browsers install chrome@stable --format "{{path}}") 
 ```
 webmcp-extension/
 ├── .env               # API key, MODEL, WEBMCP_AUTH_TOKEN
+├── docs/screenshots/  # README screenshots, made by npm run screenshots
 ├── extension/         # The extension (TypeScript, bundled by esbuild into dist/)
 │   ├── manifest.json  # Manifest V3, copied into dist/ as is
 │   ├── icons/         # Copied into dist/ as is
@@ -248,7 +287,7 @@ webmcp-extension/
 └── tests/
     ├── extension/     # Unit tests for the extension
     ├── server/        # Unit tests for the server
-    └── smoke/         # End-to-end tests that load the built extension in Chrome
+    └── smoke/         # End-to-end tests in Chrome, and the README screenshot script
 ```
 
 ---

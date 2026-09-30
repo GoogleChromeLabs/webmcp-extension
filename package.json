@@ -25,6 +25,7 @@
     "test:unit": "rm -rf dist/tests && esbuild tests/extension/*.test.ts tests/server/*.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outbase=tests --outdir=dist/tests && node --test dist/tests/extension/*.test.js dist/tests/server/*.test.js; status=$?; rm -rf dist/tests; exit $status",
     "test:smoke": "rm -rf dist/tests && esbuild tests/smoke/*.smoke.test.ts --bundle --platform=node --packages=external --format=esm --jsx=automatic --outbase=tests --outdir=dist/tests && node --test dist/tests/smoke/*.smoke.test.js; status=$?; rm -rf dist/tests; exit $status",
     "clean": "rm -rf dist",
+    "screenshots": "esbuild tests/smoke/screenshots.ts --bundle --platform=node --packages=external --format=esm --outfile=dist/screenshots.js --log-level=warning && node dist/screenshots.js; status=$?; rm -f dist/screenshots.js; exit $status",
     "server": "node server/server.ts"
   },
   "dependencies": {
