@@ -106,33 +106,13 @@ Read more about [building safer agents](https://developer.chrome.com/docs/agents
 
 ### 1. Configure `.env`
 
-Create a `.env` file in the project root:
+Copy the example environment file:
 
-```env
-# At least one API key: the one for the provider you use.
-GEMINI_API_KEY=your_gemini_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-# Which model the server uses, written as provider:model.
-MODEL=google:gemini-3.6-flash
-
-# Optional settings. Remove the leading "#" to use one.
-# Comments must be on their own line, not after a value.
-
-# Port and address of the model server.
-# PORT=3000
-# HOST=127.0.0.1
-
-# Auth token. Created and saved for you if left out.
-# WEBMCP_AUTH_TOKEN=your_secure_auth_token_here
-
-# Only accept requests from this extension ID.
-# ALLOWED_EXTENSION_ID=your_extension_id
-
-# Set to 1 to keep request/response bodies out of the log dashboard.
-# WEBMCP_LOG_REDACT_BODIES=1
+```bash
+cp .env.example .env
 ```
+
+Set the API key for the provider selected by `MODEL`. Ollama runs locally and does not need a key.
 
 A variable set in your shell wins over the same key in `.env`, so
 `PORT=4000 npm run server` works without editing the file.
