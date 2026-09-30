@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { type ContextUsage, type DownloadProgress, setOnDeviceModelUi } from '../services/promptApiBackend.js';
 
 /**
@@ -21,6 +22,12 @@ export function getCompactingFraction(status: string): number | null {
 export interface OnDeviceModelStatusProps {
   /** Called with how much of the context the conversation takes up. */
   onContextUsage?: (usage: ContextUsage | null) => void;
+  /**
+   * Where to show the status, when the chat card's header is on screen: the
+   * component stays mounted here so a download survives opening settings or
+   * the first message, and only its elements move.
+   */
+  slot?: HTMLElement | null;
 }
 
 /**
@@ -33,7 +40,7 @@ export interface OnDeviceModelStatusProps {
  * they start out hidden and React leaves their `hidden` attribute alone after
  * that.
  */
-export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps = {}) {
+export function OnDeviceModelStatus({ onContextUsage, slot }: OnDeviceModelStatusProps = {}) {
   const hintRef = useRef<HTMLParagraphElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const progressRef = useRef<HTMLProgressElement | null>(null);
@@ -41,6 +48,22 @@ export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps
   const [compacting, setCompacting] = useState<string | null>(null);
   const onContextUsageRef = useRef(onContextUsage);
   onContextUsageRef.current = onContextUsage;
+  // The status always renders into this one element, which moves between its
+  // own spot and `slot`: portaling straight into `slot` would have React build
+  // new elements every time `slot` comes or goes, leaving the backend driving
+  // the old ones. There is no `document` to make it with when rendering to a
+  // string.
+  const [host] = useState(() => {
+    if (typeof document === 'undefined') return null;
+    const element = document.createElement('div');
+    element.className = 'model-status-host';
+    return element;
+  });
+  const homeRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (host) (slot ?? homeRef.current)?.append(host);
+  }, [host, slot]);
 
   useEffect(() => {
     setOnDeviceModelUi({
@@ -71,7 +94,7 @@ export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps
     ? helperDownload.percent / 100
     : compacting && getCompactingFraction(compacting);
 
-  return (
+  const status = (
     <div className="model-status" aria-live="polite">
       <p ref={hintRef} className="model-status__hint" hidden>
         The on-device model needs to be downloaded before it can answer.
@@ -96,6 +119,13 @@ export function OnDeviceModelStatus({ onContextUsage }: OnDeviceModelStatusProps
         )}
         <span className="model-status__label">{compactingLabel}</span>
       </div>
+    </div>
+  );
+
+  if (!host) return status;
+  return (
+    <div ref={homeRef} className="model-status-host">
+      {createPortal(status, host)}
     </div>
   );
 }

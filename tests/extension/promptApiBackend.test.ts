@@ -172,7 +172,7 @@ test('feature detection reports what the browser exposes', () => {
 
 test('sendOnDeviceChat declares the page tools and surfaces tool calls', async () => {
   const stub = installPromptApiStub([
-    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: { partySize: 2 } } }],
+    [{ type: 'tool-call', value: { callID: 'c1', name: 'f0_book__table', arguments: { partySize: 2 } } }],
   ]);
 
   try {
@@ -191,7 +191,7 @@ test('sendOnDeviceChat declares the page tools and surfaces tool calls', async (
     };
     assert.deepEqual(
       created.tools?.map((tool) => tool.name),
-      ['_0_book_table']
+      ['f0_book__table']
     );
     assert.deepEqual(created.tools?.[0].inputSchema, {
       type: 'object',
@@ -203,7 +203,7 @@ test('sendOnDeviceChat declares the page tools and surfaces tool calls', async (
 
     assert.equal(result.text, '');
     assert.deepEqual(result.functionCalls, [
-      { id: 'c1', name: '_0_book_table', args: { partySize: 2 } },
+      { id: 'c1', name: 'f0_book__table', args: { partySize: 2 } },
     ]);  } finally {
     uninstallPromptApiStub();
   }
@@ -213,8 +213,8 @@ test('tool responses are answered as tool successes and errors on the same call'
   const stub = installPromptApiStub([
     [
       'Booking. ',
-      { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: { partySize: 2 } } },
-      { type: 'tool-call', value: { callID: 'c2', name: '_0_book_table', arguments: { partySize: 4 } } },
+      { type: 'tool-call', value: { callID: 'c1', name: 'f0_book__table', arguments: { partySize: 2 } } },
+      { type: 'tool-call', value: { callID: 'c2', name: 'f0_book__table', arguments: { partySize: 4 } } },
     ],
     ['Booked ', 'your table.'],
   ]);
@@ -228,8 +228,8 @@ test('tool responses are answered as tool successes and errors on the same call'
     const second = await sendOnDeviceChat({
       tools,
       toolResponses: [
-        { functionResponse: { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: { total: 22, note: null } } } },
-        { functionResponse: { id: first.functionCalls![1].id, name: '_0_book_table', response: { error: 'User denied permission' } } },
+        { functionResponse: { id: first.functionCalls![0].id, name: 'f0_book__table', response: { result: { total: 22, note: null } } } },
+        { functionResponse: { id: first.functionCalls![1].id, name: 'f0_book__table', response: { error: 'User denied permission' } } },
       ],
     });
 
@@ -259,7 +259,7 @@ test('tool responses are answered as tool successes and errors on the same call'
 
 test('the text of every step is reported as it is streamed', async () => {
   installPromptApiStub([
-    ['Let me ', 'book. ', { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    ['Let me ', 'book. ', { type: 'tool-call', value: { callID: 'c1', name: 'f0_book__table', arguments: {} } }],
     ['Booked ', 'your table.'],
   ]);
 
@@ -273,7 +273,7 @@ test('the text of every step is reported as it is streamed', async () => {
     await sendOnDeviceChat(
       {
         tools,
-        toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: 'ok' } } }],
+        toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: 'f0_book__table', response: { result: 'ok' } } }],
       },
       { onText: (text) => seen.push(text) }
     );
@@ -286,7 +286,7 @@ test('the text of every step is reported as it is streamed', async () => {
 
 test('a call the wrapper refuses never reaches the agent loop', async () => {
   const stub = installPromptApiStub([
-    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_invented_tool', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: 'c1', name: 'f0_invented__tool', arguments: {} } }],
     ['There is no such tool.'],
   ]);
   const warn = console.warn;
@@ -319,8 +319,8 @@ function describePrompt({ role, content }: ReplayedPrompt): string {
 
 test('a turn goes on with the new tools when a tool call changes them', async () => {
   const stub = installPromptApiStub([
-    [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
-    ['Now the third door. ', { type: 'tool-call', value: { callID: '', name: '_0_openDoor3', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: '', name: 'f0_return_to_hallway', arguments: {} } }],
+    ['Now the third door. ', { type: 'tool-call', value: { callID: '', name: 'f0_open_door3', arguments: {} } }],
     ['Behind the third door is a magic garden.'],
     ['You are welcome.'],
   ]);
@@ -330,26 +330,26 @@ test('a turn goes on with the new tools when a tool call changes them', async ()
       message: 'Go back to the hallway, then open the third door.',
       tools: buildToolDecls(OCEAN_TOOLS),
     });
-    assert.deepEqual(first.functionCalls?.map((call) => call.name), ['_0_returnToHallway']);
+    assert.deepEqual(first.functionCalls?.map((call) => call.name), ['f0_return_to_hallway']);
     const fence = getSpotlightFence();
 
     // The call took the page back to the hallway, whose tools differ.
     const second = await sendOnDeviceChat({
       tools: buildToolDecls(HALLWAY_TOOLS),
-      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_returnToHallway', response: { result: `<${fence}>\nThe hallway.\n</${fence}>` } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: 'f0_return_to_hallway', response: { result: `<${fence}>\nThe hallway.\n</${fence}>` } } }],
     });
 
     // Same turn, new session: the model called a tool only the new page has.
     assert.equal(second.text, 'Now the third door. ');
-    assert.deepEqual(second.functionCalls?.map((call) => call.name), ['_0_openDoor3']);    assert.equal(stub.creates.length, 2);
+    assert.deepEqual(second.functionCalls?.map((call) => call.name), ['f0_open_door3']);    assert.equal(stub.creates.length, 2);
     assert.equal(stub.destroyed, 1);
 
     const rebuilt = stub.creates[1] as { tools?: Array<{ name: string }>; initialPrompts?: ReplayedPrompt[] };
-    assert.deepEqual(rebuilt.tools?.map((tool) => tool.name), ['_0_openDoor1', '_0_openDoor3']);
+    assert.deepEqual(rebuilt.tools?.map((tool) => tool.name), ['f0_open_door1', 'f0_open_door3']);
     // The turn so far is carried over, up to the call...
     assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
       'user: Go back to the hallway, then open the third door.',
-      'assistant: tool-call:_0_returnToHallway',
+      'assistant: tool-call:f0_return_to_hallway',
     ]);
     // ...and the new session starts from its response, with the result fenced
     // as before. The fence stays, since the replayed results use it.
@@ -357,7 +357,7 @@ test('a turn goes on with the new tools when a tool call changes them', async ()
     // With a note that the tools changed, since the model cannot tell.
     assert.equal(
       describePrompt(responses as ReplayedPrompt),
-      'user: tool-response:_0_returnToHallway + The page has changed and now offers different tools. Use them to fulfill the request in full.'
+      'user: tool-response:f0_return_to_hallway + The page has changed and now offers different tools. Use them to fulfill the request in full.'
     );
     assert.deepEqual(responses.content[0].value.result, [{ type: 'text', value: `<${fence}>\nThe hallway.\n</${fence}>` }]);
     assert.equal(getSpotlightFence(), fence);
@@ -365,7 +365,7 @@ test('a turn goes on with the new tools when a tool call changes them', async ()
 
     const third = await sendOnDeviceChat({
       tools: buildToolDecls(HALLWAY_TOOLS),
-      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_openDoor3', response: { result: 'A magic garden.' } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: 'f0_open_door3', response: { result: 'A magic garden.' } } }],
     });
     assert.equal(third.text, 'Behind the third door is a magic garden.');
     assert.deepEqual(third.functionCalls, []);
@@ -381,7 +381,7 @@ test('a turn goes on with the new tools when a tool call changes them', async ()
 
 test('a turn whose calls leave the page without tools ends on the session it has', async () => {
   const stub = installPromptApiStub([
-    [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: '', name: 'f0_return_to_hallway', arguments: {} } }],
     ['You are back in the hallway.'],
     ['Hello.'],
   ]);
@@ -391,7 +391,7 @@ test('a turn whose calls leave the page without tools ends on the session it has
     // A session without tools cannot take the calls so far.
     const second = await sendOnDeviceChat({
       tools: [],
-      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_returnToHallway', response: { result: 'ok' } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: 'f0_return_to_hallway', response: { result: 'ok' } } }],
     });
     assert.equal(second.text, 'You are back in the hallway.');
     assert.equal(stub.creates.length, 1);
@@ -412,8 +412,8 @@ test('a turn whose calls leave the page without tools ends on the session it has
 
 test('a round the wrapper refused is carried over to the new session too', async () => {
   const stub = installPromptApiStub([
-    [{ type: 'tool-call', value: { callID: '', name: '_0_swim', arguments: {} } }],
-    [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: '', name: 'f0_swim', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: '', name: 'f0_return_to_hallway', arguments: {} } }],
     ['Back in the hallway.'],
   ]);
   const warn = console.warn;
@@ -422,22 +422,22 @@ test('a round the wrapper refused is carried over to the new session too', async
   try {
     const first = await sendOnDeviceChat({ message: 'Swim, or go back.', tools: buildToolDecls(OCEAN_TOOLS) });
     // The invented tool never reached the agent loop.
-    assert.deepEqual(first.functionCalls?.map((call) => call.name), ['_0_returnToHallway']);
+    assert.deepEqual(first.functionCalls?.map((call) => call.name), ['f0_return_to_hallway']);
 
     await sendOnDeviceChat({
       tools: buildToolDecls(HALLWAY_TOOLS),
-      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_returnToHallway', response: { result: 'ok' } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: 'f0_return_to_hallway', response: { result: 'ok' } } }],
     });
     const rebuilt = stub.creates[1] as { initialPrompts?: ReplayedPrompt[] };
     assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
       'user: Swim, or go back.',
-      'assistant: tool-call:_0_swim',
-      'user: tool-response:_0_swim',
-      'assistant: tool-call:_0_returnToHallway',
+      'assistant: tool-call:f0_swim',
+      'user: tool-response:f0_swim',
+      'assistant: tool-call:f0_return_to_hallway',
     ]);
     const refusal = (rebuilt.initialPrompts?.[3].content as Array<{ value: Record<string, unknown> }>)[0].value;
     assert.equal(refusal.kind, 'error');
-    assert.match(String(refusal.errorMessage), /no tool named _0_swim/);
+    assert.match(String(refusal.errorMessage), /no tool named f0_swim/);
   } finally {
     console.warn = warn;
     uninstallPromptApiStub();
@@ -467,7 +467,7 @@ test('the session is rebuilt with the new tools when the page registers differen
     };
     assert.deepEqual(
       rebuilt.tools?.map((tool) => tool.name),
-      ['_0_cancel_booking']
+      ['f0_cancel__booking']
     );
     // The conversation carries over into the new session.
     assert.deepEqual(
@@ -484,7 +484,7 @@ test('the session is rebuilt with the new tools when the page registers differen
 test('a turn stopped while a tool call is in flight leaves no dangling call behind', async () => {
   const stub = installPromptApiStub([
     ['Booked.'],
-    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: 'c1', name: 'f0_book__table', arguments: {} } }],
     ['Hello again.'],
   ]);
 
@@ -1073,7 +1073,7 @@ const contextFull = () =>
 
 /** Two turns that each read a large tool result, which the context holds on to. */
 const REPORT_TURNS: Array<StubTurn | null> = [
-  [{ type: 'tool-call', value: { callID: '', name: '_0_book_table', arguments: { partySize: 2 } } }],
+  [{ type: 'tool-call', value: { callID: '', name: 'f0_book__table', arguments: { partySize: 2 } } }],
   ['Q1 sold 1111 units.'],
 ];
 
@@ -1086,14 +1086,14 @@ test('a message that no longer fits is retried without the earlier tool results'
     const first = await sendOnDeviceChat({ message: 'Read the Q1 report.', tools });
     await sendOnDeviceChat({
       tools,
-      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: 'A very long report.' } } }],
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: 'f0_book__table', response: { result: 'A very long report.' } } }],
     });
 
     const retried = await sendOnDeviceChat({ message: 'And Q2?', tools });
     assert.equal(retried.text, 'Q2 sold 2222 units.');
     const rebuilt = stub.creates.at(-1) as { tools?: Array<{ name: string }>; initialPrompts?: ReplayedPrompt[] };
     // The tools stay, but the earlier turn comes over as its text only.
-    assert.deepEqual(rebuilt.tools?.map((tool) => tool.name), ['_0_book_table']);
+    assert.deepEqual(rebuilt.tools?.map((tool) => tool.name), ['f0_book__table']);
     assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
       'user: Read the Q1 report.',
       'assistant: Q1 sold 1111 units.',
@@ -1106,7 +1106,7 @@ test('a message that no longer fits is retried without the earlier tool results'
 test('a turn whose tool results no longer fit goes on without the earlier ones', async () => {
   const stub = installPromptApiStub([
     ...REPORT_TURNS,
-    [{ type: 'tool-call', value: { callID: '', name: '_0_book_table', arguments: { partySize: 4 } } }],
+    [{ type: 'tool-call', value: { callID: '', name: 'f0_book__table', arguments: { partySize: 4 } } }],
     ['Q2 sold 2222 units.'],
   ]);
   // The answer to the second report is what does not fit.
@@ -1115,7 +1115,7 @@ test('a turn whose tool results no longer fit goes on without the earlier ones',
   try {
     const tools = buildToolDecls([BOOK_TOOL]);
     const first = await sendOnDeviceChat({ message: 'Read the Q1 report.', tools });
-    const answer = { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: 'A very long report.' } };
+    const answer = { id: first.functionCalls![0].id, name: 'f0_book__table', response: { result: 'A very long report.' } };
     await sendOnDeviceChat({ tools, toolResponses: [{ functionResponse: answer }] });
     await sendOnDeviceChat({ message: 'Now read Q2.', tools });
 
@@ -1128,11 +1128,11 @@ test('a turn whose tool results no longer fit goes on without the earlier ones',
       'user: Read the Q1 report.',
       'assistant: Q1 sold 1111 units.',
       'user: Now read Q2.',
-      'assistant: tool-call:_0_book_table',
+      'assistant: tool-call:f0_book__table',
     ]);
     // ...and the new session starts from its result, without a note: the
     // tools did not change.
-    assert.equal(describePrompt((stub.inputs.at(-1) as ReplayedPrompt[])[0]), 'user: tool-response:_0_book_table');
+    assert.equal(describePrompt((stub.inputs.at(-1) as ReplayedPrompt[])[0]), 'user: tool-response:f0_book__table');
   } finally {
     uninstallPromptApiStub();
   }
@@ -1166,7 +1166,7 @@ test('a failure a fresh session cannot fix is reported without retrying', async 
 
 test('a failure while answering tool calls is reported rather than replayed', async () => {
   installPromptApiStub([
-    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: 'c1', name: 'f0_book__table', arguments: {} } }],
   ]);
   failTurns((turn) => turn > 1);
 
@@ -1177,7 +1177,7 @@ test('a failure while answering tool calls is reported rather than replayed', as
       () =>
         sendOnDeviceChat({
           tools,
-          toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_book_table', response: { result: 'ok' } } }],
+          toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: 'f0_book__table', response: { result: 'ok' } } }],
         }),
       /kErrorUnknown/
     );
