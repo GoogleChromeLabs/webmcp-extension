@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 
 import { buildContentScript } from './contentScriptSource.js';
+import { CONTINUATION_EVENT, CONTINUE_ON_NEXT_DOCUMENT } from '../../extension/toolContinuationProtocol.js';
 
 // `extension/content.ts` is a content script, not a module the tests can import: it
 // touches `window`, `document` and `chrome` at the top level and exports
@@ -43,6 +44,7 @@ function loadContentScript(tools: FakeTool[], href: string) {
 
   const sent: SentMessage[] = [];
   let listener: ((message: unknown, sender: unknown, reply: unknown) => unknown) | undefined;
+  const documentListeners: Record<string, Array<(event: unknown) => void>> = {};
 
   const win: Record<string, unknown> = {
     location: { href },
@@ -61,6 +63,12 @@ function loadContentScript(tools: FakeTool[], href: string) {
     setTimeout,
     clearTimeout,
     document: {
+      forms: [],
+      querySelector: () => null,
+      getElementsByName: () => [],
+      addEventListener(type: string, fn: (event: unknown) => void) {
+        (documentListeners[type] ??= []).push(fn);
+      },
       modelContext: {
         ontoolchange: undefined,
         getTools: async () => tools,
@@ -87,7 +95,12 @@ function loadContentScript(tools: FakeTool[], href: string) {
   vm.runInContext(CONTENT_SCRIPT, sandbox, { filename: 'content.js' });
 
   assert.ok(listener, 'content script should register a chrome.runtime.onMessage listener');
-  return { sent, listener: listener! };
+
+  /** Fires what the main-world hook would report, as it would: a JSON detail. */
+  const reportContinuation = (detail: unknown) => {
+    for (const fn of documentListeners[CONTINUATION_EVENT] ?? []) fn({ detail: JSON.stringify(detail) });
+  };
+  return { sent, listener: listener!, reportContinuation };
 }
 
 /** Waits for the debounced `listTools` call to publish its message. */
@@ -181,4 +194,49 @@ test('content script leaves consequentialHint undefined when a page omits annota
   // this is safe" apart from "the page said nothing".
   assert.equal(tool.consequentialHint, undefined);
   assert.ok('consequentialHint' in tool);
+});
+
+/** Sends `message` to the content script and resolves with its reply. */
+function ask(listener: (message: unknown, sender: unknown, reply: unknown) => unknown, message: unknown) {
+  return new Promise<unknown>((resolve) => {
+    listener(message, {}, (value: unknown) => resolve(value === undefined ? undefined : JSON.parse(JSON.stringify(value))));
+  });
+}
+
+test('a resumed tool answers with what its resumeTool() callback returns', async () => {
+  const { listener, reportContinuation } = loadContentScript([], 'https://shop.example/confirmation');
+  reportContinuation({ type: 'resumeRequested' });
+
+  const reply = ask(listener, { action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT' });
+  // The browser calls the callback a little later.
+  setTimeout(() => reportContinuation({ type: 'resumed', result: { orderId: 42 } }), 10);
+  assert.deepEqual(await reply, { orderId: 42 });
+});
+
+test('a resumed tool that asks for another token continues once more', async () => {
+  const { listener, reportContinuation } = loadContentScript([], 'https://shop.example/shipping');
+  reportContinuation({ type: 'resumeRequested' });
+  reportContinuation({ type: 'tokenRequested' });
+  reportContinuation({ type: 'resumed', result: 'Shipping address submitted.' });
+
+  const reply = await ask(listener, { action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT' });
+  assert.deepEqual(reply, CONTINUE_ON_NEXT_DOCUMENT);
+});
+
+test('a resumed callback that throws reports its error', async () => {
+  const { listener, reportContinuation } = loadContentScript([], 'https://shop.example/confirmation');
+  reportContinuation({ type: 'resumeRequested' });
+  reportContinuation({ type: 'resumed', error: 'Card declined' });
+
+  assert.equal(await ask(listener, { action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT' }), '"Card declined"');
+});
+
+test('without resumeTool(), the cross-document result falls back to the JSON-LD', async () => {
+  const { listener, reportContinuation } = loadContentScript([], 'https://shop.example/result');
+  // A rejected token means the callback will never run.
+  reportContinuation({ type: 'resumeRequested' });
+  reportContinuation({ type: 'resumeRejected', error: 'Invalid token' });
+
+  // The sandbox page has no JSON-LD.
+  assert.equal(await ask(listener, { action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT' }), undefined);
 });

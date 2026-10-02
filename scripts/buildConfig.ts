@@ -17,6 +17,7 @@ import type { BuildOptions } from 'esbuild';
  *   manifest.json, icons/     copied from extension/
  *   background.js             service worker (ES module)
  *   content.js                content script (classic script)
+ *   toolContinuationHook.js   main-world content script (classic script)
  *   sidepanel/index.html      copied from extension/sidepanel/
  *   sidepanel/index.js, .css  side panel bundle
  */
@@ -49,6 +50,19 @@ export function createContentScriptBuildOptions({ rootDir, outDir }: ContentScri
 }
 
 /**
+ * The esbuild options for the content script that runs in the page's main
+ * world, to see the page's tool continuation calls. A classic script too.
+ */
+export function createToolContinuationHookBuildOptions({ rootDir, outDir }: ContentScriptBuildConfig): BuildOptions {
+  return {
+    entryPoints: [path.join(rootDir, 'extension/toolContinuationHook.ts')],
+    bundle: true,
+    format: 'iife',
+    outfile: path.join(outDir, 'toolContinuationHook.js'),
+  };
+}
+
+/**
  * The esbuild options for every bundle of the extension.
  */
 export function createBuildOptions({ rootDir, outDir, authToken, serverUrl }: ExtensionBuildConfig): BuildOptions[] {
@@ -72,6 +86,7 @@ export function createBuildOptions({ rootDir, outDir, authToken, serverUrl }: Ex
       outfile: path.join(outDir, 'background.js'),
     },
     createContentScriptBuildOptions({ rootDir, outDir }),
+    createToolContinuationHookBuildOptions({ rootDir, outDir }),
   ];
 }
 
