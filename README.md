@@ -246,6 +246,8 @@ webmcp-extension/
 │   ├── icons/         # Copied into dist/ as is
 │   ├── background.ts  # Service worker: tab tracking, tool count badge
 │   ├── content.ts     # Content script: talks to document.modelContext on the page
+│   ├── toolContinuationHook.ts # Main-world script: sees tools carried on across documents
+│   ├── toolContinuationProtocol.ts # What the two scripts and the side panel tell each other
 │   ├── frameOrigins.ts # Lists the origins of a tab's frames
 │   └── sidepanel/     # React side panel
 │       ├── index.html
