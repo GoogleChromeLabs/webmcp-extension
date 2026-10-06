@@ -33,6 +33,12 @@ export interface ExtensionBuildConfig extends ContentScriptBuildConfig {
   authToken: string;
   /** Value injected as `process.env.WEBMCP_SERVER_URL`. */
   serverUrl: string;
+  /**
+   * The `npm run dev` reload server. When set, `extension/devReload.ts` is
+   * added to the service worker with this as `process.env.WEBMCP_RELOAD_URL`,
+   * and `extension/sidepanel/devBuildErrors.ts` to the side panel.
+   */
+  reloadUrl?: string;
 }
 
 /**
@@ -51,7 +57,7 @@ export function createContentScriptBuildOptions({ rootDir, outDir }: ContentScri
 /**
  * The esbuild options for every bundle of the extension.
  */
-export function createBuildOptions({ rootDir, outDir, authToken, serverUrl }: ExtensionBuildConfig): BuildOptions[] {
+export function createBuildOptions({ rootDir, outDir, authToken, serverUrl, reloadUrl }: ExtensionBuildConfig): BuildOptions[] {
   return [
     {
       entryPoints: [path.join(rootDir, 'extension/sidepanel/index.tsx')],
@@ -64,12 +70,17 @@ export function createBuildOptions({ rootDir, outDir, authToken, serverUrl }: Ex
         'process.env.WEBMCP_AUTH_TOKEN': JSON.stringify(authToken),
         'process.env.WEBMCP_SERVER_URL': JSON.stringify(serverUrl),
       },
+      ...(reloadUrl && { inject: [path.join(rootDir, 'extension/sidepanel/devBuildErrors.ts')] }),
     },
     {
       entryPoints: [path.join(rootDir, 'extension/background.ts')],
       bundle: true,
       format: 'esm',
       outfile: path.join(outDir, 'background.js'),
+      ...(reloadUrl && {
+        inject: [path.join(rootDir, 'extension/devReload.ts')],
+        define: { 'process.env.WEBMCP_RELOAD_URL': JSON.stringify(reloadUrl) },
+      }),
     },
     createContentScriptBuildOptions({ rootDir, outDir }),
   ];
