@@ -34,7 +34,7 @@ npm run server    # starts the companion server on http://127.0.0.1:3000
 Then load `dist/` in `chrome://extensions` with Developer mode turned on. See the
 [README](README.md) for the Chrome flags you need.
 
-While working, `npm run watch` rebuilds on every change and automatically
+While working, `npm run dev` rebuilds on every change and automatically
 reloads the extension in Chrome.
 
 ## Before you send a pull request
