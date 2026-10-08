@@ -19,8 +19,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "build": "node scripts/build.ts",
-    "watch": "node scripts/build.ts --watch",
-    "dev": "npm run watch",
+    "dev": "node scripts/build.ts --watch",
     "test": "node scripts/test.ts",
     "test:unit": "node scripts/test.ts unit",
     "test:smoke": "node scripts/test.ts smoke",
