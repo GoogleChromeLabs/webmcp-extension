@@ -46,7 +46,7 @@
     "esbuild": "^0.27.3",
     "linkedom": "^0.18.13",
     "puppeteer-core": "^25.12.0",
-    "typescript": "^5.7.3",
+    "typescript": "^7.0.2",
     "webmcp-types": "^0.1.9"
   }
 }
