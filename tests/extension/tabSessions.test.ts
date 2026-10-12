@@ -12,8 +12,10 @@ import { useAgentSession, type UseAgentSessionOptions, type UseAgentSessionRetur
 import { useActiveTabTools } from '../../extension/sidepanel/hooks/useActiveTabTools.js';
 import { useActiveTabId } from '../../extension/sidepanel/hooks/useActiveTabId.js';
 import { requestTabTools, executeTabTool, getTabInfo } from '../../extension/sidepanel/services/extensionBridge.js';
+import { resetOnDeviceChat } from '../../extension/sidepanel/services/promptApiBackend.js';
 import { tabSessions } from '../../extension/sidepanel/services/tabSessionStore.js';
 import { clearSessionToolPermissions } from '../../extension/sidepanel/services/toolPermissions.js';
+import { DEFAULT_TOOL_ROUND_LIMITS, ToolRoundLimitError } from '../../extension/sidepanel/services/toolRoundLimits.js';
 import { type WebMCPTool } from '../../extension/sidepanel/types/index.js';
 
 const BOOK_TOOL: WebMCPTool = {
@@ -841,6 +843,251 @@ test('a call to a tool the page does not expose is rejected immediately without 
   } finally {
     resetTabSessions();
     backend.restore();
+    browser.restore();
+  }
+});
+
+/** The tool runs the page was asked for, in order. */
+function executionsIn(browser: TestChrome): SentMessage[] {
+  return browser.sent.filter(({ message }) => message.action === 'EXECUTE_TOOL');
+}
+
+/** A reply in which the model asks to book one more table. */
+function asksForTable(round: number, text = ''): Record<string, unknown> {
+  return {
+    chatId: 'chat-tab-1',
+    text,
+    functionCalls: [{ id: `call_${round}`, name: '_0_book_table', args: { partySize: round } }],
+  };
+}
+
+test('the agent asks once whether to keep going, then stops at the limit and says so', async () => {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const backend = installBackend([asksForTable(1), asksForTable(2), asksForTable(3), asksForTable(4)]);
+  let timesAsked = 0;
+  let asking = false;
+  const unsubscribe = tabSessions.subscribe(() => {
+    const now = tabSessions.getState(1).pendingCheckpoint !== null;
+    if (now && !asking) timesAsked++;
+    asking = now;
+  });
+
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    // 10 and 100 in miniature, with no permission prompts in the way.
+    const tab1 = readSession(1, {
+      sensitiveActionAlerts: false,
+      toolRoundLimits: { askAfter: 1, max: 3 },
+    });
+    tab1.setUserPrompt('Book four tables');
+    const turn = tab1.handleSendPrompt();
+
+    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
+    const checkpoint = tabSessions.getState(1).pendingCheckpoint!;
+    assert.deepEqual([checkpoint.roundsUsed, checkpoint.maxRounds], [1, 3]);
+    // Nothing more runs while it waits.
+    assert.equal(executionsIn(browser).length, 1);
+    checkpoint.allow();
+    await turn;
+
+    // Asked once. Three rounds ran, and the fourth was neither run nor sent.
+    assert.equal(timesAsked, 1);
+    assert.equal(executionsIn(browser).length, 3);
+    assert.equal(backend.requests.length, 4);
+
+    const finished = readSession(1);
+    assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'error']);
+    assert.equal(
+      finished.messages[1].text,
+      'The agent stopped after using tools 3 times, the most allowed for one request. Try asking again, or split the task into smaller steps.'
+    );
+    assert.equal(finished.pendingCheckpoint, null);
+    assert.equal(finished.busy, false);
+  } finally {
+    unsubscribe();
+    resetTabSessions();
+    backend.restore();
+    browser.restore();
+  }
+});
+
+test('stopping at the question ends the turn and runs nothing more', async () => {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const backend = installBackend([asksForTable(1), asksForTable(2, 'One table booked. Booking the next one.')]);
+
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    const tab1 = readSession(1, {
+      sensitiveActionAlerts: false,
+      toolRoundLimits: { askAfter: 1, max: 3 },
+    });
+    tab1.setUserPrompt('Book two tables');
+    const turn = tab1.handleSendPrompt();
+
+    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
+    // What the model is about to do is on screen before the user decides.
+    assert.equal(tabSessions.getState(1).messages.at(-1)?.text, 'One table booked. Booking the next one.');
+    tabSessions.getState(1).pendingCheckpoint!.deny();
+    await turn;
+
+    assert.equal(executionsIn(browser).length, 1);
+    assert.equal(backend.requests.length, 2);
+
+    // The user asked for the stop, so there is no error, and what ran stays
+    // with what the model said.
+    const finished = readSession(1);
+    assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'ai']);
+    assert.equal(finished.messages[1].activityLogs?.length, 1);
+    assert.equal(finished.pendingCheckpoint, null);
+    assert.equal(finished.busy, false);
+  } finally {
+    resetTabSessions();
+    backend.restore();
+    browser.restore();
+  }
+});
+
+test('the Stop button while the agent waits to keep going puts the question away', async () => {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const backend = installBackend([asksForTable(1), asksForTable(2)]);
+
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    const tab1 = readSession(1, {
+      sensitiveActionAlerts: false,
+      toolRoundLimits: { askAfter: 1, max: 3 },
+    });
+    tab1.setUserPrompt('Book tables');
+    const turn = tab1.handleSendPrompt();
+
+    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
+    readSession(1).handleStop();
+    await turn;
+
+    const stopped = readSession(1);
+    assert.equal(stopped.pendingCheckpoint, null);
+    assert.equal(stopped.busy, false);
+    assert.equal(executionsIn(browser).length, 1);
+    assert.equal(backend.requests.length, 2);
+  } finally {
+    resetTabSessions();
+    backend.restore();
+    browser.restore();
+  }
+});
+
+/** One reply of the on-device model: what it says, and the tools it calls. */
+type ModelReply = Array<
+  string | { type: 'tool-call'; value: { callID: string; name: string; arguments: Record<string, unknown> } }
+>;
+
+/**
+ * Just enough of the browser's Prompt API for the on-device backend: every
+ * prompt streams the next reply of `script`.
+ */
+function installOnDeviceModel(script: ModelReply[]): { restore: () => void } {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  const names = ['LanguageModel', 'LanguageModelToolCall', 'LanguageModelToolSuccess', 'LanguageModelToolError'];
+  class ToolPart {
+    constructor(init: object) {
+      Object.assign(this, init);
+    }
+  }
+  let turn = 0;
+  Object.assign(globals, {
+    LanguageModelToolCall: ToolPart,
+    LanguageModelToolSuccess: ToolPart,
+    LanguageModelToolError: ToolPart,
+    LanguageModel: {
+      availability: async () => 'available',
+      create: async () =>
+        Object.assign(new EventTarget(), {
+          contextUsage: 0,
+          contextWindow: 1000,
+          destroy: () => {},
+          promptStreaming: () =>
+            new ReadableStream({
+              start(controller) {
+                for (const chunk of script[turn++] ?? ['']) controller.enqueue(chunk);
+                controller.close();
+              },
+            }),
+        }),
+    },
+  });
+  return {
+    restore: () => {
+      resetOnDeviceChat();
+      for (const name of names) delete globals[name];
+    },
+  };
+}
+
+test('when the on-device model reaches the limit first, the user sees the same message and the chat goes on', async () => {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const { max } = DEFAULT_TOOL_ROUND_LIMITS;
+  const inventedTool: ModelReply = [
+    { type: 'tool-call', value: { callID: '', name: '_0_invented_tool', arguments: {} } },
+  ];
+  // The model keeps calling a tool that does not exist. The on-device backend
+  // turns those calls down by itself, and gives up on the model at the limit.
+  const model = installOnDeviceModel([
+    ...Array.from({ length: max + 1 }, () => inventedTool),
+    ['Booking a table first. ', { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    ...Array.from({ length: max }, () => inventedTool),
+  ]);
+  const loggedErrors: unknown[][] = [];
+  const { error: originalError, warn: originalWarn } = console;
+  console.error = (...args: unknown[]) => {
+    loggedErrors.push(args);
+  };
+  console.warn = () => {};
+
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    const options = { onDeviceModel: true, sensitiveActionAlerts: false };
+    const limitMessage = new ToolRoundLimitError(max).message;
+
+    // Stopped before any call was run.
+    const tab1 = readSession(1, options);
+    tab1.setUserPrompt('Open the secret door');
+    await tab1.handleSendPrompt();
+    const chatId = tabSessions.getInternals(1).chatId;
+    assert.ok(chatId);
+    assert.deepEqual(
+      readSession(1, options).messages.map((message) => [message.role, message.text]),
+      [
+        ['user', 'Open the secret door'],
+        ['error', limitMessage],
+      ]
+    );
+
+    // Stopped after one call was run.
+    tab1.setUserPrompt('Book a table, then open the door');
+    await tab1.handleSendPrompt();
+    const finished = readSession(1, options);
+    assert.deepEqual(
+      finished.messages.slice(2).map((message) => message.role),
+      ['user', 'ai', 'error']
+    );
+    assert.equal(finished.messages[4].text, limitMessage);
+    // What ran stays with what the model said, as at the agent's own limit.
+    assert.equal(executionsIn(browser).length, 1);
+    assert.equal(finished.messages[3].activityLogs?.length, 1);
+    assert.equal(finished.busy, false);
+
+    // Neither stop is a failure, and both leave the chat as it was.
+    assert.equal(tabSessions.getInternals(1).chatId, chatId);
+    assert.deepEqual(loggedErrors, []);
+  } finally {
+    console.error = originalError;
+    console.warn = originalWarn;
+    resetTabSessions();
+    model.restore();
     browser.restore();
   }
 });

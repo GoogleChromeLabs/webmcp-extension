@@ -25,11 +25,13 @@ import {
   type ToolPermissionDecision,
 } from '../services/toolPermissions.js';
 import { applySpotlighting, applyTokenLimit, waitForToolsToSettle } from '../services/toolResults.js';
+import { DEFAULT_TOOL_ROUND_LIMITS, ToolRoundLimitError, type ToolRoundLimits } from '../services/toolRoundLimits.js';
 import {
   type ActivityEntry,
   type ChatMessage,
   type ChatTurnRequest,
   type ChatTurnResponse,
+  type PendingToolCheckpoint,
   type PendingToolPermission,
   UserFacingError,
   type WebMCPTool,
@@ -45,6 +47,12 @@ export interface UseAgentSessionOptions {
    * so the same tool name on another site still has to be allowed there.
    */
   origin?: string;
+  /**
+   * When a request asks once before using more tools, and the most it may use.
+   * Defaults to `DEFAULT_TOOL_ROUND_LIMITS`. The on-device model always stops
+   * at the default `max`, so a higher `max` only holds on the server.
+   */
+  toolRoundLimits?: ToolRoundLimits;
 }
 
 export interface UseAgentSessionReturn {
@@ -58,6 +66,8 @@ export interface UseAgentSessionReturn {
   anyBusy: boolean;
   activityLog: ActivityEntry[];
   pendingPermission: PendingToolPermission | null;
+  /** Set while the agent waits for the user to let it keep using tools. */
+  pendingCheckpoint: PendingToolCheckpoint | null;
   handleSendPrompt: () => Promise<void>;
   handleStop: () => void;
   handleReset: () => void;
@@ -92,6 +102,37 @@ function toolResponse(
 }
 
 /**
+ * Shows a prompt and waits for the user's answer. Every prompt the agent waits
+ * on goes through here, so they all behave the same: `show` files it under the
+ * turn's tab and hands each choice its own callback, answering clears it with
+ * `hide`, and stopping the turn clears it and counts as `answerOnStop`.
+ */
+function waitForAnswer<T>(
+  signal: AbortSignal,
+  answerOnStop: T,
+  show: (answer: (value: T) => () => void) => void,
+  hide: () => void
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    if (signal.aborted) {
+      resolve(answerOnStop);
+      return;
+    }
+    const onAbort = () => {
+      hide();
+      resolve(answerOnStop);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    show((value) => () => {
+      signal.removeEventListener('abort', onAbort);
+      hide();
+      resolve(value);
+    });
+  });
+}
+
+/**
  * Shows a permission prompt under `tabId` and waits for the user's answer.
  * Stopping the turn clears the prompt and counts as a denial.
  */
@@ -101,38 +142,46 @@ function askToolPermission(
   prompt: Omit<PendingToolPermission, 'allow' | 'allowAlways' | 'deny'> & { canAllowAlways: boolean }
 ): Promise<ToolPermissionDecision> {
   const { canAllowAlways, ...details } = prompt;
-  return new Promise<ToolPermissionDecision>((resolve) => {
-    if (signal.aborted) {
-      resolve('deny');
-      return;
-    }
-    const clearPrompt = () => tabSessions.update(tabId, { pendingPermission: null });
-    const onAbort = () => {
-      clearPrompt();
-      resolve('deny');
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
+  return waitForAnswer<ToolPermissionDecision>(
+    signal,
+    'deny',
+    (settle) =>
+      // Filed under this turn's tab, so it is only on screen while that tab is
+      // in front.
+      tabSessions.update(tabId, {
+        pendingPermission: {
+          ...details,
+          allow: settle('allow'),
+          // Only offered where the grant would mean what the button says: a
+          // known tool, in the top frame, of a page with an origin, and never
+          // for something that may be irreversible.
+          allowAlways: canAllowAlways ? settle('allowAlways') : undefined,
+          deny: settle('deny'),
+        },
+      }),
+    () => tabSessions.update(tabId, { pendingPermission: null })
+  );
+}
 
-    const settle = (outcome: ToolPermissionDecision) => () => {
-      signal.removeEventListener('abort', onAbort);
-      clearPrompt();
-      resolve(outcome);
-    };
-
-    // Filed under this turn's tab, so it is only on screen while that tab is
-    // in front.
-    tabSessions.update(tabId, {
-      pendingPermission: {
-        ...details,
-        allow: settle('allow'),
-        // Only offered where the grant would mean what the button says: a
-        // known tool, in the top frame, of a page with an origin, and never
-        // for something that may be irreversible.
-        allowAlways: canAllowAlways ? settle('allowAlways') : undefined,
-        deny: settle('deny'),
-      },
-    });
-  });
+/**
+ * Asks under `tabId` whether the agent may keep using tools, and waits for the
+ * answer: true to go on. It works like a permission prompt, in the same place,
+ * and stopping the turn clears it and counts as a no.
+ */
+function askToContinue(
+  tabId: number,
+  signal: AbortSignal,
+  details: Omit<PendingToolCheckpoint, 'allow' | 'deny'>
+): Promise<boolean> {
+  return waitForAnswer<boolean>(
+    signal,
+    false,
+    (settle) =>
+      tabSessions.update(tabId, {
+        pendingCheckpoint: { ...details, allow: settle(true), deny: settle(false) },
+      }),
+    () => tabSessions.update(tabId, { pendingCheckpoint: null })
+  );
 }
 
 /**
@@ -183,13 +232,19 @@ export function useAgentSession(
     originRef.current = options?.origin ?? '';
   }, [options?.origin]);
 
+  // Read when a turn starts: a turn keeps the limits it began with.
+  const toolRoundLimitsRef = useRef<ToolRoundLimits>(options?.toolRoundLimits ?? DEFAULT_TOOL_ROUND_LIMITS);
+  useEffect(() => {
+    toolRoundLimitsRef.current = options?.toolRoundLimits ?? DEFAULT_TOOL_ROUND_LIMITS;
+  }, [options?.toolRoundLimits]);
+
   // Cleanup in-flight requests on unmount: the panel is closing, and nothing
   // is left to show a reply to.
   useEffect(() => {
     return () => {
       for (const tabId of tabSessions.tabIds()) {
         tabSessions.getInternals(tabId).abortController?.abort();
-        tabSessions.update(tabId, { pendingPermission: null, busy: false });
+        tabSessions.update(tabId, { pendingPermission: null, pendingCheckpoint: null, busy: false });
       }
       clearSessionToolPermissions();
     };
@@ -225,6 +280,7 @@ export function useAgentSession(
         : previous.messages,
       streamingText: '',
       pendingPermission: null,
+      pendingCheckpoint: null,
       busy: false,
     }));
   }, [activeTabId]);
@@ -313,6 +369,8 @@ export function useAgentSession(
     const addMessage = (message: ChatMessage) =>
       tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
 
+    const limits = toolRoundLimitsRef.current;
+
     internals.turnLogs = [];
     if (!internals.chatId) {
       internals.chatId = crypto.randomUUID();
@@ -321,6 +379,7 @@ export function useAgentSession(
       busy: true,
       userPrompt: '',
       pendingPermission: null,
+      pendingCheckpoint: null,
       activityLog: [],
       messages: [...previous.messages, { id: generateId(), role: 'user', text: textToSend }],
     }));
@@ -439,16 +498,19 @@ export function useAgentSession(
       }
 
       let messageRendered = false;
-      let turnCount = 0;
-      const MAX_TURNS = 10;
+      // Rounds of tool calls run so far: replies that asked for tools, however
+      // many each one asked for at once.
+      let roundsUsed = 0;
+      let stoppedByUser = false;
+      // Set once the request has used up its rounds, here or in the on-device
+      // model.
+      let limitReached: ToolRoundLimitError | null = null;
 
       while (
         currentResult.functionCalls &&
         currentResult.functionCalls.length > 0 &&
-        !signal.aborted &&
-        turnCount < MAX_TURNS
+        !signal.aborted
       ) {
-        turnCount++;
         if (currentResult.text?.trim()) {
           const logs = [...internals.turnLogs];
           internals.turnLogs = [];
@@ -461,6 +523,22 @@ export function useAgentSession(
           });
           messageRendered = true;
         }
+
+        if (roundsUsed >= limits.max) {
+          limitReached = new ToolRoundLimitError(limits.max);
+          break;
+        }
+        // Asked once, after what the model said, so the user can see what it
+        // is about to do.
+        if (roundsUsed === limits.askAfter) {
+          const keepGoing = await askToContinue(tabId, signal, { roundsUsed, maxRounds: limits.max });
+          if (signal.aborted) break;
+          if (!keepGoing) {
+            stoppedByUser = true;
+            break;
+          }
+        }
+        roundsUsed++;
 
         const toolResponses: ToolResponse[] = [];
         for (const call of currentResult.functionCalls) {
@@ -479,14 +557,23 @@ export function useAgentSession(
 
         const updatedTools = buildToolDecls(toolsView.current);
 
-        currentResult = await sendChatTurn(
-          {
-            toolResponses,
-            tools: updatedTools,
-            chatId: internals.chatId,
-          },
-          { signal, onDevice: onDeviceModelRef.current, onText }
-        );
+        try {
+          currentResult = await sendChatTurn(
+            {
+              toolResponses,
+              tools: updatedTools,
+              chatId: internals.chatId,
+            },
+            { signal, onDevice: onDeviceModelRef.current, onText }
+          );
+        } catch (err: unknown) {
+          // The on-device model stops at the same limit, and can get there
+          // first: it also counts the calls it turns down by itself.
+          if (signal.aborted || !(err instanceof ToolRoundLimitError)) throw err;
+          showStreamingText('');
+          limitReached = err;
+          break;
+        }
 
         if (signal.aborted) break;
         showStreamingText('');
@@ -498,7 +585,10 @@ export function useAgentSession(
 
       if (signal.aborted) return;
 
-      if (currentResult.text?.trim()) {
+      // A turn that stopped has already shown what the model said along with
+      // the calls it did not get to run.
+      const stopped = stoppedByUser || limitReached !== null;
+      if (!stopped && currentResult.text?.trim()) {
         const logs = [...internals.turnLogs];
         addMessage({
           id: generateId(),
@@ -522,17 +612,25 @@ export function useAgentSession(
           }
           return { messages: updated };
         });
-      } else if (!messageRendered) {
+      } else if (!messageRendered && !stopped) {
         addMessage({
           id: generateId(),
           role: 'error',
           text: 'I couldn’t generate a response for that request. Please try again.',
         });
       }
+
+      if (limitReached) {
+        addMessage({ id: generateId(), role: 'error', text: limitReached.message });
+      }
     } catch (err: unknown) {
       if (signal.aborted) return;
       showStreamingText('');
-      console.error('[WebMCP] Error during chat turn:', formatErrorMessage(err), err);
+      // The on-device model's limit only lands here when not one of its calls
+      // was run. That is no failure, and the chat goes on, as after any stop
+      // at the limit.
+      const atLimit = err instanceof ToolRoundLimitError;
+      if (!atLimit) console.error('[WebMCP] Error during chat turn:', formatErrorMessage(err), err);
       addMessage({
         id: generateId(),
         role: 'error',
@@ -541,13 +639,13 @@ export function useAgentSession(
             ? err.message
             : 'Something went wrong while processing your request. Please try again.',
       });
-      if (internals.chatId) {
+      if (internals.chatId && !atLimit) {
         endChat(internals.chatId, { onDevice: onDeviceModelRef.current });
         internals.chatId = undefined;
       }
     } finally {
       if (!signal.aborted) {
-        tabSessions.update(tabId, { pendingPermission: null, busy: false });
+        tabSessions.update(tabId, { pendingPermission: null, pendingCheckpoint: null, busy: false });
         if (internals.abortController === abortController) {
           internals.abortController = null;
         }
@@ -564,6 +662,7 @@ export function useAgentSession(
     anyBusy,
     activityLog: session.activityLog,
     pendingPermission: session.pendingPermission,
+    pendingCheckpoint: session.pendingCheckpoint,
     handleSendPrompt,
     handleStop,
     handleReset,

@@ -19,6 +19,7 @@ import {
 import { endAllChats, endChat, getSpotlighting, sendChatTurn } from '../../extension/sidepanel/services/chatBridge.js';
 import { applySpotlighting } from '../../extension/sidepanel/services/toolResults.js';
 import { buildToolDecls } from '../../extension/sidepanel/services/toolEncoder.js';
+import { DEFAULT_TOOL_ROUND_LIMITS, ToolRoundLimitError } from '../../extension/sidepanel/services/toolRoundLimits.js';
 
 Object.defineProperty(globalThis, 'navigator', {
   value: { language: 'en-US', languages: ['en-US'], userActivation: { isActive: true } },
@@ -1185,3 +1186,89 @@ test('a failure while answering tool calls is reported rather than replayed', as
     uninstallPromptApiStub();
   }
 });
+
+test('the on-device model stops at the same limit as the agent loop', async () => {
+  const { max } = DEFAULT_TOOL_ROUND_LIMITS;
+  const askForTable = (callID: string, partySize: number): StubTurn => [
+    { type: 'tool-call', value: { callID, name: '_0_book_table', arguments: { partySize } } },
+  ];
+  // Round 2 repeats round 1 word for word, as repeated moves in a maze would.
+  // The wrapper turns it down by itself, so the agent loop never sees it, but
+  // it counts toward the limit all the same.
+  const script: StubTurn[] = [askForTable('c1', 1), askForTable('repeat', 1)];
+  for (let round = 2; round <= max; round++) script.push(askForTable(`c${round}`, round));
+  const stub = installPromptApiStub(script);
+  const warn = console.warn;
+  console.warn = () => {};
+
+  try {
+    const tools = buildToolDecls([BOOK_TOOL]);
+    const answer = (callID: string) =>
+      sendOnDeviceChat({
+        tools,
+        toolResponses: [{ functionResponse: { id: callID, name: '_0_book_table', response: { result: 'booked' } } }],
+      });
+    let reply = await sendOnDeviceChat({ message: 'Book as many tables as you can', tools });
+    for (let round = 1; round < max - 1; round++) {
+      assert.equal(reply.functionCalls?.[0]?.id, `c${round}`);
+      reply = await answer(`c${round}`);
+    }
+    // With the refused round, this is the last round the wrapper allows.
+    assert.equal(reply.functionCalls?.[0]?.id, `c${max - 1}`);
+    await assert.rejects(
+      answer(`c${max - 1}`),
+      (error) => error instanceof ToolRoundLimitError && error.message === new ToolRoundLimitError(max).message
+    );
+    // The model was told the results it got were its last, so it had the
+    // chance to answer instead of asking again.
+    assert.match(JSON.stringify(stub.inputs.at(-1)), /This is the last tool result/);
+  } finally {
+    console.warn = warn;
+    uninstallPromptApiStub();
+  }
+});
+
+for (const [when, otherTabInBetween] of [
+  ['on the next message', false],
+  ['when another tab used the model in between', true],
+] as const) {
+  test(`a turn the on-device model gave up on is left out of the chat ${when}`, async () => {
+    const { max } = DEFAULT_TOOL_ROUND_LIMITS;
+    const inventedTool: StubTurn = [
+      { type: 'tool-call', value: { callID: '', name: '_0_invented_tool', arguments: {} } },
+    ];
+    const stub = installPromptApiStub([
+      ['Booked.'],
+      // A tool that does not exist, until the wrapper gives up on the model.
+      ...Array.from({ length: max + 1 }, () => inventedTool),
+      ...(otherTabInBetween ? [['Hi there.']] : []),
+      ['Hello again.'],
+    ]);
+    const warn = console.warn;
+    console.warn = () => {};
+
+    try {
+      const tools = buildToolDecls([BOOK_TOOL]);
+      await sendOnDeviceChat({ chatId: 'tab-1', message: 'Book a table', tools });
+      // Not one call reached the agent loop, so the first step already fails.
+      await assert.rejects(
+        sendOnDeviceChat({ chatId: 'tab-1', message: 'Open the secret door', tools }),
+        ToolRoundLimitError
+      );
+      if (otherTabInBetween) await sendOnDeviceChat({ chatId: 'tab-2', message: 'Hi', tools });
+
+      const reply = await sendOnDeviceChat({ chatId: 'tab-1', message: 'Hello', tools });
+      assert.equal(reply.text, 'Hello again.');
+      // As after a stop, the chat goes on from before that turn, without the
+      // calls the model was still asking for when the wrapper gave up.
+      const rebuilt = stub.creates.at(-1) as { initialPrompts?: ReplayedPrompt[] };
+      assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
+        'user: Book a table',
+        'assistant: Booked.',
+      ]);
+    } finally {
+      console.warn = warn;
+      uninstallPromptApiStub();
+    }
+  });
+}
