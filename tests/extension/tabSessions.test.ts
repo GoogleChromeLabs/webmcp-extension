@@ -19,7 +19,6 @@ import { type WebMCPTool } from '../../extension/sidepanel/types/index.js';
 const BOOK_TOOL: WebMCPTool = {
   name: 'book_table',
   description: 'Books a table.',
-  inputSchema: '{"type":"object"}',
   frameId: 0,
 };
 

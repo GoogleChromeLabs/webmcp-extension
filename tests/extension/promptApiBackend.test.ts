@@ -145,10 +145,10 @@ function uninstallPromptApiStub() {
 const BOOK_TOOL = {
   name: 'book_table',
   description: 'Book a table.',
-  inputSchema: JSON.stringify({
+  inputSchema: {
     type: 'object',
     properties: { partySize: { type: 'number' } },
-  }),
+  },
   frameId: 0,
 };
 

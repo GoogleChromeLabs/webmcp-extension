@@ -10,9 +10,9 @@ import { type WebMCPTool } from '../../extension/sidepanel/types/index.js';
 
 test('buildToolDecls encodes tool names with frameIDs', () => {
   const mockTools: WebMCPTool[] = [
-    { name: 'searchHotels', description: 'Search hotels', inputSchema: '{"type":"object"}', frameId: 0 },
-    { name: 'filterGym', description: 'Filter by gym', inputSchema: '{"type":"object"}', frameId: 0 },
-    { name: 'iframeAction', description: 'Action in iframe', inputSchema: null, frameId: 2 },
+    { name: 'searchHotels', description: 'Search hotels', frameId: 0 },
+    { name: 'filterGym', description: 'Filter by gym', frameId: 0 },
+    { name: 'iframeAction', description: 'Action in iframe', frameId: 2 },
   ];
 
   const decls = buildToolDecls(mockTools);
@@ -39,16 +39,18 @@ test('decodeToolName falls back gracefully for unencoded names', () => {
   assert.equal(decoded.frameId, undefined);
 });
 
-test('buildToolDecls handles nested schemas, arrays, and malformed JSON strings gracefully', () => {
+test('buildToolDecls handles nested schemas, arrays, and missing schemas', () => {
   const tools: WebMCPTool[] = [
     {
       name: 'filter_hotels',
-      inputSchema: '{"type":"object","properties":{"price":{"type":"number"},"amenities":{"type":"array","items":{"type":"string"}}}}',
+      inputSchema: {
+        type: 'object',
+        properties: { price: { type: 'number' }, amenities: { type: 'array', items: { type: 'string' } } },
+      },
       frameId: 0,
     },
     {
-      name: 'broken_schema_tool',
-      inputSchema: '{ invalid json ...',
+      name: 'share',
       frameId: 0,
     },
   ];
@@ -56,7 +58,7 @@ test('buildToolDecls handles nested schemas, arrays, and malformed JSON strings 
   const decls = buildToolDecls(tools);
   assert.equal(decls.length, 2);
   assert.equal((decls[0].parameters.properties as Record<string, { type: string }>).amenities.type, 'array');
-  // Fallback to empty object schema on invalid JSON without throwing
+  // A tool without an inputSchema takes no input: an empty object schema.
   assert.deepEqual(decls[1].parameters, { type: 'object', properties: {} });
 });
 test('buildToolDecls handles empty and object-based schemas', () => {

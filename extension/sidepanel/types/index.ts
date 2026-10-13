@@ -6,7 +6,7 @@
 export interface WebMCPTool {
   name: string;
   description?: string;
-  inputSchema?: string | Record<string, unknown> | null;
+  inputSchema?: Record<string, unknown>;
   readOnlyHint?: boolean;
   untrustedContentHint?: boolean;
   /**
