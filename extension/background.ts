@@ -22,6 +22,9 @@ chrome.runtime.onInstalled.addListener(async () => {
       .executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] })
       // Pages the extension may not script, e.g. chrome:// and the Web Store.
       .catch(() => {});
+    chrome.scripting
+      .executeScript({ target: { tabId, allFrames: true }, files: ['toolContinuationHook.js'], world: 'MAIN' })
+      .catch(() => {});
   }
 });
 

@@ -201,6 +201,7 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
       return [];
     },
     querySelector: () => null,
+    addEventListener: () => {},
     modelContext: {
       getTools: async () => [mockTool],
       executeTool: async (_tool: unknown, args: unknown) => {
