@@ -502,8 +502,8 @@ export function useAgentSession(
       // many each one asked for at once.
       let roundsUsed = 0;
       let stoppedByUser = false;
-      // Set once the request has used up its rounds, here or in the on-device
-      // model.
+      // Set when the request has used up its rounds: by the check below, or
+      // by the on-device backend's own cap.
       let limitReached: ToolRoundLimitError | null = null;
 
       while (
@@ -538,7 +538,6 @@ export function useAgentSession(
             break;
           }
         }
-        roundsUsed++;
 
         const toolResponses: ToolResponse[] = [];
         for (const call of currentResult.functionCalls) {
@@ -567,13 +566,17 @@ export function useAgentSession(
             { signal, onDevice: onDeviceModelRef.current, onText }
           );
         } catch (err: unknown) {
-          // The on-device model stops at the same limit, and can get there
-          // first: it also counts the calls it turns down by itself.
+          // The on-device backend has its own cap on rounds, set to the same
+          // number, `DEFAULT_TOOL_ROUND_LIMITS.max`. It also counts calls it
+          // refuses by itself, such as a tool that does not exist, and those
+          // never reach this loop. So it can reach the cap first. Then the
+          // turn ends here, the same way as at the check above.
           if (signal.aborted || !(err instanceof ToolRoundLimitError)) throw err;
           showStreamingText('');
           limitReached = err;
           break;
         }
+        roundsUsed++;
 
         if (signal.aborted) break;
         showStreamingText('');
@@ -626,8 +629,8 @@ export function useAgentSession(
     } catch (err: unknown) {
       if (signal.aborted) return;
       showStreamingText('');
-      // The on-device model's limit only lands here when not one of its calls
-      // was run. That is no failure, and the chat goes on, as after any stop
+      // The on-device backend's cap only lands here when none of the model's
+      // calls ran. That is no failure, and the chat goes on, as after any stop
       // at the limit.
       const atLimit = err instanceof ToolRoundLimitError;
       if (!atLimit) console.error('[WebMCP] Error during chat turn:', formatErrorMessage(err), err);
