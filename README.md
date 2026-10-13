@@ -76,6 +76,10 @@ you may set:
 - "Allow for this chat" is kept until the chat is reset or the panel is closed.
   This setting applies to the tools on a parent website, never to tools within
   an iframe.
+- One request can use tools up to 100 times. After 10, the agent asks once
+  whether it may keep going (**Stop** or **Continue**), and at 100 it stops
+  and says so. One "time" is one reply from the model that asks for tools,
+  however many it asks for at once (`DEFAULT_TOOL_ROUND_LIMITS`).
 
 > [!IMPORTANT]
 > Annotations are *hints* from the page, not guarantees. A page can mark a harmful tool

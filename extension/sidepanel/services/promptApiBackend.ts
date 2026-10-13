@@ -5,6 +5,7 @@
 
 import { EasyLanguageModel } from 'easy-language-model';
 import { buildSystemInstruction } from '../../../shared/systemPrompt.ts';
+import { DEFAULT_TOOL_ROUND_LIMITS, ToolRoundLimitError } from './toolRoundLimits.js';
 import { type ChatTurnRequest, type ChatTurnResponse, type ToolDeclaration, UserFacingError } from '../types/index.js';
 
 /**
@@ -67,13 +68,6 @@ export function isToolUseSupported(): boolean {
     'LanguageModelToolError' in globalThis
   );
 }
-
-/**
- * The same number of rounds the agent loop allows, so neither side gives up
- * first. On the last one the wrapper tells the model that no more tools are
- * coming.
- */
-const MAX_TOOL_ROUNDS = 10;
 
 export interface DownloadProgress {
   /** 'language-model', or 'summarizer' and 'language-detector' while compacting. */
@@ -190,6 +184,8 @@ interface Turn {
    * mid-turn needs on top of `history` to carry on.
    */
   transcript: PromptMessage[];
+  /** How long the session's `history` was when this turn began. */
+  historyStart: number;
   /** Settles with the next round of calls, or with the answer. */
   next: Deferred<TurnStep>;
   /** Called with the text so far of the step the agent loop is waiting on. */
@@ -216,13 +212,23 @@ interface OnDeviceSession {
 let current: OnDeviceSession | null = null;
 const conversationHistories = new Map<string, Array<{ role: string; content: unknown }>>();
 
+/**
+ * The conversation's `history`, without the turn in flight. A turn only gets
+ * into `history` once it ends, except when the wrapper gives up on a model
+ * that keeps asking for tools: then it goes in with calls that were never
+ * answered. It is left out like a turn that was stopped.
+ */
+function historyBeforeTurn(state: OnDeviceSession): Array<{ role: string; content: unknown }> {
+  return state.session.history.slice(0, state.turn?.historyStart);
+}
+
 /** Stops the current session, saving history by default and keeping the conversation's spotlighting fence. */
 function retireSession(options: { saveHistory?: boolean } = {}): void {
   if (current) {
     if (options.saveHistory !== false) {
       try {
         if (current.session?.history) {
-          conversationHistories.set(current.id, [...current.session.history]);
+          conversationHistories.set(current.id, historyBeforeTurn(current));
         }
       } catch {}
     }
@@ -479,7 +485,10 @@ async function createSession(
         execute: (args: Record<string, unknown>) => executeLater(state, args),
       })),
     }),
-    maxToolRounds: MAX_TOOL_ROUNDS,
+    // The agent loop's limit. The wrapper keeps its own count, which can get
+    // there first, since it also counts the calls it turns down by itself.
+    // Either way, the request ends with the same message.
+    maxToolRounds: DEFAULT_TOOL_ROUND_LIMITS.max,
     onToolCall(call: ToolCall) {
       const turn = state.turn;
       if (!turn) return;
@@ -586,7 +595,7 @@ async function getSession(request: ChatTurnRequest, signal?: AbortSignal): Promi
     return buildSession(chatId, tools, history, signal);
   }
 
-  const history = toReplayHistory(current.session.history, tools.length > 0);
+  const history = toReplayHistory(historyBeforeTurn(current), tools.length > 0);
   return buildSession(current.id, tools, history, signal);
 }
 
@@ -648,7 +657,7 @@ async function runTurn(state: OnDeviceSession, turn: Turn, input: string | Promp
     turn.next.resolve({ text: turn.text, calls: [] });
     compactIfOverflowed(state);
   } catch (error) {
-    turn.next.reject(error);
+    turn.next.reject(isToolLoopError(error) ? new ToolRoundLimitError(DEFAULT_TOOL_ROUND_LIMITS.max) : error);
   }
 }
 
@@ -687,6 +696,7 @@ function startTurn(
     handedOut: [],
     ranTools: false,
     transcript: typeof input === 'string' ? [{ role: 'user', content: input }] : [...input],
+    historyStart: state.session.history.length,
     next: createDeferred(),
     onText,
   };
@@ -811,6 +821,15 @@ function continueWithNewTools(
  */
 function isContextFull(error: unknown): boolean {
   return (error as Error)?.name === 'QuotaExceededError';
+}
+
+/**
+ * Whether the wrapper gave up on a turn because the model kept asking for
+ * tools. Its `OperationError` carries the calls it would not run, which tells
+ * it apart from one the model raised.
+ */
+function isToolLoopError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'OperationError' && 'toolCalls' in error;
 }
 
 /**

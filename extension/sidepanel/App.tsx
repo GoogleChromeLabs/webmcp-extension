@@ -80,10 +80,13 @@ export function App() {
     anyBusy,
     activityLog,
     pendingPermission,
+    pendingCheckpoint,
     handleSendPrompt,
     handleStop,
     handleReset,
   } = useAgentSession(activeTabId, { sensitiveActionAlerts, onDeviceModel, origin });
+  // The agent is waiting on the user: to allow a tool, or to keep using tools.
+  const waitingOnUser = Boolean(pendingPermission || pendingCheckpoint);
 
   const handleToggleOnDeviceModel = () => {
     // Switching backends mid-response would pull the conversation out from
@@ -254,13 +257,13 @@ export function App() {
                     {busy && (
                       <ActionLog
                         status={
-                          pendingPermission
+                          waitingOnUser
                             ? 'permission'
                             : activityLog.length === 0
                             ? 'initiation'
                             : 'running'
                         }
-                        statusText={!pendingPermission && streamingText ? 'Writing...' : undefined}
+                        statusText={!waitingOnUser && streamingText ? 'Writing...' : undefined}
                         activityLogs={activityLog}
                       />
                     )}
@@ -336,6 +339,16 @@ export function App() {
                         onAllow: pendingPermission.allow,
                         onAlwaysAllow: pendingPermission.allowAlways,
                         onDeny: pendingPermission.deny,
+                      }
+                    : null
+                }
+                checkpointProps={
+                  pendingCheckpoint
+                    ? {
+                        roundsUsed: pendingCheckpoint.roundsUsed,
+                        maxRounds: pendingCheckpoint.maxRounds,
+                        onAllow: pendingCheckpoint.allow,
+                        onDeny: pendingCheckpoint.deny,
                       }
                     : null
                 }

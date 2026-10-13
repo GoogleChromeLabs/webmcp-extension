@@ -90,6 +90,17 @@ export interface PendingToolPermission {
   deny: () => void;
 }
 
+export interface PendingToolCheckpoint {
+  /** Rounds of tool calls the turn has run so far. */
+  roundsUsed: number;
+  /** The most rounds the turn may take if the user lets it go on. */
+  maxRounds: number;
+  /** Let the agent go on, up to `maxRounds`. */
+  allow: () => void;
+  /** Stop the turn here. */
+  deny: () => void;
+}
+
 /**
  * An error whose `message` is safe and written to be shown directly to the user
  * in the chat UI, unlike raw backend or browser exceptions.

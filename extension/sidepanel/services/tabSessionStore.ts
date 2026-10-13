@@ -8,6 +8,7 @@ import { clearSessionToolPermissions } from './toolPermissions.js';
 import {
   type ActivityEntry,
   type ChatMessage,
+  type PendingToolCheckpoint,
   type PendingToolPermission,
   type WebMCPTool,
 } from '../types/index.js';
@@ -29,6 +30,8 @@ interface TabSessionState {
   /** The reply being written right now, until it becomes one of `messages`. */
   streamingText: string;
   pendingPermission: PendingToolPermission | null;
+  /** Set while the agent waits for the user to let it keep using tools. */
+  pendingCheckpoint: PendingToolCheckpoint | null;
   /** The tools the page in this tab exposes, as last reported. */
   tools: WebMCPTool[];
   domain: string;
@@ -49,6 +52,7 @@ const EMPTY_TAB_SESSION: TabSessionState = Object.freeze({
   activityLog: Object.freeze([]) as unknown as ActivityEntry[],
   streamingText: '',
   pendingPermission: null,
+  pendingCheckpoint: null,
   tools: Object.freeze([]) as unknown as WebMCPTool[],
   domain: '',
   origin: '',
@@ -171,6 +175,7 @@ class TabSessionStore {
       activityLog: [],
       streamingText: '',
       pendingPermission: null,
+      pendingCheckpoint: null,
       busy: false,
     });
   }
