@@ -162,7 +162,7 @@ test('extensionBridge - executeTabTool throws error when chrome.tabs is unavaila
   }
 });
 
-test('content script - EXECUTE_TOOL tries object inputArgs first and falls back to JSON string on parse error', async () => {
+test('content script - EXECUTE_TOOL passes object inputArgs and replies with errors', async () => {
   setupTestChrome();
   const origWindow = globalThis.window;
   const origDocument = globalThis.document;
@@ -183,7 +183,7 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
   const executedArgs: unknown[] = [];
   // Every form target the content script resolves from a tool name.
   const resolvedTargets: string[] = [];
-  let mode: 'object' | 'string-fallback' | 'error' = 'object';
+  let mode: 'object' | 'error' = 'object';
 
   // A page with two tool-bound forms, so a tool name that tries to match more
   // than its own form has something to wrongly match.
@@ -206,10 +206,7 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
       executeTool: async (_tool: unknown, args: unknown) => {
         executedArgs.push(args);
         if (mode === 'error') {
-          throw new Error('Unexpected execution error');
-        }
-        if (mode === 'string-fallback' && typeof args !== 'string') {
-          throw new Error('Failed to parse input: expected JSON string');
+          throw new Error('Failed to parse input');
         }
         return { booked: true, receivedArgs: args };
       },
@@ -220,7 +217,7 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
     new Function(buildContentScript())();
     assert.ok(messageListener, 'Content script should register an onMessage listener');
 
-    // 1. Object-first path succeeds directly without fallback
+    // 1. The input is passed as an object.
     mode = 'object';
     executedArgs.length = 0;
     const res1 = await new Promise((resolve) => {
@@ -229,25 +226,17 @@ test('content script - EXECUTE_TOOL tries object inputArgs first and falls back 
     assert.deepEqual(res1, { booked: true, receivedArgs: { id: 42 } });
     assert.deepEqual(executedArgs, [{ id: 42 }]);
 
-    // 2. Fallback path: object throws 'Failed to parse input...', catches and retries with JSON string
-    mode = 'string-fallback';
+    // 2. Errors are not retried, not even with a JSON string, and reply with
+    // the stringified message.
+    mode = 'error';
     executedArgs.length = 0;
     const res2 = await new Promise((resolve) => {
       messageListener!({ action: 'EXECUTE_TOOL', name: 'book_room', inputArgs: { id: 42 } }, {}, resolve);
     });
-    assert.deepEqual(res2, { booked: true, receivedArgs: '{"id":42}' });
-    assert.deepEqual(executedArgs, [{ id: 42 }, '{"id":42}']);
-
-    // 3. Rethrow path: other errors are not retried and reply with stringified message
-    mode = 'error';
-    executedArgs.length = 0;
-    const res3 = await new Promise((resolve) => {
-      messageListener!({ action: 'EXECUTE_TOOL', name: 'book_room', inputArgs: { id: 42 } }, {}, resolve);
-    });
-    assert.equal(res3, JSON.stringify('Unexpected execution error'));
+    assert.equal(res2, JSON.stringify('Failed to parse input'));
     assert.deepEqual(executedArgs, [{ id: 42 }]);
 
-    // 4. Tool names come from the page. A name crafted to look like selector
+    // 3. Tool names come from the page. A name crafted to look like selector
     // syntax must simply not match, rather than matching another tool's form.
     mode = 'object';
     resolvedTargets.length = 0;

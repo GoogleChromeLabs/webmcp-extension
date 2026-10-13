@@ -84,15 +84,7 @@ async function executeTool(
   const tool = tools.find((t) => t.name === name && t.window === window);
   if (!tool) throw new Error(`Tool "${name}" is not available on this page.`);
 
-  let result: unknown;
-  try {
-    result = await modelContext.executeTool(tool, inputArgs);
-  } catch (error) {
-    // TODO: Remove this when executeTool doesn't accept JSON stringified inputArgs anymore in Chrome Stable.
-    if (!toMessage(error).startsWith('Failed to parse input')) throw error;
-    // Older Chrome builds take the input as a JSON string, which the spec types do not allow.
-    result = await modelContext.executeTool(tool, JSON.stringify(inputArgs) as unknown as object);
-  }
+  let result: unknown = await modelContext.executeTool(tool, inputArgs);
 
   if (result === null && targetFrame) {
     console.debug(`[WebMCP] Waiting for form target ${formTarget} to load`);

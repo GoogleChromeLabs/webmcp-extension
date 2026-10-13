@@ -11,9 +11,9 @@ import { type WebMCPTool } from '../../extension/sidepanel/types/index.js';
 
 test('toolEncoder - resolves same-name tools across multiple frames without collision', () => {
   const tools: WebMCPTool[] = [
-    { name: 'submit_form', description: 'Main frame form', inputSchema: '{}', frameId: 0 },
-    { name: 'submit_form', description: 'Iframe 1 form', inputSchema: '{}', frameId: 1 },
-    { name: 'submit_form', description: 'Iframe 2 form', inputSchema: '{}', frameId: 2 },
+    { name: 'submit_form', description: 'Main frame form', frameId: 0 },
+    { name: 'submit_form', description: 'Iframe 1 form', frameId: 1 },
+    { name: 'submit_form', description: 'Iframe 2 form', frameId: 2 },
   ];
 
   const decls = buildToolDecls(tools);
@@ -37,7 +37,7 @@ test('toolEncoder - resolves same-name tools across multiple frames without coll
 
 test('toolEncoder - handles dynamic tool list transitions as page updates DOM tools', () => {
   let activeTools: WebMCPTool[] = [
-    { name: 'searchHotels', description: 'Search', inputSchema: '{"type":"object"}', frameId: 0 },
+    { name: 'searchHotels', description: 'Search', frameId: 0 },
   ];
 
   let decls = buildToolDecls(activeTools);
@@ -46,9 +46,9 @@ test('toolEncoder - handles dynamic tool list transitions as page updates DOM to
 
   // Page navigates to results and adds filters and pagination tools
   activeTools = [
-    { name: 'searchHotels', description: 'Search', inputSchema: '{"type":"object"}', frameId: 0 },
-    { name: 'applyFilter', description: 'Filter', inputSchema: '{"type":"object"}', frameId: 0 },
-    { name: 'nextPage', description: 'Next page', inputSchema: '{"type":"object"}', frameId: 0 },
+    { name: 'searchHotels', description: 'Search', frameId: 0 },
+    { name: 'applyFilter', description: 'Filter', frameId: 0 },
+    { name: 'nextPage', description: 'Next page', frameId: 0 },
   ];
 
   decls = buildToolDecls(activeTools);

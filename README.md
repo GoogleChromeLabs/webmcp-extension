@@ -98,7 +98,7 @@ Read more about [building safer agents](https://developer.chrome.com/docs/agents
 ## Requirements
 
 - Node.js 22.18 or newer (it runs the TypeScript server and build scripts directly)
-- Google Chrome 150+
+- Google Chrome 155+
 - Enable `chrome://flags/#enable-webmcp-testing` and learn more about
   [how Chrome flags work](https://developer.chrome.com/docs/web-platform/chrome-flags)
 
@@ -216,7 +216,7 @@ npm run typecheck
 ```
 
 The smoke tests load the built extension into headless Chrome and drive the side
-panel against a local test page. They need Chrome 150 or newer. If none is found
+panel against a local test page. They need Chrome 155 or newer. If none is found
 they are skipped locally, but they fail in CI. To use a specific browser:
 
 ```bash
