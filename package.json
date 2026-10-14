@@ -38,8 +38,8 @@
     "streaming-markdown-html": "^0.1.1"
   },
   "devDependencies": {
-    "@puppeteer/browsers": "^3.2.3",
-    "@types/chrome": "^0.3.4",
+    "@puppeteer/browsers": "^3.2.4",
+    "@types/chrome": "^0.3.5",
     "@types/node": "^22.13.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
