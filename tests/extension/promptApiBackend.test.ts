@@ -1272,3 +1272,110 @@ for (const [when, otherTabInBetween] of [
     }
   });
 }
+
+for (const [how, givesUp] of [
+  ['stopped', false],
+  ['the on-device model gave up on', true],
+] as const) {
+  test(`a turn ${how} after it moved to a new session is left out of the chat in full`, async () => {
+    const { max } = DEFAULT_TOOL_ROUND_LIMITS;
+    const inventedTool: StubTurn = [
+      { type: 'tool-call', value: { callID: '', name: '_0_invented_tool', arguments: {} } },
+    ];
+    const stub = installPromptApiStub([
+      ['Welcome to the ocean.'],
+      [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
+      ...(givesUp
+        ? Array.from({ length: max + 1 }, () => inventedTool)
+        : [[{ type: 'tool-call' as const, value: { callID: '', name: '_0_openDoor3', arguments: {} } }]]),
+      ['Hello again.'],
+    ]);
+    const warn = console.warn;
+    console.warn = () => {};
+
+    try {
+      await sendOnDeviceChat({ chatId: 'tab-1', message: 'Where am I?', tools: buildToolDecls(OCEAN_TOOLS) });
+      const first = await sendOnDeviceChat({
+        chatId: 'tab-1',
+        message: 'Go back to the hallway, then open the third door.',
+        tools: buildToolDecls(OCEAN_TOOLS),
+      });
+      // The call takes the page back to the hallway, so the turn moves to a
+      // session with the hallway's tools.
+      const responses = {
+        chatId: 'tab-1',
+        tools: buildToolDecls(HALLWAY_TOOLS),
+        toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_returnToHallway', response: { result: 'The hallway.' } } }],
+      };
+      if (givesUp) {
+        await assert.rejects(sendOnDeviceChat(responses), ToolRoundLimitError);
+      } else {
+        // The user stops the turn, at the checkpoint say, and the call is never answered.
+        const second = await sendOnDeviceChat(responses);
+        assert.deepEqual(second.functionCalls?.map((call) => call.name), ['_0_openDoor3']);
+      }
+
+      const reply = await sendOnDeviceChat({ chatId: 'tab-1', message: 'Hello', tools: buildToolDecls(HALLWAY_TOOLS) });
+      assert.equal(reply.text, 'Hello again.');
+      // None of the turn is replayed: not its message, and not the call whose
+      // response went to the session it moved to.
+      const rebuilt = stub.creates.at(-1) as { initialPrompts?: ReplayedPrompt[] };
+      assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
+        'user: Where am I?',
+        'assistant: Welcome to the ocean.',
+      ]);
+    } finally {
+      console.warn = warn;
+      uninstallPromptApiStub();
+    }
+  });
+}
+
+test('a turn that moved to new sessions twice carries all of itself over, and is left out in full once stopped', async () => {
+  const stub = installPromptApiStub([
+    ['Welcome to the ocean.'],
+    [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: '', name: '_0_openDoor1', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: '', name: '_0_dance', arguments: {} } }],
+    ['Hello again.'],
+  ]);
+
+  try {
+    await sendOnDeviceChat({ chatId: 'tab-1', message: 'Where am I?', tools: buildToolDecls(OCEAN_TOOLS) });
+    const first = await sendOnDeviceChat({ chatId: 'tab-1', message: 'Go back, then through door 1.', tools: buildToolDecls(OCEAN_TOOLS) });
+    const answer = (name: string, result: string, tools: typeof OCEAN_TOOLS) =>
+      sendOnDeviceChat({
+        chatId: 'tab-1',
+        tools: buildToolDecls(tools),
+        toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name, response: { result } } }],
+      });
+    const second = await answer('_0_returnToHallway', 'The hallway.', HALLWAY_TOOLS);
+    assert.deepEqual(second.functionCalls?.map((call) => call.name), ['_0_openDoor1']);
+    // Door 1 leads back to the ocean, so the turn moves again.
+    const third = await answer('_0_openDoor1', 'The ocean.', OCEAN_TOOLS);
+    assert.deepEqual(third.functionCalls?.map((call) => call.name), ['_0_dance']);
+    assert.equal(stub.creates.length, 3);
+
+    // The third session has the whole turn so far, once.
+    const thirdSession = stub.creates[2] as { initialPrompts?: ReplayedPrompt[] };
+    assert.deepEqual(thirdSession.initialPrompts?.slice(1).map(describePrompt), [
+      'user: Where am I?',
+      'assistant: Welcome to the ocean.',
+      'user: Go back, then through door 1.',
+      'assistant: tool-call:_0_returnToHallway',
+      'user: tool-response:_0_returnToHallway + The page has changed and now offers different tools. Use them to fulfill the request in full.',
+      'assistant: tool-call:_0_openDoor1',
+    ]);
+
+    // The turn is stopped before the dance is answered.
+    const reply = await sendOnDeviceChat({ chatId: 'tab-1', message: 'Hello', tools: buildToolDecls(OCEAN_TOOLS) });
+    assert.equal(reply.text, 'Hello again.');
+    const rebuilt = stub.creates.at(-1) as { initialPrompts?: ReplayedPrompt[] };
+    assert.deepEqual(rebuilt.initialPrompts?.slice(1).map(describePrompt), [
+      'user: Where am I?',
+      'assistant: Welcome to the ocean.',
+    ]);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
