@@ -77,6 +77,39 @@ let nextId = Date.now();
 const generateId = (): number => ++nextId;
 
 /**
+ * Transfers pending activity to the conversation, even without model text.
+ * Logs are drained on every transfer so stopping or finishing again cannot
+ * duplicate them. Only a message from this turn may receive trailing logs.
+ */
+function persistTurnOutput(tabId: number, text: string, onDevice: boolean): void {
+  const internals = tabSessions.getInternals(tabId);
+  const logs = internals.turnLogs;
+  const reply = text.trim();
+  if (!reply && logs.length === 0) return;
+
+  internals.turnLogs = [];
+  if (reply || internals.turnMessageId === undefined) {
+    const message: ChatMessage = {
+      id: generateId(),
+      role: 'ai',
+      text: reply,
+      activityLogs: logs,
+      onDevice,
+    };
+    internals.turnMessageId = message.id;
+    tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
+  } else {
+    tabSessions.update(tabId, (previous) => ({
+      messages: previous.messages.map((message) =>
+        message.id === internals.turnMessageId
+          ? { ...message, activityLogs: [...logs, ...(message.activityLogs ?? [])] }
+          : message
+      ),
+    }));
+  }
+}
+
+/**
  * A read-only view of the tools of whichever tab a turn is working with, in
  * the shape `waitForToolsToSettle` takes. It reads through to the store on
  * every access, so a turn sees the latest report for its page rather than a
@@ -262,27 +295,19 @@ export function useAgentSession(
 
   // Dedicated cancellation handler
   const handleStop = useCallback(() => {
-    if (activeTabId == null) return;
+    if (activeTabId == null || !tabSessions.getState(activeTabId).busy) return;
     const internals = tabSessions.getInternals(activeTabId);
     if (internals.abortController) {
       internals.abortController.abort();
       internals.abortController = null;
     }
-    // What was written before the stop stays, rather than vanishing.
-    const partial = tabSessions.getState(activeTabId).streamingText.trim();
-    const logs = [...internals.turnLogs];
-    tabSessions.update(activeTabId, (previous) => ({
-      messages: partial
-        ? [
-            ...previous.messages,
-            { id: generateId(), role: 'ai', text: partial, activityLogs: logs, onDevice: onDeviceModelRef.current },
-          ]
-        : previous.messages,
+    persistTurnOutput(activeTabId, tabSessions.getState(activeTabId).streamingText, onDeviceModelRef.current);
+    tabSessions.update(activeTabId, {
       streamingText: '',
       pendingPermission: null,
       pendingCheckpoint: null,
       busy: false,
-    }));
+    });
   }, [activeTabId]);
 
   // Reset chat session state
@@ -360,6 +385,7 @@ export function useAgentSession(
     };
 
     const completeActivity = (entry: ActivityEntry) => {
+      if (signal.aborted || internals.abortController !== abortController) return;
       const update = (item: ActivityEntry) => (item.id === entry.id ? { ...item, done: true } : item);
 
       internals.turnLogs = internals.turnLogs.map(update);
@@ -372,6 +398,7 @@ export function useAgentSession(
     const limits = toolRoundLimitsRef.current;
 
     internals.turnLogs = [];
+    internals.turnMessageId = undefined;
     if (!internals.chatId) {
       internals.chatId = crypto.randomUUID();
     }
@@ -452,6 +479,7 @@ export function useAgentSession(
         if (signal.aborted) return null;
         if (movedToNewTab) {
           const movedInfo = await getTabInfo(turnTabId);
+          if (signal.aborted) return null;
           if (movedInfo) {
             tabSessions.update(turnTabId, (prev) => ({
               domain: movedInfo.domain || prev.domain,
@@ -497,7 +525,6 @@ export function useAgentSession(
         internals.chatId = currentResult.chatId;
       }
 
-      let messageRendered = false;
       // Rounds of tool calls run so far: replies that asked for tools, however
       // many each one asked for at once.
       let roundsUsed = 0;
@@ -512,16 +539,7 @@ export function useAgentSession(
         !signal.aborted
       ) {
         if (currentResult.text?.trim()) {
-          const logs = [...internals.turnLogs];
-          internals.turnLogs = [];
-          addMessage({
-            id: generateId(),
-            role: 'ai',
-            text: currentResult.text.trim(),
-            activityLogs: logs,
-            onDevice: onDeviceModelRef.current,
-          });
-          messageRendered = true;
+          persistTurnOutput(tabId, currentResult.text, onDeviceModelRef.current);
         }
 
         if (roundsUsed >= limits.max) {
@@ -572,6 +590,7 @@ export function useAgentSession(
           // never reach this loop. So it can reach the cap first. Then the
           // turn ends here, the same way as at the check above.
           if (signal.aborted || !(err instanceof ToolRoundLimitError)) throw err;
+          persistTurnOutput(tabId, tabSessions.getState(tabId).streamingText, onDeviceModelRef.current);
           showStreamingText('');
           limitReached = err;
           break;
@@ -588,34 +607,11 @@ export function useAgentSession(
 
       if (signal.aborted) return;
 
-      // A turn that stopped has already shown what the model said along with
-      // the calls it did not get to run.
       const stopped = stoppedByUser || limitReached !== null;
-      if (!stopped && currentResult.text?.trim()) {
-        const logs = [...internals.turnLogs];
-        addMessage({
-          id: generateId(),
-          role: 'ai',
-          text: currentResult.text.trim(),
-          activityLogs: logs,
-          onDevice: onDeviceModelRef.current,
-        });
-      } else if (messageRendered && internals.turnLogs.length > 0) {
-        const trailingLogs = [...internals.turnLogs];
-        tabSessions.update(tabId, (previous) => {
-          const updated = [...previous.messages];
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (updated[i].role === 'ai') {
-              updated[i] = {
-                ...updated[i],
-                activityLogs: [...trailingLogs, ...(updated[i].activityLogs ?? [])],
-              };
-              break;
-            }
-          }
-          return { messages: updated };
-        });
-      } else if (!messageRendered && !stopped) {
+      const reply = stopped ? '' : currentResult.text ?? '';
+      const messageRendered = internals.turnMessageId !== undefined || Boolean(reply.trim());
+      persistTurnOutput(tabId, reply, onDeviceModelRef.current);
+      if (!messageRendered && !stopped) {
         addMessage({
           id: generateId(),
           role: 'error',
@@ -628,6 +624,7 @@ export function useAgentSession(
       }
     } catch (err: unknown) {
       if (signal.aborted) return;
+      persistTurnOutput(tabId, tabSessions.getState(tabId).streamingText, onDeviceModelRef.current);
       showStreamingText('');
       // The on-device backend's cap only lands here when none of the model's
       // calls ran. That is no failure, and the chat goes on, as after any stop

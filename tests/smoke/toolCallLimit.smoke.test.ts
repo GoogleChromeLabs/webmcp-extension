@@ -110,5 +110,12 @@ describe('Smoke — Tool Call Limit', { skip: smokeSkipReason(), timeout: 60_000
 
     assert.equal((await readExecutedTools(page)).length, executedBefore + askAfter);
     assert.equal(await sidebar.$('.msg.error'), null, 'A stop the user asked for is not an error');
+    assert.equal(await sidebar.$$eval('.action-log', (logs) => logs.length), 2);
+    assert.equal(await sidebar.$$eval('.ai-response', (replies) => replies.length), 1, 'History needs no empty reply bubble');
+    await sidebar.evaluate(() => {
+      document.querySelectorAll<HTMLButtonElement>('.action-log__header')[1].click();
+    });
+    const labels = await sidebar.$$eval('.action-log__item-label', (items) => items.map((item) => item.textContent?.trim()));
+    assert.deepEqual(labels, Array(askAfter).fill('Get flights'));
   });
 });

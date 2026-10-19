@@ -88,12 +88,12 @@ function sseResponse(reply: {
   error?: string;
 }): Response {
   const chunks: unknown[] = [];
+  if (reply.text) {
+    chunks.push({ delta: reply.text });
+  }
   if (reply.error) {
     chunks.push({ error: reply.error });
   } else {
-    if (reply.text) {
-      chunks.push({ delta: reply.text });
-    }
     chunks.push({
       done: true,
       chatId: reply.chatId,
@@ -113,7 +113,7 @@ function sseResponse(reply: {
  * Serves one scripted reply per chat turn, and remembers the requests so a
  * test can check which conversation each turn belonged to.
  */
-function installBackend(replies: Array<Record<string, unknown>>): {
+function installBackend(replies: Array<Record<string, unknown> | (() => Response | Promise<Response>)>): {
   requests: Array<Record<string, unknown>>;
   resets: Array<Record<string, unknown>>;
   restore: () => void;
@@ -132,7 +132,9 @@ function installBackend(replies: Array<Record<string, unknown>>): {
       });
     }
     requests.push(body);
-    const reply = (replies[turn++] ?? { text: 'done', functionCalls: [] }) as {
+    const nextReply = replies[turn++] ?? { text: 'done', functionCalls: [] };
+    if (typeof nextReply === 'function') return nextReply();
+    const reply = nextReply as {
       chatId?: string;
       text?: string;
       functionCalls?: Array<{ id?: string; name: string; args?: Record<string, unknown> }>;
@@ -359,24 +361,37 @@ test('closing a tab stops its turn and forgets its conversation', async () => {
   }
 });
 
-test('a tool that opens its own tab moves the work there, not the conversation', async () => {
+test('a tool can open a tab without moving the conversation, and Stop ignores late page metadata', async () => {
   resetTabSessions();
   const originalChrome = globalThis.chrome;
   const backend = installBackend([
     { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: {} }] },
     { chatId: 'chat-tab-1', text: 'Confirmed on the new page.', functionCalls: [] },
+    asksForTable(2),
   ]);
 
   const sent: SentMessage[] = [];
   let readyListener: ((message: unknown, sender: unknown) => void) | null = null;
+  const metadata = Promise.withResolvers<chrome.tabs.Tab>();
+  let holdMetadata = false;
+  let resultCollected = false;
+  let metadataRequested = false;
+  let turn: Promise<void> | undefined;
 
   globalThis.chrome = {
     tabs: {
       query: async () => [{ id: 1, url: 'https://tab-1.example' }] as chrome.tabs.Tab[],
-      get: async (tabId: number) => ({ id: tabId, status: 'complete' } as chrome.tabs.Tab),
+      get: async (tabId: number) => {
+        if (holdMetadata && resultCollected) {
+          metadataRequested = true;
+          return metadata.promise;
+        }
+        return { id: tabId, status: 'complete' } as chrome.tabs.Tab;
+      },
       sendMessage: async (tabId: number, message: SentMessage['message']) => {
         sent.push({ tabId, message });
         if (message.action === 'EXECUTE_TOOL') {
+          resultCollected = false;
           // The tool submitted a form into a new tab, which closes the channel.
           setTimeout(() => {
             readyListener?.({ type: 'contentScriptReady' }, { tab: { id: 7, openerTabId: 1 } });
@@ -390,6 +405,7 @@ test('a tool that opens its own tab moves the work there, not the conversation',
           tabSessions.update(tabId, { tools: [{ name: 'confirm_booking', frameId: 0 }] });
           return { success: true };
         }
+        if (message.action === 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT') resultCollected = true;
         return { confirmed: true };
       },
       onUpdated: { addListener: () => {}, removeListener: () => {} },
@@ -413,7 +429,8 @@ test('a tool that opens its own tab moves the work there, not the conversation',
     tabSessions.update(1, { tools: [BOOK_TOOL] });
     const tab1 = readSession(1, { sensitiveActionAlerts: false });
     tab1.setUserPrompt('Book it');
-    await tab1.handleSendPrompt();
+    turn = tab1.handleSendPrompt();
+    await turn;
 
     // The result was collected from the tab the tool opened...
     const collected = sent.find(({ message }) => message.action === 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT');
@@ -425,7 +442,29 @@ test('a tool that opens its own tab moves the work there, not the conversation',
     // The conversation stayed where the user started it.
     assert.equal(readSession(1).messages.at(-1)?.text, 'Confirmed on the new page.');
     assert.deepEqual(tabSessions.getState(7).messages, []);
+
+    // The page has finished the next tool, but its metadata lookup is still pending.
+    holdMetadata = true;
+    tab1.setUserPrompt('Book another table');
+    turn = tab1.handleSendPrompt();
+    await waitFor(() => metadataRequested, 'the new tab metadata lookup');
+    tab1.handleStop();
+    assert.equal(readSession(1).busy, false);
+    assert.equal(readSession(1).messages.at(-1)?.activityLogs?.length, 1);
+    tab1.handleReset();
+    tabSessions.remove(7);
+    const resetState = tabSessions.getState(1);
+
+    metadata.resolve({ id: 7, status: 'complete', url: 'https://late.example/' } as chrome.tabs.Tab);
+    await turn;
+    assert.deepEqual(tabSessions.getState(1), resetState);
+    assert.equal(tabSessions.tabIds().includes(7), false, 'late metadata must not restore the removed tab');
+    assert.equal(backend.requests.length, 3, 'the stopped turn must not request another model reply');
+    assert.equal(sent.filter(({ message }) => message.action === 'EXECUTE_TOOL').length, 2);
   } finally {
+    resetTabSessions();
+    metadata.resolve({ id: 7, status: 'complete' } as chrome.tabs.Tab);
+    await Promise.allSettled([turn]);
     resetTabSessions();
     backend.restore();
     globalThis.chrome = originalChrome;
@@ -571,6 +610,22 @@ test('handleStop preserves streaming text and resets busy and permission on the 
     assert.equal(state1.messages[0].text, 'Here is what I found so far...');
   } finally {
     browser.restore();
+    resetTabSessions();
+  }
+});
+
+test('Stop without text or activity adds no empty message', () => {
+  resetTabSessions();
+  try {
+    const messages = [{ id: -1, role: 'user' as const, text: 'A cancelled request' }];
+    tabSessions.update(1, { busy: true, streamingText: '  ', messages });
+    const tab1 = readSession(1);
+    tab1.handleStop();
+    tab1.handleStop();
+    assert.deepEqual(readSession(1).messages, messages);
+    assert.equal(readSession(1).busy, false);
+    assert.equal(readSession(1).streamingText, '');
+  } finally {
     resetTabSessions();
   }
 });
@@ -896,9 +951,12 @@ test('the agent asks once whether to keep going, then stops at the limit and say
     assert.equal(backend.requests.length, 4);
 
     const finished = readSession(1);
-    assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'error']);
+    assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'ai', 'error']);
+    assert.deepEqual(finished.messages[1].activityLogs, finished.activityLog);
+    assert.equal(finished.messages[1].activityLogs?.length, 3);
+    assert.ok(finished.messages[1].activityLogs?.every((entry) => entry.done));
     assert.equal(
-      finished.messages[1].text,
+      finished.messages[2].text,
       'The agent stopped after using tools 3 times, the most allowed for one request. Try asking again, or split the task into smaller steps.'
     );
     assert.equal(finished.pendingCheckpoint, null);
@@ -948,31 +1006,261 @@ test('stopping at the question ends the turn and runs nothing more', async () =>
   }
 });
 
-test('the Stop button while the agent waits to keep going puts the question away', async () => {
+for (const stop of ['toolbar', 'checkpoint'] as const) {
+  test(`${stop} Stop preserves tool-only history and runs nothing more`, async () => {
+    resetTabSessions();
+    const browser = installTestChrome();
+    const backend = installBackend([asksForTable(1), asksForTable(2)]);
+    let turn: Promise<void> | undefined;
+    try {
+      tabSessions.update(1, { tools: [BOOK_TOOL] });
+      const tab1 = readSession(1, {
+        sensitiveActionAlerts: false,
+        toolRoundLimits: { askAfter: 1, max: 3 },
+      });
+      tab1.setUserPrompt('Book tables');
+      turn = tab1.handleSendPrompt();
+      await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
+      if (stop === 'toolbar') {
+        tab1.handleStop();
+        assert.equal(readSession(1).busy, false, 'toolbar Stop is immediate');
+      } else {
+        tabSessions.getState(1).pendingCheckpoint!.deny();
+      }
+      await turn;
+
+      const stopped = readSession(1);
+      assert.deepEqual(stopped.messages.map((message) => message.role), ['user', 'ai']);
+      assert.equal(stopped.messages[1].text, '');
+      assert.deepEqual(stopped.messages[1].activityLogs, stopped.activityLog);
+      assert.equal(stopped.activityLog.length, 1);
+      assert.equal(stopped.activityLog[0].done, true);
+      assert.equal(stopped.pendingCheckpoint, null);
+      assert.equal(stopped.busy, false);
+      assert.equal(executionsIn(browser).length, 1);
+      assert.equal(backend.requests.length, 2, 'Stop must not request a summary');
+    } finally {
+      resetTabSessions();
+      await Promise.allSettled([turn]);
+      backend.restore();
+      browser.restore();
+    }
+  });
+}
+
+for (const { name, earlierText, finalText, roles } of [
+  { name: 'a final answer', earlierText: 'One booked.', finalText: 'All booked.', roles: ['ai', 'ai'] },
+  { name: 'an empty reply after earlier text', earlierText: 'One booked.', finalText: '', roles: ['ai'] },
+  { name: 'an empty reply without any text', earlierText: '', finalText: '', roles: ['ai', 'error'] },
+]) {
+  test(`completion with ${name} retains ordered logs exactly once in the current turn`, async () => {
+    resetTabSessions();
+    const browser = installTestChrome();
+    const backend = installBackend([asksForTable(1), asksForTable(2, earlierText), { text: finalText }]);
+    const previousReply = { id: -1, role: 'ai' as const, text: 'A previous turn.' };
+    try {
+      tabSessions.update(1, { tools: [BOOK_TOOL], messages: [previousReply] });
+      const tab1 = readSession(1, { sensitiveActionAlerts: false });
+      tab1.setUserPrompt('Book two tables');
+      await tab1.handleSendPrompt();
+
+      const finished = readSession(1);
+      assert.deepEqual(finished.messages[0], previousReply);
+      const replies = finished.messages.slice(2);
+      assert.deepEqual(replies.map((message) => message.role), roles);
+      assert.equal(finished.activityLog.length, 2);
+      const [newer, older] = finished.activityLog;
+      assert.ok(newer.id > older.id, 'stored logs are newest first');
+      assert.ok(finished.activityLog.every((entry) => entry.done));
+      if (finalText) {
+        assert.deepEqual(replies.map((message) => message.text), [earlierText, finalText]);
+        assert.deepEqual(replies.map((message) => message.activityLogs), [[older], [newer]]);
+      } else {
+        assert.equal(replies[0].text, earlierText);
+        // With earlier text, this merges two nonempty batches; otherwise it creates history-only output.
+        assert.deepEqual(replies[0].activityLogs, [newer, older]);
+        if (!earlierText) {
+          assert.equal(replies[1].text, 'I couldn’t generate a response for that request. Please try again.');
+        }
+      }
+      assert.equal(new Set(replies.flatMap((message) => message.activityLogs ?? []).map((entry) => entry.id)).size, 2);
+      assert.deepEqual(tabSessions.getInternals(1).turnLogs, []);
+      assert.equal(finished.busy, false);
+    } finally {
+      resetTabSessions();
+      backend.restore();
+      browser.restore();
+    }
+  });
+}
+
+for (const partial of ['', 'Here is what I found so far.']) {
+  test(`an error after tools preserves ${partial ? 'partial text and' : 'tool-only'} history`, async () => {
+    resetTabSessions();
+    const browser = installTestChrome();
+    const backend = installBackend([asksForTable(1), { text: partial, error: 'Internal failure details' }]);
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      tabSessions.update(1, { tools: [BOOK_TOOL] });
+      const tab1 = readSession(1, { sensitiveActionAlerts: false });
+      tab1.setUserPrompt('Book a table');
+      await tab1.handleSendPrompt();
+
+      const finished = readSession(1);
+      assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'ai', 'error']);
+      assert.equal(finished.messages[1].text, partial);
+      assert.deepEqual(finished.messages[1].activityLogs, finished.activityLog);
+      assert.equal(finished.activityLog.length, 1);
+      assert.equal(finished.activityLog[0].done, true);
+      assert.equal(finished.messages[2].text, 'Something went wrong while processing your request. Please try again.');
+      assert.equal(finished.streamingText, '');
+      assert.equal(finished.busy, false);
+      assert.equal(backend.resets.length, 1);
+      assert.equal(tabSessions.getInternals(1).chatId, undefined);
+    } finally {
+      resetTabSessions();
+      console.error = originalError;
+      backend.restore();
+      browser.restore();
+    }
+  });
+}
+
+test('Stop preserves partial output and ignores late replies while the next turn is busy', async () => {
   resetTabSessions();
   const browser = installTestChrome();
-  const backend = installBackend([asksForTable(1), asksForTable(2)]);
-
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  const response = new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }));
+  const nextReply = Promise.withResolvers<Response>();
+  const backend = installBackend([asksForTable(1), () => response, () => nextReply.promise]);
+  const encoder = new TextEncoder();
+  const partial = 'Here is what I found so far.';
+  let turn: Promise<void> | undefined;
+  let nextTurn: Promise<void> | undefined;
   try {
     tabSessions.update(1, { tools: [BOOK_TOOL] });
-    const tab1 = readSession(1, {
-      sensitiveActionAlerts: false,
-      toolRoundLimits: { askAfter: 1, max: 3 },
-    });
-    tab1.setUserPrompt('Book tables');
-    const turn = tab1.handleSendPrompt();
-
-    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
-    readSession(1).handleStop();
-    await turn;
-
+    const tab1 = readSession(1, { sensitiveActionAlerts: false });
+    tab1.setUserPrompt('Book a table');
+    turn = tab1.handleSendPrompt();
+    await waitFor(() => backend.requests.length === 2, 'the streaming follow-up');
+    stream.enqueue(encoder.encode(`${JSON.stringify({ delta: partial })}\n`));
+    await waitFor(() => tabSessions.getState(1).streamingText === partial, 'partial text');
+    const signal = tabSessions.getInternals(1).abortController!.signal;
+    tab1.handleStop();
+    tab1.handleStop();
     const stopped = readSession(1);
-    assert.equal(stopped.pendingCheckpoint, null);
+    assert.equal(signal.aborted, true);
     assert.equal(stopped.busy, false);
+    assert.equal(stopped.streamingText, '');
+    assert.deepEqual(stopped.messages.map((message) => message.role), ['user', 'ai']);
+    assert.equal(stopped.messages[1].text, partial);
+    assert.deepEqual(stopped.messages[1].activityLogs, stopped.activityLog);
+    assert.equal(stopped.activityLog.length, 1);
+
+    tab1.setUserPrompt('Next question');
+    nextTurn = tab1.handleSendPrompt();
+    await waitFor(() => backend.requests.length === 3, 'the next request');
+    const pending = tabSessions.getState(1);
+    const nextController = tabSessions.getInternals(1).abortController;
+    stream.enqueue(encoder.encode(`${JSON.stringify({ done: true, text: 'Late reply.', functionCalls: [{ name: '_0_book_table', args: {} }] })}\n`));
+    stream.close();
+    await turn;
+    assert.deepEqual(tabSessions.getState(1), pending);
+    assert.equal(readSession(1).busy, true, 'late output must not finish the new turn');
+    assert.equal(tabSessions.getInternals(1).abortController, nextController);
+    nextReply.resolve(sseResponse({ text: 'New answer.' }));
+    await nextTurn;
+    assert.deepEqual(readSession(1).messages.slice(0, stopped.messages.length), stopped.messages);
+    assert.equal(readSession(1).messages.at(-1)?.text, 'New answer.');
     assert.equal(executionsIn(browser).length, 1);
-    assert.equal(backend.requests.length, 2);
+    assert.equal(backend.requests.length, 3);
   } finally {
     resetTabSessions();
+    stream.error(new DOMException('Test cleanup', 'AbortError'));
+    nextReply.resolve(sseResponse({ text: '' }));
+    await Promise.allSettled([turn, nextTurn]);
+    backend.restore();
+    browser.restore();
+  }
+});
+
+for (const nextAction of ['send', 'remove'] as const) {
+  test(`a late tool completion after Stop cannot change history after ${nextAction}`, async () => {
+    resetTabSessions();
+    const browser = installTestChrome();
+    const backend = installBackend([
+      { functionCalls: [1, 2].map((id) => ({ id: String(id), name: '_0_book_table', args: {} })) },
+      { text: 'New answer.' },
+    ]);
+    const pendingTool = Promise.withResolvers<unknown>();
+    let turn: Promise<void> | undefined;
+    let nextTurn: Promise<void> | undefined;
+    const sendMessage = chrome.tabs.sendMessage;
+    chrome.tabs.sendMessage = (async (tabId: number, message: SentMessage['message']) => {
+      if (message.action === 'EXECUTE_TOOL') {
+        browser.sent.push({ tabId, message });
+        return pendingTool.promise;
+      }
+      return sendMessage(tabId, message);
+    }) as typeof chrome.tabs.sendMessage;
+
+    try {
+      tabSessions.update(1, { tools: [BOOK_TOOL] });
+      const tab1 = readSession(1, { sensitiveActionAlerts: false });
+      tab1.setUserPrompt('Book two tables');
+      turn = tab1.handleSendPrompt();
+      await waitFor(() => executionsIn(browser).length === 1, 'the first tool to start');
+      tab1.handleStop();
+      assert.equal(readSession(1).messages[1].activityLogs?.[0].done, false);
+
+      if (nextAction === 'send') {
+        tab1.setUserPrompt('Next question');
+        nextTurn = tab1.handleSendPrompt();
+        await nextTurn;
+      } else {
+        tabSessions.remove(1);
+      }
+      const expected = tabSessions.getState(1);
+      pendingTool.resolve({ booked: true });
+      await turn;
+      assert.deepEqual(tabSessions.getState(1), expected);
+      assert.equal(executionsIn(browser).length, 1, 'the second tool must never start');
+      assert.equal(backend.requests.length, nextAction === 'send' ? 2 : 1);
+      if (nextAction === 'remove') assert.equal(tabSessions.tabIds().includes(1), false);
+    } finally {
+      resetTabSessions();
+      pendingTool.resolve({});
+      await Promise.allSettled([turn, nextTurn]);
+      backend.restore();
+      browser.restore();
+    }
+  });
+}
+
+test('Stop during a permission prompt retains the pending entry without executing it', async () => {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const backend = installBackend([asksForTable(1)]);
+  let turn: Promise<void> | undefined;
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    const tab1 = readSession(1);
+    tab1.setUserPrompt('Book a table');
+    turn = tab1.handleSendPrompt();
+    await waitFor(() => tabSessions.getState(1).pendingPermission !== null, 'permission');
+    tab1.handleStop();
+    await turn;
+    const stopped = readSession(1);
+    assert.equal(stopped.pendingPermission, null);
+    assert.equal(stopped.busy, false);
+    assert.equal(stopped.messages[1].activityLogs?.length, 1);
+    assert.equal(stopped.messages[1].activityLogs?.[0].done, false);
+    assert.equal(executionsIn(browser).length, 0);
+    assert.equal(backend.requests.length, 1);
+  } finally {
+    resetTabSessions();
+    await Promise.allSettled([turn]);
     backend.restore();
     browser.restore();
   }
@@ -1025,7 +1313,44 @@ function installOnDeviceModel(script: ModelReply[]): { restore: () => void } {
   };
 }
 
-test('when the on-device model reaches the limit first, the user sees the same message and the chat goes on', async () => {
+test('on-device toolbar Stop retains tool-only history', async () => {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const model = installOnDeviceModel([1, 2].map((id) => [
+    { type: 'tool-call', value: { callID: String(id), name: '_0_book_table', arguments: { partySize: id } } },
+  ]));
+  let turn: Promise<void> | undefined;
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    const tab1 = readSession(1, {
+      onDeviceModel: true,
+      sensitiveActionAlerts: false,
+      toolRoundLimits: { askAfter: 1, max: 3 },
+    });
+    tab1.setUserPrompt('Book tables');
+    turn = tab1.handleSendPrompt();
+    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
+    tab1.handleStop();
+    await turn;
+
+    const stopped = readSession(1);
+    assert.deepEqual(stopped.messages.map((message) => message.role), ['user', 'ai']);
+    assert.equal(stopped.messages[1].text, '');
+    assert.equal(stopped.messages[1].onDevice, true);
+    assert.deepEqual(stopped.messages[1].activityLogs, stopped.activityLog);
+    assert.equal(stopped.activityLog.length, 1);
+    assert.equal(stopped.activityLog[0].done, true);
+    assert.equal(executionsIn(browser).length, 1);
+    assert.equal(stopped.busy, false);
+  } finally {
+    resetTabSessions();
+    await Promise.allSettled([turn]);
+    model.restore();
+    browser.restore();
+  }
+});
+
+test('when the on-device model reaches the limit first, tool-only history stays and the chat goes on', async () => {
   resetTabSessions();
   const browser = installTestChrome();
   const { max } = DEFAULT_TOOL_ROUND_LIMITS;
@@ -1036,7 +1361,7 @@ test('when the on-device model reaches the limit first, the user sees the same m
   // turns those calls down by itself, and gives up on the model at the limit.
   const model = installOnDeviceModel([
     ...Array.from({ length: max + 1 }, () => inventedTool),
-    ['Booking a table first. ', { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
     ...Array.from({ length: max }, () => inventedTool),
   ]);
   const loggedErrors: unknown[][] = [];
@@ -1077,6 +1402,9 @@ test('when the on-device model reaches the limit first, the user sees the same m
     // What ran stays with what the model said, as at the agent's own limit.
     assert.equal(executionsIn(browser).length, 1);
     assert.equal(finished.messages[3].activityLogs?.length, 1);
+    assert.equal(finished.messages[3].text, '');
+    assert.equal(finished.messages[3].onDevice, true);
+    assert.deepEqual(tabSessions.getInternals(1).turnLogs, []);
     assert.equal(finished.busy, false);
 
     // Neither stop is a failure, and both leave the chat as it was.

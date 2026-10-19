@@ -71,6 +71,8 @@ interface TabSessionInternals {
   abortController: AbortController | null;
   /** The activity of the turn in flight, for the message it ends up on. */
   turnLogs: ActivityEntry[];
+  /** The last AI message of this turn, where trailing activity belongs. */
+  turnMessageId?: number;
 }
 
 type TabSessionPatch =
@@ -167,6 +169,7 @@ class TabSessionStore {
         internals.chatId = undefined;
       }
       internals.turnLogs = [];
+      internals.turnMessageId = undefined;
     }
     clearSessionToolPermissions(tabId);
     this.update(tabId, {
