@@ -815,12 +815,20 @@ main {
   position: relative;
   padding: 0;
   width: 100%;
+  /* With .chat-bubble, may shrink below its content: a prompt taller than
+     the panel then gets only the room there is and scrolls (see
+     .tool-permission-card), instead of running past the bottom, where the
+     shell cuts it off. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .chat-bubble {
   display: flex;
   flex-direction: column;
   width: 100%;
+  min-height: 0;
 }
 
 .attached-tab {
@@ -1509,6 +1517,9 @@ main {
   border-radius: 16px;
   width: 100%;
   box-sizing: border-box;
+  /* A long tool description can make the card taller than the panel. It then
+     scrolls, so the buttons below the description stay in reach. */
+  overflow-y: auto;
 }
 
 .chat-bubble--with-tab .tool-permission-card {

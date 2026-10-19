@@ -225,12 +225,51 @@ const FRAME_TOOL_HTML = `<!DOCTYPE html>
 </html>`;
 
 /**
+ * The one tool of `/long-description`. Its description is far taller than the
+ * side panel, the way some sites spell out every rule a tool follows, so its
+ * permission prompt cannot show all at once.
+ */
+export const LONG_DESCRIPTION_TOOL = {
+  name: 'book_hotel',
+  description: Array.from(
+    { length: 12 },
+    (_, idx) =>
+      `Rule ${idx + 1}: confirm the dates, room type, and cancellation terms with the traveler before booking.`
+  ).join(' '),
+} as const satisfies TestPageTool;
+
+const LONG_DESCRIPTION_HTML = `<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8" /><title>WebMCP Smoke Test Long Description</title></head>
+  <body>
+    <h1>WebMCP Smoke Test Long Description</h1>
+    <script type="module">
+      window.__executedTools = [];
+      await document.modelContext.registerTool({
+        name: ${JSON.stringify(LONG_DESCRIPTION_TOOL.name)},
+        description: ${JSON.stringify(LONG_DESCRIPTION_TOOL.description)},
+        inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+        // Not read-only, so the side panel asks before running it.
+        annotations: { readOnlyHint: false, untrustedContentHint: false, consequentialHint: false },
+        execute: async (inputArgs) => {
+          window.__executedTools.push({ name: ${JSON.stringify(LONG_DESCRIPTION_TOOL.name)}, args: inputArgs });
+          return { status: 'confirmed', city: inputArgs?.city ?? '' };
+        },
+      });
+      window.__toolsRegistered = true;
+    </script>
+  </body>
+</html>`;
+
+/**
  * Starts a local HTTP server that:
  * 1. Serves a test web page at `/test-page` with `document.modelContext` exposing
  *    read-only, write, and consequential WebMCP tools.
  * 2. Serves `/frame-host`, which embeds `/frame-tool` from a second port, so
  *    its one tool lives in a cross-origin iframe.
- * 3. Implements `/api/chat` (NDJSON streaming) and `/api/chat/reset` with
+ * 3. Serves `/long-description`, whose one write tool has a description far
+ *    taller than the side panel.
+ * 4. Implements `/api/chat` (NDJSON streaming) and `/api/chat/reset` with
  *    `X-WebMCP-Auth` header validation so the extension side panel can make real
  *    network calls.
  */
@@ -256,6 +295,7 @@ export async function startSmokeServer(authToken: string): Promise<SmokeServer> 
       '/test-page': () => TEST_PAGE_HTML,
       '/frame-host': () => frameHostHtml(frameBaseUrl),
       '/frame-tool': () => FRAME_TOOL_HTML,
+      '/long-description': () => LONG_DESCRIPTION_HTML,
     };
     const page = req.method === 'GET' && req.url ? pages[req.url] : undefined;
     if (page) {
