@@ -108,10 +108,19 @@ export function setOnDeviceModelUi(elements: OnDeviceModelUi = {}): void {
   ui = elements;
 }
 
-interface ToolCall {
-  callID: string;
+interface ToolCall extends LanguageModelToolCallId {
   name: string;
   arguments: Record<string, unknown>;
+}
+
+/**
+ * The ID that pairs a call with its response, under whichever name the browser
+ * sent it. The wrapper hands over both.
+ *
+ * TODO: Drop `callID` once no supported browser sends it.
+ */
+function getCallId(call: LanguageModelToolCallId): string {
+  return call.callId ?? call.callID ?? '';
 }
 
 /**
@@ -338,10 +347,13 @@ function stripNullish(value: unknown): unknown {
  * text, or an object.
  */
 function toToolResponsePart({ call, outcome }: RoundCall) {
-  const { callID, name } = call;
+  const { name } = call;
+  // Under both names: the constructors ignore the one the browser does not know.
+  const callId = getCallId(call);
+  const ids = { callId, callID: callId };
   if (!outcome || 'errorMessage' in outcome) {
     const errorMessage = outcome && 'errorMessage' in outcome ? outcome.errorMessage : 'This call was not answered.';
-    return { type: 'tool-response', value: new LanguageModelToolError({ callID, name, errorMessage }) };
+    return { type: 'tool-response', value: new LanguageModelToolError({ ...ids, name, errorMessage }) };
   }
   const { result } = outcome;
   const item =
@@ -350,7 +362,7 @@ function toToolResponsePart({ call, outcome }: RoundCall) {
       : result == null
         ? { type: 'text' as const, value: '' }
         : { type: 'object' as const, value: stripNullish(result) };
-  return { type: 'tool-response', value: new LanguageModelToolSuccess({ callID, name, result: [item] }) };
+  return { type: 'tool-response', value: new LanguageModelToolSuccess({ ...ids, name, result: [item] }) };
 }
 
 /**
@@ -675,7 +687,7 @@ async function nextStep(state: OnDeviceSession, turn: Turn): Promise<ChatTurnRes
     // The names are the encoded ones the tools were declared under, so the
     // agent loop decodes the frame the same way it does for the server.
     functionCalls: calls.map(({ call }) => ({
-      id: call.callID,
+      id: getCallId(call),
       name: call.name,
       args: call.arguments || {},
     })),
@@ -722,8 +734,8 @@ function recordResponses(turn: Turn, toolResponses: NonNullable<ChatTurnRequest[
   const unanswered = [...turn.handedOut];
   for (const { functionResponse } of toolResponses) {
     const index = unanswered.findIndex(({ call }) =>
-      call.callID && functionResponse.id
-        ? call.callID === functionResponse.id
+      getCallId(call) && functionResponse.id
+        ? getCallId(call) === functionResponse.id
         : call.name === functionResponse.name
     );
     if (index === -1) continue;

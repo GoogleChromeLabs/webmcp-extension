@@ -28,7 +28,9 @@ Object.defineProperty(globalThis, 'navigator', {
 });
 
 interface StubCall {
-  callID: string;
+  /** The ID under the Prompt API's new name, which a browser sends in place of `callID`. */
+  callId?: string;
+  callID?: string;
   name: string;
   arguments: Record<string, unknown>;
 }
@@ -253,6 +255,41 @@ test('tool responses are answered as tool successes and errors on the same call'
     assert.deepEqual(second.functionCalls, []);
     // One session for both turns: the tools did not change.
     assert.equal(stub.creates.length, 1);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
+
+test('a call ID under its new name, callId, pairs a call with its response across sessions', async () => {
+  const stub = installPromptApiStub([
+    [{ type: 'tool-call', value: { callId: 'c1', name: '_0_returnToHallway', arguments: {} } }],
+    ['The hallway it is.'],
+  ]);
+
+  try {
+    const first = await sendOnDeviceChat({ chatId: 'tab-1', message: 'Go back to the hallway.', tools: buildToolDecls(OCEAN_TOOLS) });
+    assert.equal(first.functionCalls?.[0].id, 'c1');
+
+    // The page's tools change, so the turn moves to a new session, which is
+    // made with the call and goes on from its response, both from the transcript.
+    const second = await sendOnDeviceChat({
+      chatId: 'tab-1',
+      tools: buildToolDecls(HALLWAY_TOOLS),
+      toolResponses: [{ functionResponse: { id: 'c1', name: '_0_returnToHallway', response: { result: 'The hallway.' } } }],
+    });
+    assert.equal(second.text, 'The hallway it is.');
+
+    const moved = stub.creates[1] as { initialPrompts?: Array<{ role: string; content: unknown }> };
+    const parts = [...moved.initialPrompts!, ...(stub.inputs.at(-1) as ResponseTurn)]
+      .flatMap(({ content }) => (Array.isArray(content) ? content : []))
+      .filter(({ type }) => type !== 'text');
+    assert.deepEqual(
+      parts.map(({ type, value }) => [type, value.callId, value.callID]),
+      [
+        ['tool-call', 'c1', 'c1'],
+        ['tool-response', 'c1', 'c1'],
+      ]
+    );
   } finally {
     uninstallPromptApiStub();
   }
