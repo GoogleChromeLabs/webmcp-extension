@@ -108,10 +108,19 @@ export function setOnDeviceModelUi(elements: OnDeviceModelUi = {}): void {
   ui = elements;
 }
 
-interface ToolCall {
-  callID: string;
+interface ToolCall extends LanguageModelToolCallId {
   name: string;
   arguments: Record<string, unknown>;
+}
+
+/**
+ * The ID that pairs a call with its response, under whichever name the browser
+ * sent it. The wrapper hands over both.
+ *
+ * TODO: Drop `callID` once no supported browser sends it.
+ */
+function getCallId(call: LanguageModelToolCallId): string {
+  return call.callId ?? call.callID ?? '';
 }
 
 /**
@@ -179,12 +188,16 @@ interface Turn {
   /** Whether any call of this turn has reached the agent loop. */
   ranTools: boolean;
   /**
-   * This turn so far: its input, then each answered round. The wrapper only
-   * writes a turn into `history` once it ends, so this is what a session made
-   * mid-turn needs on top of `history` to carry on.
+   * This turn so far: its input, then each answered round, including those
+   * from the sessions it moved on from. The wrapper only writes a turn into
+   * `history` once it ends, so this is what a session made mid-turn needs on
+   * top of the turns before it to carry on.
    */
   transcript: PromptMessage[];
-  /** How long the session's `history` was when this turn began. */
+  /**
+   * Where this turn begins in the session's `history`. A session made mid-turn
+   * starts with the turn so far, so that part counts as this turn too.
+   */
   historyStart: number;
   /** Settles with the next round of calls, or with the answer. */
   next: Deferred<TurnStep>;
@@ -334,10 +347,13 @@ function stripNullish(value: unknown): unknown {
  * text, or an object.
  */
 function toToolResponsePart({ call, outcome }: RoundCall) {
-  const { callID, name } = call;
+  const { name } = call;
+  // Under both names: the constructors ignore the one the browser does not know.
+  const callId = getCallId(call);
+  const ids = { callId, callID: callId };
   if (!outcome || 'errorMessage' in outcome) {
     const errorMessage = outcome && 'errorMessage' in outcome ? outcome.errorMessage : 'This call was not answered.';
-    return { type: 'tool-response', value: new LanguageModelToolError({ callID, name, errorMessage }) };
+    return { type: 'tool-response', value: new LanguageModelToolError({ ...ids, name, errorMessage }) };
   }
   const { result } = outcome;
   const item =
@@ -346,7 +362,7 @@ function toToolResponsePart({ call, outcome }: RoundCall) {
       : result == null
         ? { type: 'text' as const, value: '' }
         : { type: 'object' as const, value: stripNullish(result) };
-  return { type: 'tool-response', value: new LanguageModelToolSuccess({ callID, name, result: [item] }) };
+  return { type: 'tool-response', value: new LanguageModelToolSuccess({ ...ids, name, result: [item] }) };
 }
 
 /**
@@ -671,7 +687,7 @@ async function nextStep(state: OnDeviceSession, turn: Turn): Promise<ChatTurnRes
     // The names are the encoded ones the tools were declared under, so the
     // agent loop decodes the frame the same way it does for the server.
     functionCalls: calls.map(({ call }) => ({
-      id: call.callID,
+      id: getCallId(call),
       name: call.name,
       args: call.arguments || {},
     })),
@@ -680,13 +696,15 @@ async function nextStep(state: OnDeviceSession, turn: Turn): Promise<ChatTurnRes
 
 /**
  * Starts a turn with `input`: a user message, or the tool responses a turn
- * begun on another session continues with.
+ * begun on another session continues with. `carriedOver` is that turn so far,
+ * which the session was made with.
  */
 function startTurn(
   state: OnDeviceSession,
   input: string | PromptMessage[],
   signal?: AbortSignal,
-  onText?: (text: string) => void
+  onText?: (text: string) => void,
+  carriedOver: PromptMessage[] = []
 ): Promise<ChatTurnResponse> {
   const controller = new AbortController();
   const turn: Turn = {
@@ -695,8 +713,8 @@ function startTurn(
     round: [],
     handedOut: [],
     ranTools: false,
-    transcript: typeof input === 'string' ? [{ role: 'user', content: input }] : [...input],
-    historyStart: state.session.history.length,
+    transcript: [...carriedOver, ...(typeof input === 'string' ? [{ role: 'user', content: input } as PromptMessage] : input)],
+    historyStart: state.session.history.length - carriedOver.length,
     next: createDeferred(),
     onText,
   };
@@ -716,8 +734,8 @@ function recordResponses(turn: Turn, toolResponses: NonNullable<ChatTurnRequest[
   const unanswered = [...turn.handedOut];
   for (const { functionResponse } of toolResponses) {
     const index = unanswered.findIndex(({ call }) =>
-      call.callID && functionResponse.id
-        ? call.callID === functionResponse.id
+      getCallId(call) && functionResponse.id
+        ? getCallId(call) === functionResponse.id
         : call.name === functionResponse.name
     );
     if (index === -1) continue;
@@ -774,8 +792,9 @@ const TOOLS_CHANGED_NOTE = {
 /**
  * Moves a turn that is waiting on the model's answer to its tool responses to
  * a new session with `tools`. The new session gets `history` for the turns
- * before this one, then this turn up to the calls just answered, and starts
- * from their responses, so the model picks up where it was.
+ * before this one, which must not hold any of this turn, then this turn up to
+ * the calls just answered, and starts from their responses, so the model picks
+ * up where it was.
  */
 async function continueTurn(
   state: OnDeviceSession,
@@ -788,9 +807,10 @@ async function continueTurn(
   // history, so the turn is only carried over here.
   turn.controller.abort();
   const [responses] = turn.transcript.slice(-1);
-  const rebuilt = await buildSession(state.id, tools, [...history, ...turn.transcript.slice(0, -1)], signal);
+  const carriedOver = turn.transcript.slice(0, -1);
+  const rebuilt = await buildSession(state.id, tools, [...history, ...carriedOver], signal);
   const content = [...(Array.isArray(responses.content) ? responses.content : []), ...(note ? [note] : [])];
-  return startTurn(rebuilt, [{ role: 'user', content }], signal, turn.onText);
+  return startTurn(rebuilt, [{ role: 'user', content }], signal, turn.onText, carriedOver);
 }
 
 /**
@@ -808,7 +828,7 @@ function continueWithNewTools(
     state,
     turn,
     tools,
-    { history: toReplayHistory(state.session.history, true), note: TOOLS_CHANGED_NOTE },
+    { history: toReplayHistory(historyBeforeTurn(state), true), note: TOOLS_CHANGED_NOTE },
     signal
   );
 }
@@ -886,7 +906,7 @@ export async function sendOnDeviceChat(
       // as their text, without the tool results that filled the context, and
       // this turn as it is. The tools stay, since the turn holds tool calls.
       const sessionTools = tools.length > 0 ? tools : (JSON.parse(failed.declarations) as PromptApiTool[]);
-      const history = toReplayHistory(failed.session.history, false);
+      const history = toReplayHistory(historyBeforeTurn(failed), false);
       return continueTurn(failed, failed.turn, sessionTools, { history }, signal);
     }
   }
