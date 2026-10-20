@@ -38,14 +38,14 @@
     "streaming-markdown-html": "^0.1.1"
   },
   "devDependencies": {
-    "@puppeteer/browsers": "^3.2.3",
-    "@types/chrome": "^0.3.4",
-    "@types/node": "^26.5.1",
+    "@puppeteer/browsers": "^3.2.5",
+    "@types/chrome": "^0.3.5",
+    "@types/node": "^26.6.5",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "esbuild": "^0.28.2",
     "linkedom": "^0.18.13",
-    "puppeteer-core": "^25.12.0",
+    "puppeteer-core": "^25.13.0",
     "typescript": "^5.7.3",
     "webmcp-types": "^0.1.10"
   }
