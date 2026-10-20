@@ -78,8 +78,8 @@ const generateId = (): number => ++nextId;
 
 /**
  * Transfers pending activity to the conversation, even without model text.
- * Logs are drained on every transfer so stopping or finishing again cannot
- * duplicate them. Only a message from this turn may receive trailing logs.
+ * Each transfer appends a message so activity stays after any earlier text.
+ * Logs are drained so stopping or finishing again cannot duplicate them.
  */
 function persistTurnOutput(tabId: number, text: string, onDevice: boolean): void {
   const internals = tabSessions.getInternals(tabId);
@@ -88,25 +88,14 @@ function persistTurnOutput(tabId: number, text: string, onDevice: boolean): void
   if (!reply && logs.length === 0) return;
 
   internals.turnLogs = [];
-  if (reply || internals.turnMessageId === undefined) {
-    const message: ChatMessage = {
-      id: generateId(),
-      role: 'ai',
-      text: reply,
-      activityLogs: logs,
-      onDevice,
-    };
-    internals.turnMessageId = message.id;
-    tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
-  } else {
-    tabSessions.update(tabId, (previous) => ({
-      messages: previous.messages.map((message) =>
-        message.id === internals.turnMessageId
-          ? { ...message, activityLogs: [...logs, ...(message.activityLogs ?? [])] }
-          : message
-      ),
-    }));
-  }
+  const message: ChatMessage = {
+    id: generateId(),
+    role: 'ai',
+    text: reply,
+    activityLogs: logs,
+    onDevice,
+  };
+  tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
 }
 
 /**
@@ -398,7 +387,6 @@ export function useAgentSession(
     const limits = toolRoundLimitsRef.current;
 
     internals.turnLogs = [];
-    internals.turnMessageId = undefined;
     if (!internals.chatId) {
       internals.chatId = crypto.randomUUID();
     }
@@ -525,6 +513,7 @@ export function useAgentSession(
         internals.chatId = currentResult.chatId;
       }
 
+      let messageRendered = false;
       // Rounds of tool calls run so far: replies that asked for tools, however
       // many each one asked for at once.
       let roundsUsed = 0;
@@ -540,6 +529,7 @@ export function useAgentSession(
       ) {
         if (currentResult.text?.trim()) {
           persistTurnOutput(tabId, currentResult.text, onDeviceModelRef.current);
+          messageRendered = true;
         }
 
         if (roundsUsed >= limits.max) {
@@ -609,9 +599,8 @@ export function useAgentSession(
 
       const stopped = stoppedByUser || limitReached !== null;
       const reply = stopped ? '' : currentResult.text ?? '';
-      const messageRendered = internals.turnMessageId !== undefined || Boolean(reply.trim());
       persistTurnOutput(tabId, reply, onDeviceModelRef.current);
-      if (!messageRendered && !stopped) {
+      if (!messageRendered && !reply.trim() && !stopped) {
         addMessage({
           id: generateId(),
           role: 'error',

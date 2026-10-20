@@ -1050,7 +1050,7 @@ for (const stop of ['toolbar', 'checkpoint'] as const) {
 
 for (const { name, earlierText, finalText, roles } of [
   { name: 'a final answer', earlierText: 'One booked.', finalText: 'All booked.', roles: ['ai', 'ai'] },
-  { name: 'an empty reply after earlier text', earlierText: 'One booked.', finalText: '', roles: ['ai'] },
+  { name: 'an empty reply after earlier text', earlierText: 'One booked.', finalText: '', roles: ['ai', 'ai'] },
   { name: 'an empty reply without any text', earlierText: '', finalText: '', roles: ['ai', 'error'] },
 ]) {
   test(`completion with ${name} retains ordered logs exactly once in the current turn`, async () => {
@@ -1072,22 +1072,74 @@ for (const { name, earlierText, finalText, roles } of [
       const [newer, older] = finished.activityLog;
       assert.ok(newer.id > older.id, 'stored logs are newest first');
       assert.ok(finished.activityLog.every((entry) => entry.done));
-      if (finalText) {
+      if (earlierText) {
         assert.deepEqual(replies.map((message) => message.text), [earlierText, finalText]);
         assert.deepEqual(replies.map((message) => message.activityLogs), [[older], [newer]]);
       } else {
-        assert.equal(replies[0].text, earlierText);
-        // With earlier text, this merges two nonempty batches; otherwise it creates history-only output.
+        assert.equal(replies[0].text, '');
         assert.deepEqual(replies[0].activityLogs, [newer, older]);
-        if (!earlierText) {
-          assert.equal(replies[1].text, 'I couldn’t generate a response for that request. Please try again.');
-        }
+        assert.equal(replies[1].text, 'I couldn’t generate a response for that request. Please try again.');
       }
-      assert.equal(new Set(replies.flatMap((message) => message.activityLogs ?? []).map((entry) => entry.id)).size, 2);
+      assert.deepEqual(replies.flatMap((message) => [...(message.activityLogs ?? [])].reverse()), [older, newer]);
       assert.deepEqual(tabSessions.getInternals(1).turnLogs, []);
       assert.equal(finished.busy, false);
     } finally {
       resetTabSessions();
+      backend.restore();
+      browser.restore();
+    }
+  });
+}
+
+for (const ending of ['toolbar Stop', 'checkpoint Stop', 'limit', 'error'] as const) {
+  test(`${ending} keeps trailing activity after earlier text`, async () => {
+    resetTabSessions();
+    const browser = installTestChrome();
+    const earlierText = 'I will book a table.';
+    const backend = installBackend([
+      asksForTable(1, earlierText),
+      ending === 'error' ? { error: 'Internal failure details' } : asksForTable(2),
+    ]);
+    const originalError = console.error;
+    console.error = () => {};
+    let turn: Promise<void> | undefined;
+    try {
+      tabSessions.update(1, { tools: [BOOK_TOOL] });
+      const tab1 = readSession(1, {
+        sensitiveActionAlerts: false,
+        toolRoundLimits: { askAfter: 1, max: ending === 'limit' ? 1 : 3 },
+      });
+      tab1.setUserPrompt('Book tables');
+      turn = tab1.handleSendPrompt();
+      if (ending === 'toolbar Stop' || ending === 'checkpoint Stop') {
+        await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
+        if (ending === 'toolbar Stop') {
+          tab1.handleStop();
+          tab1.handleStop();
+        } else {
+          tabSessions.getState(1).pendingCheckpoint!.deny();
+        }
+      }
+      await turn;
+
+      const finished = readSession(1);
+      const hasError = ending === 'limit' || ending === 'error';
+      assert.deepEqual(finished.messages.map((message) => message.role),
+        hasError ? ['user', 'ai', 'ai', 'error'] : ['user', 'ai', 'ai']);
+      assert.equal(finished.messages[1].text, earlierText);
+      assert.deepEqual(finished.messages[1].activityLogs, []);
+      assert.equal(finished.messages[2].text, '');
+      assert.deepEqual(finished.messages[2].activityLogs, finished.activityLog);
+      assert.equal(finished.activityLog.length, 1);
+      assert.equal(finished.activityLog[0].done, true);
+      assert.deepEqual(tabSessions.getInternals(1).turnLogs, []);
+      assert.equal(finished.busy, false);
+      assert.equal(executionsIn(browser).length, 1);
+      assert.equal(backend.requests.length, 2);
+    } finally {
+      resetTabSessions();
+      await Promise.allSettled([turn]);
+      console.error = originalError;
       backend.restore();
       browser.restore();
     }
