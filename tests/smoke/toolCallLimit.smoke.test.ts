@@ -96,10 +96,11 @@ describe('Smoke — Tool Call Limit', { skip: smokeSkipReason(), timeout: 60_000
     await waitForSidebarText(sidebar, reply);
   });
 
-  step('"Stop" ends the turn there, without running more tools or showing an error', async () => {
+  step('"Stop" summarizes completed and remaining work without running more tools', async () => {
     const { server, page, sidebar } = session;
     const executedBefore = (await readExecutedTools(page)).length;
-    server.enqueueReplies(...askForFlights(100, askAfter + 1));
+    const summary = 'I checked flights to 10 cities. More cities remain unchecked.';
+    server.enqueueReplies(...askForFlights(100, askAfter + 1), { chatId: CHAT_ID, text: summary });
 
     await submitPromptInSidebar(sidebar, 'Check flights to more cities');
     const card = await readPermissionCard(sidebar);
@@ -107,11 +108,16 @@ describe('Smoke — Tool Call Limit', { skip: smokeSkipReason(), timeout: 60_000
 
     await clickOrThrow(sidebar, SELECTORS.permissionDeny);
     await waitForComposer(session);
+    await waitForSidebarText(sidebar, summary);
 
     assert.equal((await readExecutedTools(page)).length, executedBefore + askAfter);
     assert.equal(await sidebar.$('.msg.error'), null, 'A stop the user asked for is not an error');
     assert.equal(await sidebar.$$eval('.action-log', (logs) => logs.length), 2);
-    assert.equal(await sidebar.$$eval('.ai-response', (replies) => replies.length), 1, 'History needs no empty reply bubble');
+    assert.equal(await sidebar.$$eval('.ai-response', (replies) => replies.length), 2, 'The summary is a normal reply');
+    const summaryRequest = server.chatRequests.at(-1)!;
+    assert.equal(summaryRequest.chatId, CHAT_ID);
+    assert.equal(summaryRequest.toolResponses?.length, 1);
+    assert.match(summaryRequest.toolResponses![0].functionResponse.response.error!, /^Not run: the user stopped the agent here/);
     await sidebar.evaluate(() => {
       document.querySelectorAll<HTMLButtonElement>('.action-log__header')[1].click();
     });

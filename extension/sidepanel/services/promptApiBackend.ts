@@ -186,10 +186,14 @@ interface Turn {
   transcript: PromptMessage[];
   /** How long the session's `history` was when this turn began. */
   historyStart: number;
+  /** Completed history before a checkpoint summary rebuilt the session mid-turn. */
+  completedHistory?: ReturnType<typeof historyBeforeTurn>;
   /** Settles with the next round of calls, or with the answer. */
   next: Deferred<TurnStep>;
   /** Called with the text so far of the step the agent loop is waiting on. */
   onText?: (text: string) => void;
+  /** A checkpoint summary must hand back even calls the wrapper would normally refuse internally. */
+  stopOnToolCall?: boolean;
 }
 
 interface OnDeviceSession {
@@ -219,7 +223,7 @@ const conversationHistories = new Map<string, Array<{ role: string; content: unk
  * answered. It is left out like a turn that was stopped.
  */
 function historyBeforeTurn(state: OnDeviceSession): Array<{ role: string; content: unknown }> {
-  return state.session.history.slice(0, state.turn?.historyStart);
+  return state.turn?.completedHistory ?? state.session.history.slice(0, state.turn?.historyStart);
 }
 
 /** Stops the current session, saving history by default and keeping the conversation's spotlighting fence. */
@@ -500,6 +504,12 @@ async function createSession(
         turn.round = [];
       }
       turn.round.push({ call });
+      if (turn.stopOnToolCall) {
+        turn.handedOut = turn.round;
+        turn.next.resolve({ text: turn.text, calls: turn.round });
+        // Throw before the wrapper dispatches or refuses the call and prompts again.
+        throw new Error('Tool calls are not allowed while summarizing a stopped turn.');
+      }
     },
     onToolResponse(response: ToolCall & { ok: boolean; errorMessage?: string }) {
       if (response.ok) return;
@@ -686,7 +696,9 @@ function startTurn(
   state: OnDeviceSession,
   input: string | PromptMessage[],
   signal?: AbortSignal,
-  onText?: (text: string) => void
+  onText?: (text: string) => void,
+  stopOnToolCall = false,
+  completedHistory?: ReturnType<typeof historyBeforeTurn>
 ): Promise<ChatTurnResponse> {
   const controller = new AbortController();
   const turn: Turn = {
@@ -697,8 +709,10 @@ function startTurn(
     ranTools: false,
     transcript: typeof input === 'string' ? [{ role: 'user', content: input }] : [...input],
     historyStart: state.session.history.length,
+    completedHistory,
     next: createDeferred(),
     onText,
+    stopOnToolCall,
   };
   state.turn = turn;
   const turnSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -781,16 +795,23 @@ async function continueTurn(
   state: OnDeviceSession,
   turn: Turn,
   tools: PromptApiTool[],
-  { history, note }: { history: PromptMessage[]; note?: { type: string; value: string } },
+  { history, note, completedHistory }: {
+    history: PromptMessage[];
+    note?: { type: string; value: string };
+    completedHistory?: ReturnType<typeof historyBeforeTurn>;
+  },
   signal?: AbortSignal
 ): Promise<ChatTurnResponse> {
   // Stops the old session's tool loop, which never writes this turn into its
   // history, so the turn is only carried over here.
   turn.controller.abort();
   const [responses] = turn.transcript.slice(-1);
-  const rebuilt = await buildSession(state.id, tools, [...history, ...turn.transcript.slice(0, -1)], signal);
+  const rebuilt = await buildSession(state.id, tools, [...history, ...turn.transcript.slice(0, -1)], signal).catch((error: unknown) => {
+    if (completedHistory && !signal?.aborted) conversationHistories.set(state.id, completedHistory);
+    throw error;
+  });
   const content = [...(Array.isArray(responses.content) ? responses.content : []), ...(note ? [note] : [])];
-  return startTurn(rebuilt, [{ role: 'user', content }], signal, turn.onText);
+  return startTurn(rebuilt, [{ role: 'user', content }], signal, turn.onText, turn.stopOnToolCall, completedHistory);
 }
 
 /**
@@ -802,13 +823,14 @@ function continueWithNewTools(
   state: OnDeviceSession,
   turn: Turn,
   tools: PromptApiTool[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  completedHistory?: ReturnType<typeof historyBeforeTurn>
 ): Promise<ChatTurnResponse> {
   return continueTurn(
     state,
     turn,
     tools,
-    { history: toReplayHistory(state.session.history, true), note: TOOLS_CHANGED_NOTE },
+    { history: toReplayHistory(state.session.history, true), note: TOOLS_CHANGED_NOTE, completedHistory },
     signal
   );
 }
@@ -854,9 +876,9 @@ function isWorthRetrying(error: unknown): boolean {
  */
 export async function sendOnDeviceChat(
   request: ChatTurnRequest,
-  options: { signal?: AbortSignal; onText?: (text: string) => void } = {}
+  options: { signal?: AbortSignal; onText?: (text: string) => void; stopOnToolCall?: boolean } = {}
 ): Promise<ChatTurnResponse> {
-  const { signal, onText } = options;
+  const { signal, onText, stopOnToolCall = false } = options;
   signal?.throwIfAborted();
 
   if (request.toolResponses) {
@@ -867,11 +889,14 @@ export async function sendOnDeviceChat(
     }
     recordResponses(turn, request.toolResponses);
     turn.onText = onText;
+    turn.stopOnToolCall = stopOnToolCall;
+    // Capture before summary rebuilds put stopped-turn calls into initial history.
+    const completedHistory = stopOnToolCall ? historyBeforeTurn(state) : undefined;
 
     const tools = toPromptApiTools(request.tools);
     try {
       if (state.declarations !== JSON.stringify(tools)) {
-        if (tools.length > 0) return await continueWithNewTools(state, turn, tools, signal);
+        if (tools.length > 0) return await continueWithNewTools(state, turn, tools, signal, completedHistory);
         // A session without tools cannot take the tool calls so far, so the
         // turn ends on this one, and the next message moves on.
         state.stale = true;
@@ -887,14 +912,14 @@ export async function sendOnDeviceChat(
       // this turn as it is. The tools stay, since the turn holds tool calls.
       const sessionTools = tools.length > 0 ? tools : (JSON.parse(failed.declarations) as PromptApiTool[]);
       const history = toReplayHistory(failed.session.history, false);
-      return continueTurn(failed, failed.turn, sessionTools, { history }, signal);
+      return continueTurn(failed, failed.turn, sessionTools, { history, completedHistory }, signal);
     }
   }
 
   const message = request.message ?? '';
   const state = await getSession(request, signal);
   try {
-    return await startTurn(state, message, signal, onText);
+    return await startTurn(state, message, signal, onText, stopOnToolCall);
   } catch (error) {
     // Only a turn that has not handed out a tool call yet can be replayed.
     // Tools that ran would run again.
@@ -908,6 +933,6 @@ export async function sendOnDeviceChat(
     const tools = toPromptApiTools(request.tools);
     const history = toReplayHistory(state.session.history, tools.length > 0 && !contextFull);
     const rebuilt = await buildSession(state.id, tools, history, signal);
-    return startTurn(rebuilt, message, signal, onText);
+    return startTurn(rebuilt, message, signal, onText, stopOnToolCall);
   }
 }

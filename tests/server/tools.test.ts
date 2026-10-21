@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { ToolCallPart } from 'ai';
+import type { ModelMessage, ToolCallPart } from 'ai';
 import { appendTurnMessages, buildTools, hasPendingToolCalls } from '../../server/tools.ts';
 
 test('buildTools declares the page tools, and leaves them without an execute', () => {
@@ -79,4 +79,33 @@ test('hasPendingToolCalls is true only while the last assistant message waits on
     toolResponses: [{ functionResponse: { id: 'c1', name: 'search', response: { result: 'ok' } } }],
   });
   assert.equal(hasPendingToolCalls(answered), false);
+});
+
+test('checkpoint refusals answer each pending server tool call', () => {
+  const calls: ToolCallPart[] = ['c2', 'c3'].map((id) => ({
+    type: 'tool-call', toolCallId: id, toolName: '_0_book_table', input: {},
+  }));
+  const history: ModelMessage[] = [
+    { role: 'user', content: 'Book three tables' },
+    { role: 'assistant', content: 'One table booked.' },
+    { role: 'assistant', content: calls },
+  ];
+  const answered = appendTurnMessages(history, {
+    // Reversed to check that each refusal answers the right call.
+    toolResponses: [...calls].reverse().map((call) => ({
+      functionResponse: {
+        id: call.toolCallId,
+        name: call.toolName,
+        response: { error: 'Not run: the user stopped the agent here. Summarize what you completed and what remains.' },
+      },
+    })),
+  });
+  assert.equal(hasPendingToolCalls(answered), false);
+  const refusals = answered.at(-1)!;
+  assert.equal(refusals.role, 'tool');
+  assert.deepEqual(refusals.content.map((part) => {
+    assert.equal(part.type, 'tool-result');
+    return [part.toolCallId, part.output.type];
+  }),
+    [['c2', 'error-text'], ['c3', 'error-text']]);
 });
