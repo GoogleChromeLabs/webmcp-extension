@@ -258,6 +258,54 @@ test('tool responses are answered as tool successes and errors on the same call'
   }
 });
 
+for (const kind of ['missing arguments', 'mixed batch'] as const) {
+  const changeTools = kind === 'mixed batch';
+  test(`a checkpoint summary stops at ${kind}${changeTools ? ' after rebuilding for new tools' : ''}`, async () => {
+    const calls: StubCall[] = kind === 'missing arguments'
+      ? [{ callID: 'c2', name: '_0_book_table', arguments: {} }]
+      : [
+          { callID: 'c2', name: '_0_invented_tool', arguments: {} },
+          { callID: 'c3', name: '_0_book_table', arguments: { partySize: 6 } },
+        ];
+    const stub = installPromptApiStub([
+      [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: { partySize: 2 } } }],
+      ['I will keep working. ', ...calls.map((value) => ({ type: 'tool-call' as const, value }))],
+      ['Answer to the next user message.'],
+    ]);
+    const controller = new AbortController();
+    try {
+      const declared = { ...BOOK_TOOL, inputSchema: { ...BOOK_TOOL.inputSchema, required: ['partySize'] } };
+      const first = await sendChatTurn({ message: 'Book tables', tools: buildToolDecls([declared]) },
+        { onDevice: true, signal: controller.signal });
+      const tools = buildToolDecls([{ ...declared, description: changeTools ? 'Updated booking tool.' : declared.description }]);
+      const summary = await sendChatTurn({
+        chatId: first.chatId,
+        tools,
+        toolResponses: [{ functionResponse: {
+          id: 'c1', name: '_0_book_table', response: { error: 'Not run: the user stopped the agent here' },
+        } }],
+      }, { onDevice: true, signal: controller.signal, stopOnToolCall: true });
+
+      assert.deepEqual(summary.functionCalls, calls.map((call) => ({ id: call.callID, name: call.name, args: call.arguments })),
+        'even invalid and invented calls must reach the fallback instead of being handled internally');
+      assert.equal(stub.inputs.length, 2, 'no model round follows the summary tool request');
+      assert.equal(controller.signal.aborted, false, 'the caller retains control of toolbar cancellation');
+      const next = await sendChatTurn({ chatId: first.chatId, tools, message: 'What happened?' }, { onDevice: true });
+      assert.equal(next.text, 'Answer to the next user message.');
+      assert.equal(stub.inputs.length, 3);
+      assert.equal(stub.inputs[2], 'What happened?', 'the next prompt is a new user message, not an internal retry');
+      const replayed = stub.creates.at(-1)!.initialPrompts as ReplayedPrompt[];
+      const parts = replayed.flatMap(({ content }) => Array.isArray(content) ? content : []);
+      const answered = parts.filter((part) => part.type === 'tool-response').map((part) => part.value.callID);
+      const unanswered = parts.filter((part) => part.type === 'tool-call' && !answered.includes(part.value.callID))
+        .map((part) => part.value.callID);
+      assert.deepEqual(unanswered, [], 'the next session must not replay unanswered tool calls from the stopped turn');
+    } finally {
+      uninstallPromptApiStub();
+    }
+  });
+}
+
 test('the text of every step is reported as it is streamed', async () => {
   installPromptApiStub([
     ['Let me ', 'book. ', { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],

@@ -16,7 +16,7 @@ import { resetOnDeviceChat } from '../../extension/sidepanel/services/promptApiB
 import { tabSessions } from '../../extension/sidepanel/services/tabSessionStore.js';
 import { clearSessionToolPermissions } from '../../extension/sidepanel/services/toolPermissions.js';
 import { DEFAULT_TOOL_ROUND_LIMITS, ToolRoundLimitError } from '../../extension/sidepanel/services/toolRoundLimits.js';
-import { type WebMCPTool } from '../../extension/sidepanel/types/index.js';
+import { type ChatTurnRequest, type WebMCPTool } from '../../extension/sidepanel/types/index.js';
 
 const BOOK_TOOL: WebMCPTool = {
   name: 'book_table',
@@ -88,12 +88,12 @@ function sseResponse(reply: {
   error?: string;
 }): Response {
   const chunks: unknown[] = [];
+  if (reply.text) {
+    chunks.push({ delta: reply.text });
+  }
   if (reply.error) {
     chunks.push({ error: reply.error });
   } else {
-    if (reply.text) {
-      chunks.push({ delta: reply.text });
-    }
     chunks.push({
       done: true,
       chatId: reply.chatId,
@@ -113,7 +113,7 @@ function sseResponse(reply: {
  * Serves one scripted reply per chat turn, and remembers the requests so a
  * test can check which conversation each turn belonged to.
  */
-function installBackend(replies: Array<Record<string, unknown>>): {
+function installBackend(replies: Array<Record<string, unknown> | (() => Response | Promise<Response>)>): {
   requests: Array<Record<string, unknown>>;
   resets: Array<Record<string, unknown>>;
   restore: () => void;
@@ -132,7 +132,9 @@ function installBackend(replies: Array<Record<string, unknown>>): {
       });
     }
     requests.push(body);
-    const reply = (replies[turn++] ?? { text: 'done', functionCalls: [] }) as {
+    const nextReply = replies[turn++] ?? { text: 'done', functionCalls: [] };
+    if (typeof nextReply === 'function') return nextReply();
+    const reply = nextReply as {
       chatId?: string;
       text?: string;
       functionCalls?: Array<{ id?: string; name: string; args?: Record<string, unknown> }>;
@@ -478,46 +480,41 @@ test('the extension bridge talks to the tab it is given, not the one in front', 
   }
 });
 
-test('denying a permission prompt sends refusal response and does not execute tool', async () => {
+test('denying a permission prompt refuses the call and counts zero attempts at checkpoint Stop', async () => {
   resetTabSessions();
   const browser = installTestChrome();
-  const backend = installBackend([
-    { chatId: 'chat-tab-1', text: '', functionCalls: [{ name: '_0_book_table', args: { partySize: 2 } }] },
-    { chatId: 'chat-tab-1', text: 'Understood, cancelled.', functionCalls: [] },
-  ]);
-
+  const backend = installBackend([asksForTable(1), asksForTable(2), { text: '' }]);
+  let turn: Promise<void> | undefined;
   try {
     tabSessions.update(1, { tools: [BOOK_TOOL] });
-    const tab1 = readSession(1);
+    const tab1 = readSession(1, { toolRoundLimits: { askAfter: 1, max: 3 } });
     tab1.setUserPrompt('Book a table');
-
-    const turn = tab1.handleSendPrompt();
-    await waitFor(() => tabSessions.getState(1).pendingPermission !== null, 'tab 1 to ask for permission');
-
-    // Deny permission
-    tabSessions.getState(1).pendingPermission?.deny();
+    turn = tab1.handleSendPrompt();
+    await waitFor(() => tabSessions.getState(1).pendingPermission !== null, 'permission');
+    tabSessions.getState(1).pendingPermission!.deny();
+    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the checkpoint');
+    tabSessions.getState(1).pendingCheckpoint!.deny();
     await turn;
 
-    // Verify tool was NOT executed
-    const executions = browser.sent.filter(({ message }) => message.action === 'EXECUTE_TOOL');
-    assert.equal(executions.length, 0);
-
-    // Verify backend received the refusal in toolResponses
-    const secondTurnRequest = backend.requests[1];
-    assert.ok(secondTurnRequest);
-    const toolResponses = secondTurnRequest.toolResponses as Array<{
-      functionResponse: { name: string; response: { error?: string } };
-    }>;
-    assert.equal(toolResponses.length, 1);
-    assert.equal(toolResponses[0].functionResponse.name, '_0_book_table');
-    assert.equal(toolResponses[0].functionResponse.response.error, 'User denied permission to execute this tool.');
-
+    const refusal = (backend.requests[1] as ChatTurnRequest).toolResponses!;
+    assert.equal(refusal.length, 1);
+    assert.equal(refusal[0].functionResponse.name, '_0_book_table');
+    assert.equal(refusal[0].functionResponse.response.error, 'User denied permission to execute this tool.');
+    const summary = backend.requests[2] as ChatTurnRequest;
+    assert.match(summary.toolResponses![0].functionResponse.response.error!, /Tool calls attempted: 0\. Tool rounds used: 1\./);
     const finished = readSession(1);
-    assert.equal(finished.messages.at(-1)?.text, 'Understood, cancelled.');
+    assert.equal(finished.messages.at(-1)?.text, 'Stopped after attempting 0 tool calls.');
+    assert.equal(finished.activityLog.length, 1, 'a completed refusal entry is not an attempted dispatch');
+    assert.ok(finished.activityLog[0].done);
+    assert.deepEqual(finished.messages.at(-1)?.activityLogs, finished.activityLog);
     assert.equal(finished.busy, false);
     assert.equal(finished.pendingPermission, null);
+    assert.equal(finished.pendingCheckpoint, null);
+    assert.equal(executionsIn(browser).length, 0);
+    assert.equal(backend.requests.length, 3);
   } finally {
     resetTabSessions();
+    await Promise.allSettled([turn]);
     backend.restore();
     browser.restore();
   }
@@ -569,6 +566,18 @@ test('handleStop preserves streaming text and resets busy and permission on the 
     assert.equal(state1.messages.length, 1);
     assert.equal(state1.messages[0].role, 'ai');
     assert.equal(state1.messages[0].text, 'Here is what I found so far...');
+
+    // An empty Stop dismisses the checkpoint without adding another reply.
+    tabSessions.update(1, {
+      busy: true, streamingText: '  ',
+      pendingCheckpoint: { roundsUsed: 1, maxRounds: 3, allow: () => {}, deny: () => {} },
+    });
+    tab1.handleStop();
+    tab1.handleStop();
+    assert.deepEqual(readSession(1).messages, state1.messages);
+    assert.equal(readSession(1).pendingCheckpoint, null);
+    assert.equal(readSession(1).streamingText, '');
+    assert.equal(readSession(1).busy, false);
   } finally {
     browser.restore();
     resetTabSessions();
@@ -863,7 +872,7 @@ function asksForTable(round: number, text = ''): Record<string, unknown> {
 test('the agent asks once whether to keep going, then stops at the limit and says so', async () => {
   resetTabSessions();
   const browser = installTestChrome();
-  const backend = installBackend([asksForTable(1), asksForTable(2), asksForTable(3), asksForTable(4)]);
+  const backend = installBackend([asksForTable(1), asksForTable(2, 'One booked.'), asksForTable(3), asksForTable(4)]);
   let timesAsked = 0;
   let asking = false;
   const unsubscribe = tabSessions.subscribe(() => {
@@ -896,9 +905,16 @@ test('the agent asks once whether to keep going, then stops at the limit and say
     assert.equal(backend.requests.length, 4);
 
     const finished = readSession(1);
-    assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'error']);
+    assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'ai', 'ai', 'error']);
+    assert.equal(finished.messages[1].text, 'One booked.');
+    assert.equal(finished.messages[2].text, '');
+    const [newest, middle, oldest] = finished.activityLog;
+    assert.equal(finished.activityLog.length, 3);
+    assert.ok(finished.activityLog.every((entry) => entry.done));
+    assert.deepEqual(finished.messages.slice(1, 3).map((message) => message.activityLogs), [[oldest], [newest, middle]],
+      'activity after earlier text stays in a later message, exactly once');
     assert.equal(
-      finished.messages[1].text,
+      finished.messages[3].text,
       'The agent stopped after using tools 3 times, the most allowed for one request. Try asking again, or split the task into smaller steps.'
     );
     assert.equal(finished.pendingCheckpoint, null);
@@ -911,72 +927,181 @@ test('the agent asks once whether to keep going, then stops at the limit and say
   }
 });
 
-test('stopping at the question ends the turn and runs nothing more', async () => {
+test('checkpoint Stop summarizes completed and failed attempts, refuses pending calls, and keeps the conversation', async () => {
   resetTabSessions();
   const browser = installTestChrome();
-  const backend = installBackend([asksForTable(1), asksForTable(2, 'One table booked. Booking the next one.')]);
-
+  const summary = 'One table booked. Another booking failed; two tables remain.';
+  const pendingCalls = [3, 4].map((id) => ({ id: `call_${id}`, name: '_0_book_table', args: {} }));
+  const backend = installBackend([
+    { ...asksForTable(1), functionCalls: [1, 2].map((id) => ({ id: `call_${id}`, name: '_0_book_table', args: { partySize: id } })) },
+    { chatId: 'chat-tab-1', text: 'One booking succeeded; another failed.', functionCalls: pendingCalls },
+    { chatId: 'chat-tab-1', text: summary },
+    { chatId: 'chat-tab-1', text: 'Two tables remain.' },
+  ]);
+  const sendMessage = chrome.tabs.sendMessage;
+  chrome.tabs.sendMessage = (async (tabId: number, message: SentMessage['message']) => {
+    const result = await sendMessage(tabId, message);
+    if (message.action === 'EXECUTE_TOOL' && (message.inputArgs as { partySize: number }).partySize === 2) {
+      throw new Error('Booking failed');
+    }
+    return result;
+  }) as typeof chrome.tabs.sendMessage;
+  let turn: Promise<void> | undefined;
   try {
     tabSessions.update(1, { tools: [BOOK_TOOL] });
-    const tab1 = readSession(1, {
-      sensitiveActionAlerts: false,
-      toolRoundLimits: { askAfter: 1, max: 3 },
-    });
-    tab1.setUserPrompt('Book two tables');
-    const turn = tab1.handleSendPrompt();
-
-    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
-    // What the model is about to do is on screen before the user decides.
-    assert.equal(tabSessions.getState(1).messages.at(-1)?.text, 'One table booked. Booking the next one.');
+    const tab1 = readSession(1, { sensitiveActionAlerts: false, toolRoundLimits: { askAfter: 1, max: 3 } });
+    tab1.setUserPrompt('Book tables');
+    turn = tab1.handleSendPrompt();
+    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the checkpoint');
+    assert.equal(readSession(1).messages.at(-1)?.text, 'One booking succeeded; another failed.');
     tabSessions.getState(1).pendingCheckpoint!.deny();
     await turn;
 
-    assert.equal(executionsIn(browser).length, 1);
-    assert.equal(backend.requests.length, 2);
-
-    // The user asked for the stop, so there is no error, and what ran stays
-    // with what the model said.
+    const outcomes = (backend.requests[1] as ChatTurnRequest).toolResponses!;
+    assert.ok(outcomes[0].functionResponse.response.result);
+    assert.equal(outcomes[1].functionResponse.response.error, 'Booking failed');
+    const request = backend.requests[2] as ChatTurnRequest;
+    assert.deepEqual(request.toolResponses?.map(({ functionResponse }) => [functionResponse.id, functionResponse.name]),
+      pendingCalls.map((call) => [call.id, call.name]));
+    for (const { functionResponse } of request.toolResponses!) {
+      assert.match(functionResponse.response.error!, /^Not run: the user stopped the agent here/);
+      assert.match(functionResponse.response.error!, /Do not call any more tools/);
+      assert.match(functionResponse.response.error!, /summary of what you completed and what remains/);
+      assert.match(functionResponse.response.error!, /Tool calls attempted: 2\. Tool rounds used: 1\./);
+      assert.match(functionResponse.response.error!, /based on the tool results/);
+      assert.equal(functionResponse.response.result, undefined);
+    }
     const finished = readSession(1);
-    assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'ai']);
-    assert.equal(finished.messages[1].activityLogs?.length, 1);
-    assert.equal(finished.pendingCheckpoint, null);
+    assert.deepEqual(finished.messages.map((message) => message.role), ['user', 'ai', 'ai']);
+    assert.equal(finished.messages[2].text, summary);
+    assert.equal(finished.activityLog.length, 2);
+    assert.ok(finished.activityLog.every((entry) => entry.done));
+    assert.deepEqual(finished.messages[1].activityLogs, finished.activityLog);
+    assert.deepEqual(finished.messages[2].activityLogs, []);
     assert.equal(finished.busy, false);
+    assert.equal(finished.pendingCheckpoint, null);
+    assert.equal(executionsIn(browser).length, 2);
+    assert.equal(backend.requests.length, 3, 'only one summary request; pending calls never run');
+    assert.deepEqual(backend.resets, []);
+    tab1.setUserPrompt('What remains?');
+    await tab1.handleSendPrompt();
+    assert.equal(backend.requests[3].chatId, request.chatId);
+    assert.deepEqual(readSession(1).messages.slice(0, finished.messages.length), finished.messages);
+    assert.equal(readSession(1).messages.at(-1)?.text, 'Two tables remain.');
   } finally {
     resetTabSessions();
+    await Promise.allSettled([turn]);
     backend.restore();
     browser.restore();
   }
 });
 
-test('the Stop button while the agent waits to keep going puts the question away', async () => {
-  resetTabSessions();
-  const browser = installTestChrome();
-  const backend = installBackend([asksForTable(1), asksForTable(2)]);
-
-  try {
-    tabSessions.update(1, { tools: [BOOK_TOOL] });
-    const tab1 = readSession(1, {
-      sensitiveActionAlerts: false,
-      toolRoundLimits: { askAfter: 1, max: 3 },
-    });
-    tab1.setUserPrompt('Book tables');
-    const turn = tab1.handleSendPrompt();
-
-    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
-    readSession(1).handleStop();
-    await turn;
-
-    const stopped = readSession(1);
-    assert.equal(stopped.pendingCheckpoint, null);
-    assert.equal(stopped.busy, false);
-    assert.equal(executionsIn(browser).length, 1);
-    assert.equal(backend.requests.length, 2);
-  } finally {
+// Each unusable summary must produce a normal note, not a generic error or another tool round.
+for (const { name, reply } of [
+  { name: 'an error after partial text', reply: { text: 'Incomplete summary.', error: 'Summary failed' } },
+  { name: 'whitespace only', reply: { text: '   ' } },
+  { name: 'further tools with text', reply: asksForTable(4, 'I will keep booking.') },
+]) {
+  test(`checkpoint summary falls back on ${name}`, async () => {
     resetTabSessions();
-    backend.restore();
-    browser.restore();
-  }
-});
+    const browser = installTestChrome();
+    const backend = installBackend([
+      { ...asksForTable(1), functionCalls: [1, 2].map((id) => ({ id: `c${id}`, name: '_0_book_table', args: {} })) },
+      asksForTable(3), reply,
+    ]);
+    let turn: Promise<void> | undefined;
+    try {
+      tabSessions.update(1, { tools: [BOOK_TOOL] });
+      const tab1 = readSession(1, { sensitiveActionAlerts: false, toolRoundLimits: { askAfter: 1, max: 3 } });
+      tab1.setUserPrompt('Book tables');
+      turn = tab1.handleSendPrompt();
+      await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the checkpoint');
+      tabSessions.getState(1).pendingCheckpoint!.deny();
+      await turn;
+      const stopped = readSession(1);
+      assert.deepEqual(stopped.messages.map((message) => [message.role, message.text]),
+        [['user', 'Book tables'], ['ai', 'Stopped after attempting 2 tool calls.']]);
+      assert.deepEqual(stopped.messages[1].activityLogs, stopped.activityLog);
+      assert.equal(stopped.activityLog.length, 2);
+      assert.ok(stopped.activityLog.every((entry) => entry.done));
+      assert.equal(stopped.busy, false);
+      assert.equal(stopped.streamingText, '');
+      assert.equal(executionsIn(browser).length, 2);
+      assert.equal(backend.requests.length, 3, 'no retries, further tools, or summary rounds');
+      assert.deepEqual(backend.resets, []);
+    } finally {
+      resetTabSessions();
+      await Promise.allSettled([turn]);
+      backend.restore();
+      browser.restore();
+    }
+  });
+}
+
+// Stop remains immediate during the new summary wait; late output cannot overwrite a new turn.
+for (const cancellation of ['toolbar', 'reset'] as const) {
+  test(`${cancellation} cancels a streaming checkpoint summary and ignores late output`, async () => {
+    resetTabSessions();
+    const browser = installTestChrome();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const response = new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }));
+    const nextReply = Promise.withResolvers<Response>();
+    const backend = installBackend([asksForTable(1), asksForTable(2), () => response, () => nextReply.promise]);
+    const encoder = new TextEncoder();
+    let turn: Promise<void> | undefined;
+    let nextTurn: Promise<void> | undefined;
+    try {
+      tabSessions.update(1, { tools: [BOOK_TOOL] });
+      const tab1 = readSession(1, { sensitiveActionAlerts: false, toolRoundLimits: { askAfter: 1, max: 3 } });
+      tab1.setUserPrompt('Book tables');
+      turn = tab1.handleSendPrompt();
+      await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the checkpoint');
+      tabSessions.getState(1).pendingCheckpoint!.deny();
+      await waitFor(() => backend.requests.length === 3, 'the summary');
+      assert.equal(readSession(1).busy, true);
+      stream.enqueue(encoder.encode(`${JSON.stringify({ delta: 'One table booked.' })}\n`));
+      await waitFor(() => readSession(1).streamingText === 'One table booked.', 'partial summary');
+      if (cancellation === 'toolbar') tab1.handleStop();
+      else tab1.handleReset();
+      const cancelled = readSession(1);
+      assert.equal(cancelled.busy, false, 'cancellation is immediate');
+      assert.equal(cancelled.streamingText, '');
+      assert.equal(cancelled.pendingCheckpoint, null);
+      if (cancellation === 'toolbar') {
+        assert.equal(cancelled.messages.at(-1)?.text, 'One table booked.');
+        assert.equal(cancelled.messages.at(-1)?.activityLogs?.length, 1);
+        assert.ok(cancelled.messages.at(-1)?.activityLogs?.[0].done);
+        assert.deepEqual(backend.resets, []);
+      } else assert.deepEqual(cancelled.messages, []);
+
+      tab1.setUserPrompt('Next question');
+      nextTurn = tab1.handleSendPrompt();
+      await waitFor(() => backend.requests.length === 4, 'the next request');
+      const messages = readSession(1).messages;
+      stream.enqueue(encoder.encode(`${JSON.stringify({ done: true, text: 'Late summary.', functionCalls: [{ name: '_0_book_table' }] })}\n`));
+      stream.close();
+      await turn;
+      assert.deepEqual(readSession(1).messages, messages, 'no late summary or fallback');
+      assert.equal(readSession(1).busy, true, 'the new turn is still waiting');
+      assert.equal(executionsIn(browser).length, 1);
+      assert.equal(backend.requests.length, 4);
+      assert.deepEqual(messages.slice(0, cancelled.messages.length), cancelled.messages);
+      // A late finalizer must not detach cancellation from the new request.
+      tab1.handleStop();
+      assert.equal(readSession(1).busy, false);
+      nextReply.resolve(sseResponse({ text: 'New answer.' }));
+      await nextTurn;
+      assert.deepEqual(readSession(1).messages, messages, 'the new request still honors Stop');
+    } finally {
+      resetTabSessions();
+      stream.error(new DOMException('Test cleanup', 'AbortError'));
+      nextReply.resolve(sseResponse({ text: '' }));
+      await Promise.allSettled([turn, nextTurn]);
+      backend.restore();
+      browser.restore();
+    }
+  });
+}
 
 /** One reply of the on-device model: what it says, and the tools it calls. */
 type ModelReply = Array<
@@ -987,9 +1112,15 @@ type ModelReply = Array<
  * Just enough of the browser's Prompt API for the on-device backend: every
  * prompt streams the next reply of `script`.
  */
-function installOnDeviceModel(script: ModelReply[]): { restore: () => void } {
+function installOnDeviceModel(script: Array<ModelReply | Error>, failOnCreate?: number): {
+  creates: Array<{ initialPrompts: unknown[] }>;
+  inputs: unknown[];
+  restore: () => void;
+} {
   const globals = globalThis as unknown as Record<string, unknown>;
   const names = ['LanguageModel', 'LanguageModelToolCall', 'LanguageModelToolSuccess', 'LanguageModelToolError'];
+  const creates: Array<{ initialPrompts: unknown[] }> = [];
+  const inputs: unknown[] = [];
   class ToolPart {
     constructor(init: object) {
       Object.assign(this, init);
@@ -1002,22 +1133,34 @@ function installOnDeviceModel(script: ModelReply[]): { restore: () => void } {
     LanguageModelToolError: ToolPart,
     LanguageModel: {
       availability: async () => 'available',
-      create: async () =>
-        Object.assign(new EventTarget(), {
+      create: async (options: { initialPrompts?: unknown[] }) => {
+        creates.push({ initialPrompts: [...(options.initialPrompts ?? [])] });
+        if (creates.length === failOnCreate) throw new Error('Session creation failed');
+        return Object.assign(new EventTarget(), {
           contextUsage: 0,
           contextWindow: 1000,
           destroy: () => {},
-          promptStreaming: () =>
-            new ReadableStream({
+          promptStreaming: (input: unknown) => {
+            inputs.push(input);
+            return new ReadableStream({
               start(controller) {
-                for (const chunk of script[turn++] ?? ['']) controller.enqueue(chunk);
+                const reply = script[turn++] ?? [''];
+                if (reply instanceof Error) {
+                  controller.error(reply);
+                  return;
+                }
+                for (const chunk of reply) controller.enqueue(chunk);
                 controller.close();
               },
-            }),
-        }),
+            });
+          },
+        });
+      },
     },
   });
   return {
+    creates,
+    inputs,
     restore: () => {
       resetOnDeviceChat();
       for (const name of names) delete globals[name];
@@ -1025,7 +1168,149 @@ function installOnDeviceModel(script: ModelReply[]): { restore: () => void } {
   };
 }
 
-test('when the on-device model reaches the limit first, the user sees the same message and the chat goes on', async () => {
+test('an on-device checkpoint summary survives a subsequent message and session replay', async () => {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const summary = 'One table booked. Another table remains.';
+  const model = installOnDeviceModel([
+    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: { partySize: 1 } } }],
+    [{ type: 'tool-call', value: { callID: 'c2', name: '_0_book_table', arguments: { partySize: 2 } } }],
+    [summary],
+    ['Another table remains.'],
+    ['Hello from tab two.'],
+    ['Next answer.'],
+  ]);
+  let turn: Promise<void> | undefined;
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    const options = { onDeviceModel: true, sensitiveActionAlerts: false, toolRoundLimits: { askAfter: 1, max: 3 } };
+    const tab1 = readSession(1, options);
+    tab1.setUserPrompt('Book two tables');
+    turn = tab1.handleSendPrompt();
+    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the checkpoint');
+    tabSessions.getState(1).pendingCheckpoint!.deny();
+    await turn;
+    assert.equal(readSession(1, options).messages.at(-1)?.text, summary);
+    assert.equal(model.inputs.length, 3, 'one summary request');
+    tab1.setUserPrompt('What remains?');
+    await tab1.handleSendPrompt();
+    assert.equal(model.creates.length, 1, 'the completed summary leaves a reusable session');
+
+    const tab2 = readSession(2, options);
+    tab2.setUserPrompt('Hello');
+    await tab2.handleSendPrompt();
+    tab1.setUserPrompt('Continue');
+    await tab1.handleSendPrompt();
+    const replayed = model.creates.at(-1)!.initialPrompts as Array<{ role: string; content: unknown }>;
+    assert.ok(replayed.some((message) => message.role === 'user' && message.content === 'Book two tables'));
+    assert.ok(replayed.some((message) => message.role === 'assistant' && message.content === summary),
+      'the summary is available to the model, not just displayed in the UI');
+    assert.ok(replayed.some((message) => message.role === 'assistant' && message.content === 'Another table remains.'));
+    assert.equal(executionsIn(browser).length, 1);
+  } finally {
+    resetTabSessions();
+    await Promise.allSettled([turn]);
+    model.restore();
+    browser.restore();
+  }
+});
+
+// The wrapper normally refuses repeated calls internally and prompts again; summaries must stop sooner.
+test('on-device checkpoint summary falls back after repeated call without running more tools', async () => {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const call = (id: string, partySize: number): ModelReply => [
+    { type: 'tool-call', value: { callID: id, name: '_0_book_table', arguments: { partySize } } },
+  ];
+  const model = installOnDeviceModel([
+    call('c1', 1),
+    call('c2', 2),
+    call('c3', 1),
+    ['A new answer.'],
+  ]);
+  let turn: Promise<void> | undefined;
+  try {
+    tabSessions.update(1, { tools: [BOOK_TOOL] });
+    const options = { onDeviceModel: true, sensitiveActionAlerts: false, toolRoundLimits: { askAfter: 1, max: 3 } };
+    const tab1 = readSession(1, options);
+    tab1.setUserPrompt('Book two tables');
+    turn = tab1.handleSendPrompt();
+    await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
+    tabSessions.getState(1).pendingCheckpoint!.deny();
+    await turn;
+
+    const stopped = readSession(1, options);
+    assert.equal(stopped.messages.at(-1)?.text, 'Stopped after attempting 1 tool call.');
+    assert.deepEqual(stopped.messages.at(-1)?.activityLogs, stopped.activityLog);
+    assert.equal(stopped.activityLog.length, 1);
+    assert.equal(stopped.busy, false);
+    assert.equal(model.inputs.length, 3, 'fallback stops at the first additional tool request');
+
+    tab1.setUserPrompt('A new question');
+    await tab1.handleSendPrompt();
+    assert.equal(readSession(1, options).messages.at(-1)?.text, 'A new answer.');
+    assert.deepEqual(readSession(1, options).messages.slice(0, stopped.messages.length), stopped.messages);
+    assert.equal(executionsIn(browser).length, 1, 'stopped calls are never executed');
+  } finally {
+    resetTabSessions();
+    await Promise.allSettled([turn]);
+    model.restore();
+    browser.restore();
+  }
+});
+
+// Failed replacements must preserve earlier turns without recovering unanswered calls from the stopped turn.
+for (const replacement of ['context retry', 'changed tools', 'changed tools then context retry'] as const) {
+  test(`a checkpoint summary ${replacement} creation failure preserves previously completed history`, async () => {
+    resetTabSessions();
+    const browser = installTestChrome();
+    const contextRetry = replacement !== 'changed tools';
+    const changedTools = replacement !== 'context retry';
+    const failedCreation = contextRetry && changedTools ? 3 : 2;
+    const model = installOnDeviceModel([
+      ['A previous answer.'],
+      [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: { partySize: 1 } } }],
+      [{ type: 'tool-call', value: { callID: 'c2', name: '_0_book_table', arguments: { partySize: 2 } } }],
+      ...(contextRetry ? [new DOMException('Context full', 'QuotaExceededError')] : []),
+      ['Answer to the new message.'],
+    ], failedCreation);
+    let turn: Promise<void> | undefined;
+    try {
+      tabSessions.update(1, { tools: [BOOK_TOOL] });
+      const options = { onDeviceModel: true, sensitiveActionAlerts: false, toolRoundLimits: { askAfter: 1, max: 3 } };
+      const tab1 = readSession(1, options);
+      tab1.setUserPrompt('An earlier question');
+      await tab1.handleSendPrompt();
+      tab1.setUserPrompt('Book two tables');
+      turn = tab1.handleSendPrompt();
+      await waitFor(() => tabSessions.getState(1).pendingCheckpoint !== null, 'the question');
+      if (changedTools) {
+        tabSessions.update(1, { tools: [{ ...BOOK_TOOL, description: 'Updated booking tool.' }] });
+      }
+      tabSessions.getState(1).pendingCheckpoint!.deny();
+      await turn;
+      assert.equal(readSession(1, options).messages.at(-1)?.text, 'Stopped after attempting 1 tool call.');
+      assert.equal(model.creates.length, failedCreation, 'replacement session creation failed');
+
+      tab1.setUserPrompt('What was my earlier question?');
+      await tab1.handleSendPrompt();
+      const replayed = model.creates.at(-1)!.initialPrompts as Array<{ role: string; content: unknown }>;
+      assert.deepEqual(replayed.filter((message) => message.role !== 'system'), [
+        { role: 'user', content: 'An earlier question' },
+        { role: 'assistant', content: 'A previous answer.' },
+      ], 'recovery keeps earlier completed turns without any stopped-turn calls or responses');
+      assert.equal(readSession(1, options).messages.at(-1)?.text, 'Answer to the new message.');
+      assert.equal(executionsIn(browser).length, 1);
+    } finally {
+      resetTabSessions();
+      await Promise.allSettled([turn]);
+      model.restore();
+      browser.restore();
+    }
+  });
+}
+
+test('when the on-device model reaches the limit first, tool-only history stays and the chat goes on', async () => {
   resetTabSessions();
   const browser = installTestChrome();
   const { max } = DEFAULT_TOOL_ROUND_LIMITS;
@@ -1036,7 +1321,7 @@ test('when the on-device model reaches the limit first, the user sees the same m
   // turns those calls down by itself, and gives up on the model at the limit.
   const model = installOnDeviceModel([
     ...Array.from({ length: max + 1 }, () => inventedTool),
-    ['Booking a table first. ', { type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: 'c1', name: '_0_book_table', arguments: {} } }],
     ...Array.from({ length: max }, () => inventedTool),
   ]);
   const loggedErrors: unknown[][] = [];
@@ -1077,6 +1362,9 @@ test('when the on-device model reaches the limit first, the user sees the same m
     // What ran stays with what the model said, as at the agent's own limit.
     assert.equal(executionsIn(browser).length, 1);
     assert.equal(finished.messages[3].activityLogs?.length, 1);
+    assert.deepEqual(finished.messages[3].activityLogs, finished.activityLog);
+    assert.equal(finished.messages[3].text, '');
+    assert.equal(finished.messages[3].onDevice, true);
     assert.equal(finished.busy, false);
 
     // Neither stop is a failure, and both leave the chat as it was.
