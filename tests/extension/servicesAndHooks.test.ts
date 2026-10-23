@@ -201,6 +201,7 @@ test('content script - EXECUTE_TOOL passes object inputArgs and replies with err
       return [];
     },
     querySelector: () => null,
+    addEventListener: () => {},
     modelContext: {
       getTools: async () => [mockTool],
       executeTool: async (_tool: unknown, args: unknown) => {
