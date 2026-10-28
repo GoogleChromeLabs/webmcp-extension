@@ -14,6 +14,13 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 3
     groups:
+      # react and react-dom (with their @types) require matching peer versions in npm ci.
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
       # One PR for all routine dev tooling bumps instead of one each.
       dev-dependencies:
         dependency-type: development
