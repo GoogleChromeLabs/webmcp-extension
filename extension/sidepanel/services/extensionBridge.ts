@@ -4,6 +4,13 @@
  */
 
 import { getAllFrameOrigins } from '../../frameOrigins.js';
+import { isContinueOnNextDocument } from '../../toolContinuationProtocol.js';
+
+/**
+ * How many times a tool may hand itself on to another document, through
+ * continuation tokens, before its call is given up on.
+ */
+const MAX_DOCUMENT_HOPS = 10;
 
 interface GlobalWindowWithChrome {
   chrome?: typeof chrome;
@@ -117,20 +124,26 @@ export async function executeTabTool(
   if (!chromeApi?.tabs) throw new Error('No active tab available for tool execution.');
 
   let targetTabId = tabId;
+  let targetFrameId = frameId;
 
+  // Signals from the next document; renewed before each message that may
+  // navigate, so an earlier document's signals are not mistaken for its.
   let toolsReady: () => void = () => {};
-  const toolsPromise = new Promise<void>((resolve) => {
-    toolsReady = resolve;
-  });
-
+  let toolsPromise: Promise<void> = Promise.resolve();
   let contentScriptReadyResolve: () => void = () => {};
-  const contentScriptReadyPromise = new Promise<void>((r) => {
-    contentScriptReadyResolve = r;
-  });
+  let contentScriptReadyPromise: Promise<void> = Promise.resolve();
+  const awaitNextDocument = () => {
+    toolsPromise = new Promise<void>((resolve) => {
+      toolsReady = resolve;
+    });
+    contentScriptReadyPromise = new Promise<void>((resolve) => {
+      contentScriptReadyResolve = resolve;
+    });
+  };
 
   const listener = (msg: { type?: string; tools?: unknown }, sender: chrome.runtime.MessageSender) => {
     if (msg?.type === 'contentScriptReady' && sender.tab) {
-      if (sender.tab.id === tabId || sender.tab.openerTabId === tabId) {
+      if (sender.tab.id === targetTabId || sender.tab.openerTabId === targetTabId) {
         if (sender.tab.id !== undefined) {
           targetTabId = sender.tab.id;
         }
@@ -144,35 +157,43 @@ export async function executeTabTool(
   chromeApi.runtime.onMessage.addListener(listener);
 
   try {
-    try {
-      const result = await chromeApi.tabs.sendMessage(
-        targetTabId,
-        { action: 'EXECUTE_TOOL', name, inputArgs },
-        { frameId },
-      );
-      if (result !== null) return result;
-    } catch (err: unknown) {
-      const error = err as { message?: string };
-      if (!error.message || !/message channel (is )?closed/.test(error.message)) throw err;
+    let message: Record<string, unknown> = { action: 'EXECUTE_TOOL', name, inputArgs };
+    for (let hop = 0; ; hop++) {
+      awaitNextDocument();
+      try {
+        const result = await chromeApi.tabs.sendMessage(targetTabId, message, { frameId: targetFrameId });
+        // `executeTool()` only settles once the tool is done, so a tool that
+        // goes on in another document closes the channel instead (below).
+        // From there, a resumed callback that asks for yet another token is
+        // reported with a marker, and a navigating tool without tokens used
+        // to return null.
+        const continues = isContinueOnNextDocument(result) || (hop === 0 && result === null);
+        if (!continues) return result;
+        if (hop === MAX_DOCUMENT_HOPS) {
+          throw new Error(`Tool "${name}" did not finish within ${MAX_DOCUMENT_HOPS} documents.`);
+        }
+      } catch (err: unknown) {
+        const error = err as { message?: string };
+        if (!error.message || !/message channel (is )?closed/.test(error.message)) throw err;
+        if (hop === MAX_DOCUMENT_HOPS) throw err;
+      }
+
+      // A navigation was triggered. The result will be on the next document,
+      // which may live in a new tab if the tool opened one.
+      const previousTabId = targetTabId;
+      await raceWithTimeout(contentScriptReadyPromise, 2000);
+      if (targetTabId !== previousTabId) {
+        options.onTabChanged?.(targetTabId);
+        void requestTabTools(targetTabId).catch(() => {});
+        // The original frameId only makes sense in the original tab.
+        targetFrameId = 0;
+      }
+      await raceWithTimeout(toolsPromise, 2000);
+
+      await waitForPageLoad(targetTabId);
+
+      message = { action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT' };
     }
-
-    // A navigation was triggered. The result will be on the next document,
-    // which may live in a new tab if the tool opened one.
-    await raceWithTimeout(contentScriptReadyPromise, 2000);
-    if (targetTabId !== tabId) {
-      options.onTabChanged?.(targetTabId);
-      void requestTabTools(targetTabId).catch(() => {});
-    }
-    await raceWithTimeout(toolsPromise, 2000);
-
-    await waitForPageLoad(targetTabId);
-
-    return await chromeApi.tabs.sendMessage(
-      targetTabId,
-      { action: 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT' },
-      // The original frameId only makes sense in the original tab.
-      { frameId: targetTabId === tabId ? frameId : 0 },
-    );
   } finally {
     chromeApi.runtime.onMessage.removeListener(listener);
   }
