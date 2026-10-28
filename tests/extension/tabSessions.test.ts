@@ -5,8 +5,10 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import React from 'react';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
+import { parseHTML } from 'linkedom';
 
 import { useAgentSession, type UseAgentSessionOptions, type UseAgentSessionReturn } from '../../extension/sidepanel/hooks/useAgentSession.js';
 import { useActiveTabTools } from '../../extension/sidepanel/hooks/useActiveTabTools.js';
@@ -626,37 +628,38 @@ test('tabSessions.remove resets backend chat session when chatId is present', as
   }
 });
 
+function withAct(fn: () => void): void {
+  const globals = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean; window?: unknown };
+  const prevActEnv = globals.IS_REACT_ACT_ENVIRONMENT;
+  const hadWindow = 'window' in globals && globals.window !== undefined;
+  globals.IS_REACT_ACT_ENVIRONMENT = true;
+  if (!hadWindow) globals.window = {};
+  try {
+    act(fn);
+  } finally {
+    globals.IS_REACT_ACT_ENVIRONMENT = prevActEnv;
+    if (!hadWindow) delete globals.window;
+  }
+}
+
 function runHook<T>(useHook: () => T): { result: { current: T }; cleanup: () => void } {
-  const effects: Array<() => void | (() => void)> = [];
+  const { document } = parseHTML('<!doctype html><html><body><div></div></body></html>');
+  const container = document.querySelector('div') as unknown as Element;
+  const root = createRoot(container);
   const result = {} as { current: T };
   const HookRunner = () => {
-    const disp = (React as unknown as { __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: { ReactCurrentDispatcher: { current: unknown } } })
-      .__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher;
-    const realDispatcher = disp.current as Record<string, unknown>;
-    disp.current = new Proxy(realDispatcher, {
-      get(target, prop) {
-        if (prop === 'useEffect') {
-          return (fn: () => void | (() => void)) => {
-            effects.push(fn);
-          };
-        }
-        return target[prop as string];
-      },
-    });
     result.current = useHook();
-    disp.current = realDispatcher;
     return null;
   };
-  renderToString(React.createElement(HookRunner));
-  const cleanups: Array<() => void> = [];
-  for (const eff of effects) {
-    const clean = eff();
-    if (typeof clean === 'function') cleanups.push(clean);
-  }
+  withAct(() => {
+    root.render(React.createElement(HookRunner));
+  });
   return {
     result,
     cleanup: () => {
-      for (const clean of cleanups) clean();
+      withAct(() => {
+        root.unmount();
+      });
     },
   };
 }
