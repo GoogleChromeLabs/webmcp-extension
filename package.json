@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.56",
-    "@ai-sdk/google": "^4.0.74",
+    "@ai-sdk/google": "^4.0.105",
     "@ai-sdk/openai": "^4.0.102",
     "ai": "^7.0.155",
     "easy-language-model": "^0.2.1",
