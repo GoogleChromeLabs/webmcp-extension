@@ -28,7 +28,7 @@
     "server": "node server/server.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.56",
+    "@ai-sdk/anthropic": "^4.0.88",
     "@ai-sdk/google": "^4.0.105",
     "@ai-sdk/openai": "^4.0.102",
     "ai": "^7.0.155",
