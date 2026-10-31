@@ -142,7 +142,8 @@ async function getFrameId(targetWindow: Window): Promise<number | null> {
     const listener = ({ source, data }: MessageEvent) => {
       // `data` is attacker-controlled: any frame can post anything, including
       // null or a bare string, so never dereference it unguarded.
-      if (source === targetWindow && data?.action === 'GET_FRAME_ID_RESPONSE') {
+      if (source === targetWindow && data?.action === 'GET_FRAME_ID_RESPONSE'
+        && Number.isInteger(data.frameId) && data.frameId >= 0) {
         window.removeEventListener('message', listener);
         clearTimeout(timeoutId);
         resolve(data.frameId);
@@ -165,9 +166,19 @@ window.addEventListener('message', async ({ data, source, origin }) => {
   // Any frame can post anything here, so `data` may not be an object, and
   // `source` is null when the sending context has already gone away.
   if (data?.action !== 'GET_FRAME_ID' || !source) return;
+  // @ts-expect-error: getFrameId exists at runtime but is currently not
+  // included in all browsers and is missing from types.
+  if (chrome.runtime.getFrameId) {
+    // @ts-expect-error: getFrameId is missing in types, see above.
+    const frameId = chrome.runtime.getFrameId(source);
+    if (Number.isInteger(frameId) && frameId >= 0) {
+      (source as Window).postMessage({ action: 'GET_FRAME_ID_RESPONSE', frameId }, origin);
+      return;
+    }
+  }
   for (let attempt = 0; attempt < 10; attempt++) {
     const frameId: number | undefined = await chrome.runtime.sendMessage({ action: 'GET_FRAME_ID' });
-    if (frameId != null) {
+    if (Number.isInteger(frameId) && frameId >= 0) {
       (source as Window).postMessage({ action: 'GET_FRAME_ID_RESPONSE', frameId }, origin);
       return;
     }

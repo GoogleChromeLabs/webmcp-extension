@@ -53,7 +53,7 @@ interface RuntimeMessage {
 chrome.runtime.onMessage.addListener(
   ({ action, tools }: RuntimeMessage, { tab, frameId }, sendResponse) => {
     if (action === 'GET_FRAME_ID') {
-      sendResponse(frameId);
+      sendResponse(frameId || 0);
       return;
     }
     if (tools !== undefined && tab?.id) {
