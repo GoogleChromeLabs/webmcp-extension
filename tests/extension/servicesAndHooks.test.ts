@@ -141,6 +141,18 @@ test('extensionBridge - executeTabTool dispatches message to tab with appropriat
   }
 });
 
+test('extensionBridge - executeTabTool rejects with the message of a tool that failed', async () => {
+  setupTestChrome();
+  const mockChrome = (globalThis as any).chrome;
+  const origSendMessage = mockChrome.tabs.sendMessage;
+  try {
+    mockChrome.tabs.sendMessage = async () => ({ toolError: 'Flight not found' });
+    await assert.rejects(executeTabTool('book_flight', {}, 0, 1), { message: 'Flight not found' });
+  } finally {
+    mockChrome.tabs.sendMessage = origSendMessage;
+  }
+});
+
 test('extensionBridge - getTabInfo returns null when tab does not exist', async () => {
   setupTestChrome();
   const info = await getTabInfo(999);
@@ -227,13 +239,13 @@ test('content script - EXECUTE_TOOL passes object inputArgs and replies with err
     assert.deepEqual(executedArgs, [{ id: 42 }]);
 
     // 2. Errors are not retried, not even with a JSON string, and reply with
-    // the stringified message.
+    // the message as a tool error, so it cannot pass for a result.
     mode = 'error';
     executedArgs.length = 0;
     const res2 = await new Promise((resolve) => {
       messageListener!({ action: 'EXECUTE_TOOL', name: 'book_room', inputArgs: { id: 42 } }, {}, resolve);
     });
-    assert.equal(res2, JSON.stringify('Failed to parse input'));
+    assert.deepEqual(res2, { toolError: 'Failed to parse input' });
     assert.deepEqual(executedArgs, [{ id: 42 }]);
 
     // 3. Tool names come from the page. A name crafted to look like selector

@@ -1385,15 +1385,23 @@ test('when the on-device model reaches the limit first, tool-only history stays 
 /**
  * Runs one turn in which the model calls `book_table`, declared with
  * `outputSchema`, and returns what the side panel sent back for that call.
- * The test browser's tool always answers `{ booked: true, tabId }`.
+ * The test browser's tool answers `{ booked: true, tabId }`, unless
+ * `pageReply` gives what the content script replies instead.
  */
-async function toolResponseForOutputSchema(outputSchema: Record<string, unknown>) {
+async function toolResponseForOutputSchema(outputSchema: Record<string, unknown>, pageReply?: unknown) {
   resetTabSessions();
   const browser = installTestChrome();
   const backend = installBackend([
     { chatId: 'chat-schema', text: '', functionCalls: [{ name: '_0_book_table', args: {} }] },
     { chatId: 'chat-schema', text: 'Done.', functionCalls: [] },
   ]);
+  if (pageReply !== undefined) {
+    const sendMessage = globalThis.chrome.tabs.sendMessage;
+    globalThis.chrome.tabs.sendMessage = (async (tabId: number, message: SentMessage['message']) => {
+      const res = await sendMessage(tabId, message);
+      return message.action === 'EXECUTE_TOOL' ? pageReply : res;
+    }) as typeof chrome.tabs.sendMessage;
+  }
 
   try {
     tabSessions.update(1, { tools: [{ ...BOOK_TOOL, outputSchema }] });
@@ -1434,4 +1442,16 @@ test('a tool result that breaks its output schema reaches the model as a tool er
   assert.equal(response?.result, undefined);
   assert.match(String(response?.error), /does not match the tool's output schema/);
   assert.match(String(response?.error), /confirmation/);
+});
+
+test('a tool that throws reaches the model with its own error, not checked against its output schema', async () => {
+  const response = await toolResponseForOutputSchema(
+    {
+      type: 'object',
+      properties: { confirmation: { type: 'string' } },
+      required: ['confirmation'],
+    },
+    { toolError: 'No table free at 8pm.' }
+  );
+  assert.deepEqual(response, { error: 'No table free at 8pm.' });
 });

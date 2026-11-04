@@ -144,17 +144,22 @@ export async function executeTabTool(
   chromeApi.runtime.onMessage.addListener(listener);
 
   try {
+    let reply: unknown = null;
     try {
-      const result = await chromeApi.tabs.sendMessage(
+      reply = await chromeApi.tabs.sendMessage(
         targetTabId,
         { action: 'EXECUTE_TOOL', name, inputArgs },
         { frameId },
       );
-      if (result !== null) return result;
     } catch (err: unknown) {
       const error = err as { message?: string };
       if (!error.message || !/message channel (is )?closed/.test(error.message)) throw err;
     }
+    // The content script replies `{ toolError }` when the tool threw or could
+    // not run (see content.ts), so it fails here rather than passing as a result.
+    const toolError = (reply as { toolError?: unknown } | null | undefined)?.toolError;
+    if (typeof toolError === 'string') throw new Error(toolError);
+    if (reply !== null) return reply;
 
     // A navigation was triggered. The result will be on the next document,
     // which may live in a new tab if the tool opened one.
