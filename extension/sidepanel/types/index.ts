@@ -7,6 +7,12 @@ export interface WebMCPTool {
   name: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
+  /**
+   * A JSON Schema describing the structure of the tool's result. It is not
+   * sent to the model: the side panel checks each result against it instead
+   * (see `checkOutputSchema` in services/toolResults.ts).
+   */
+  outputSchema?: Record<string, unknown>;
   readOnlyHint?: boolean;
   untrustedContentHint?: boolean;
   /**

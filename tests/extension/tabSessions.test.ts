@@ -1381,3 +1381,57 @@ test('when the on-device model reaches the limit first, tool-only history stays 
     browser.restore();
   }
 });
+
+/**
+ * Runs one turn in which the model calls `book_table`, declared with
+ * `outputSchema`, and returns what the side panel sent back for that call.
+ * The test browser's tool always answers `{ booked: true, tabId }`.
+ */
+async function toolResponseForOutputSchema(outputSchema: Record<string, unknown>) {
+  resetTabSessions();
+  const browser = installTestChrome();
+  const backend = installBackend([
+    { chatId: 'chat-schema', text: '', functionCalls: [{ name: '_0_book_table', args: {} }] },
+    { chatId: 'chat-schema', text: 'Done.', functionCalls: [] },
+  ]);
+
+  try {
+    tabSessions.update(1, { tools: [{ ...BOOK_TOOL, outputSchema }] });
+    const tab1 = readSession(1, { sensitiveActionAlerts: false });
+    tab1.setUserPrompt('Book a table');
+    await tab1.handleSendPrompt();
+
+    // The tool still ran: the check is on what came back, not on the call.
+    assert.equal(browser.sent.filter(({ message }) => message.action === 'EXECUTE_TOOL').length, 1);
+    // The schema is only used here, and never declared to the model.
+    const [firstRequest, followUp] = backend.requests as unknown as ChatTurnRequest[];
+    assert.equal(firstRequest.tools?.[0].name, '_0_book_table');
+    assert.equal('outputSchema' in (firstRequest.tools?.[0] ?? {}), false);
+    assert.equal(followUp.toolResponses?.length, 1);
+    return followUp.toolResponses![0].functionResponse.response;
+  } finally {
+    resetTabSessions();
+    backend.restore();
+    browser.restore();
+  }
+}
+
+test('a tool result that matches its output schema is passed on to the model', async () => {
+  const response = await toolResponseForOutputSchema({
+    type: 'object',
+    properties: { booked: { type: 'boolean' }, tabId: { type: 'number' } },
+    required: ['booked'],
+  });
+  assert.deepEqual(response, { result: { booked: true, tabId: 1 } });
+});
+
+test('a tool result that breaks its output schema reaches the model as a tool error', async () => {
+  const response = await toolResponseForOutputSchema({
+    type: 'object',
+    properties: { confirmation: { type: 'string' } },
+    required: ['confirmation'],
+  });
+  assert.equal(response?.result, undefined);
+  assert.match(String(response?.error), /does not match the tool's output schema/);
+  assert.match(String(response?.error), /confirmation/);
+});
