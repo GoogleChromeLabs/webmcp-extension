@@ -20,6 +20,15 @@ interface ContentMessage {
   fromOrigins?: string[];
 }
 
+/**
+ * The reply to `EXECUTE_TOOL` when the tool could not run or threw. Results
+ * are strings (or null), so this shape cannot be mistaken for one. Keep in sync
+ * with `executeTabTool` in sidepanel/services/extensionBridge.ts.
+ */
+interface ToolErrorReply {
+  toolError: string;
+}
+
 chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, reply) => {
   const { action, name, inputArgs, fromOrigins = [] } = message;
   const modelContext = document.modelContext;
@@ -27,7 +36,7 @@ chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, reply) =
     chrome.runtime.sendMessage({ message: WEBMCP_DISABLED_MESSAGE });
     // A tool call still gets an answer, so the model hears why it failed
     // instead of a closed message port.
-    if (action === 'EXECUTE_TOOL') reply(JSON.stringify(WEBMCP_DISABLED_MESSAGE));
+    if (action === 'EXECUTE_TOOL') reply({ toolError: WEBMCP_DISABLED_MESSAGE } satisfies ToolErrorReply);
     return;
   }
   try {
@@ -41,7 +50,9 @@ chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, reply) =
         try {
           reply(await executeTool(modelContext, name, inputArgs));
         } catch (error) {
-          reply(JSON.stringify(toMessage(error)));
+          // Sent as an object, which a result never is, so the side panel can
+          // tell a tool that failed from one that returned a message.
+          reply({ toolError: toMessage(error) } satisfies ToolErrorReply);
         }
       })();
       // Keeps the message channel open until `reply` is called.
