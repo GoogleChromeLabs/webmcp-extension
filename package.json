@@ -31,6 +31,7 @@
     "@ai-sdk/anthropic": "^4.0.88",
     "@ai-sdk/google": "^4.0.105",
     "@ai-sdk/openai": "^4.0.102",
+    "@cfworker/json-schema": "^4.1.6",
     "ai": "^7.0.155",
     "easy-language-model": "^0.2.6",
     "react": "^19.3.1",
