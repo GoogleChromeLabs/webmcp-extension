@@ -719,13 +719,14 @@ function startTurn(
   carriedOver: PromptMessage[] = []
 ): Promise<ChatTurnResponse> {
   const controller = new AbortController();
+  const opening: PromptMessage[] = typeof input === 'string' ? [{ role: 'user', content: input }] : input;
   const turn: Turn = {
     controller,
     text: '',
     round: [],
     handedOut: [],
     ranTools: false,
-    transcript: [...carriedOver, ...(typeof input === 'string' ? [{ role: 'user', content: input } as PromptMessage] : input)],
+    transcript: [...carriedOver, ...opening],
     historyStart: state.session.history.length - carriedOver.length,
     completedHistory,
     next: createDeferred(),
@@ -951,7 +952,7 @@ export async function sendOnDeviceChat(
     // the conversation up to it. When it did not fit, that is without the tool
     // results that filled the context.
     const tools = toPromptApiTools(request.tools);
-    const history = toReplayHistory(state.session.history, tools.length > 0 && !contextFull);
+    const history = toReplayHistory(historyBeforeTurn(state), tools.length > 0 && !contextFull);
     const rebuilt = await buildSession(state.id, tools, history, signal);
     return startTurn(rebuilt, message, signal, onText, stopOnToolCall);
   }

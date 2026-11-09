@@ -1464,3 +1464,51 @@ test('a turn that moved to new sessions twice carries all of itself over, and is
     uninstallPromptApiStub();
   }
 });
+
+test('a turn that moved to a new session and then filled the context is carried over once, whole', async () => {
+  const stub = installPromptApiStub([
+    ['Welcome to the ocean.'],
+    [{ type: 'tool-call', value: { callID: '', name: '_0_returnToHallway', arguments: {} } }],
+    [{ type: 'tool-call', value: { callID: '', name: '_0_openDoor1', arguments: {} } }],
+    ['Behind door 1 is the ocean again.'],
+  ]);
+  // The answer to door 1, on the session the turn moved to, does not fit.
+  failTurns((turn) => turn === 4, contextFull);
+
+  try {
+    await sendOnDeviceChat({ chatId: 'tab-1', message: 'Where am I?', tools: buildToolDecls(OCEAN_TOOLS) });
+    const first = await sendOnDeviceChat({
+      chatId: 'tab-1',
+      message: 'Go back to the hallway, then open the first door.',
+      tools: buildToolDecls(OCEAN_TOOLS),
+    });
+    const second = await sendOnDeviceChat({
+      chatId: 'tab-1',
+      tools: buildToolDecls(HALLWAY_TOOLS),
+      toolResponses: [{ functionResponse: { id: first.functionCalls![0].id, name: '_0_returnToHallway', response: { result: 'The hallway.' } } }],
+    });
+    assert.deepEqual(second.functionCalls?.map((call) => call.name), ['_0_openDoor1']);
+
+    const third = await sendOnDeviceChat({
+      chatId: 'tab-1',
+      tools: buildToolDecls(HALLWAY_TOOLS),
+      toolResponses: [{ functionResponse: { id: second.functionCalls![0].id, name: '_0_openDoor1', response: { result: 'The ocean.' } } }],
+    });
+    assert.equal(third.text, 'Behind door 1 is the ocean again.');
+    assert.equal(stub.creates.length, 3);
+
+    // The turns before this one as their text, then this turn once, as it is.
+    const retried = stub.creates[2] as { initialPrompts?: ReplayedPrompt[] };
+    assert.deepEqual(retried.initialPrompts?.slice(1).map(describePrompt), [
+      'user: Where am I?',
+      'assistant: Welcome to the ocean.',
+      'user: Go back to the hallway, then open the first door.',
+      'assistant: tool-call:_0_returnToHallway',
+      'user: tool-response:_0_returnToHallway + The page has changed and now offers different tools. Use them to fulfill the request in full.',
+      'assistant: tool-call:_0_openDoor1',
+    ]);
+    assert.equal(describePrompt((stub.inputs.at(-1) as ReplayedPrompt[])[0]), 'user: tool-response:_0_openDoor1');
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
