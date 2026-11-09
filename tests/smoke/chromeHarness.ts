@@ -189,6 +189,7 @@ async function launchChromeWithExtension(
 const TEST_PAGES = {
   '/test-page': { toolFramePath: '/test-page', toolCount: TEST_PAGE_TOOL_COUNT },
   '/frame-host': { toolFramePath: '/frame-tool', toolCount: 1 },
+  '/long-description': { toolFramePath: '/long-description', toolCount: 1 },
 } as const;
 
 export type TestPagePath = keyof typeof TEST_PAGES;

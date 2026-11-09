@@ -77,6 +77,28 @@ let nextId = Date.now();
 const generateId = (): number => ++nextId;
 
 /**
+ * Transfers pending activity to the conversation, even without model text.
+ * Each transfer appends a message so activity stays after any earlier text.
+ * Logs are drained so stopping or finishing again cannot duplicate them.
+ */
+function persistTurnOutput(tabId: number, text: string, onDevice: boolean): void {
+  const internals = tabSessions.getInternals(tabId);
+  const logs = internals.turnLogs;
+  const reply = text.trim();
+  if (!reply && logs.length === 0) return;
+
+  internals.turnLogs = [];
+  const message: ChatMessage = {
+    id: generateId(),
+    role: 'ai',
+    text: reply,
+    activityLogs: logs,
+    onDevice,
+  };
+  tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
+}
+
+/**
  * A read-only view of the tools of whichever tab a turn is working with, in
  * the shape `waitForToolsToSettle` takes. It reads through to the store on
  * every access, so a turn sees the latest report for its page rather than a
@@ -268,21 +290,13 @@ export function useAgentSession(
       internals.abortController.abort();
       internals.abortController = null;
     }
-    // What was written before the stop stays, rather than vanishing.
-    const partial = tabSessions.getState(activeTabId).streamingText.trim();
-    const logs = [...internals.turnLogs];
-    tabSessions.update(activeTabId, (previous) => ({
-      messages: partial
-        ? [
-            ...previous.messages,
-            { id: generateId(), role: 'ai', text: partial, activityLogs: logs, onDevice: onDeviceModelRef.current },
-          ]
-        : previous.messages,
+    persistTurnOutput(activeTabId, tabSessions.getState(activeTabId).streamingText, onDeviceModelRef.current);
+    tabSessions.update(activeTabId, {
       streamingText: '',
       pendingPermission: null,
       pendingCheckpoint: null,
       busy: false,
-    }));
+    });
   }, [activeTabId]);
 
   // Reset chat session state
@@ -370,6 +384,8 @@ export function useAgentSession(
       tabSessions.update(tabId, (previous) => ({ messages: [...previous.messages, message] }));
 
     const limits = toolRoundLimitsRef.current;
+    // Tool-call attempts, including errors, but not calls refused before dispatch.
+    let attemptedCalls = 0;
 
     internals.turnLogs = [];
     if (!internals.chatId) {
@@ -443,6 +459,7 @@ export function useAgentSession(
         // Security Note: This is where you might utilize a critic to check that the
         // tool call and parameters align with the user's intent before execution.
         let movedToNewTab = false;
+        attemptedCalls++;
         const rawRes = await executeTabTool(name, call.args, toolFrameId, turnTabId, {
           onTabChanged: (movedTabId) => {
             turnTabId = movedTabId;
@@ -512,15 +529,7 @@ export function useAgentSession(
         !signal.aborted
       ) {
         if (currentResult.text?.trim()) {
-          const logs = [...internals.turnLogs];
-          internals.turnLogs = [];
-          addMessage({
-            id: generateId(),
-            role: 'ai',
-            text: currentResult.text.trim(),
-            activityLogs: logs,
-            onDevice: onDeviceModelRef.current,
-          });
+          persistTurnOutput(tabId, currentResult.text, onDeviceModelRef.current);
           messageRendered = true;
         }
 
@@ -535,6 +544,33 @@ export function useAgentSession(
           if (signal.aborted) break;
           if (!keepGoing) {
             stoppedByUser = true;
+            let summary: ChatTurnResponse | undefined;
+            try {
+              summary = await sendChatTurn(
+                {
+                  toolResponses: currentResult.functionCalls.map((call) =>
+                    toolResponse(call, {
+                      error:
+                        'Not run: the user stopped the agent here. ' +
+                        `Tool calls attempted: ${attemptedCalls}. Tool rounds used: ${roundsUsed}. ` +
+                        'Calls refused before dispatch and pending calls are excluded. Some attempts may have failed before execution. Do not call any more tools. Give a short summary of what you completed and what remains, based on the tool results.',
+                    })
+                  ),
+                  tools: buildToolDecls(toolsView.current),
+                  chatId: internals.chatId,
+                },
+                { signal, onDevice: onDeviceModelRef.current, onText, stopOnToolCall: true }
+              );
+            } catch {
+              // A failed summary uses the note below without resetting the conversation.
+            }
+            if (signal.aborted) break;
+            showStreamingText('');
+            if (summary?.chatId) internals.chatId = summary.chatId;
+            const summaryText = summary?.functionCalls?.length ? '' : summary?.text?.trim();
+            const reply = summaryText || `Stopped after attempting ${attemptedCalls} tool call${attemptedCalls === 1 ? '' : 's'}.`;
+            persistTurnOutput(tabId, reply, onDeviceModelRef.current);
+            // End the tool loop even if the summary asks for more calls.
             break;
           }
         }
@@ -572,6 +608,7 @@ export function useAgentSession(
           // never reach this loop. So it can reach the cap first. Then the
           // turn ends here, the same way as at the check above.
           if (signal.aborted || !(err instanceof ToolRoundLimitError)) throw err;
+          persistTurnOutput(tabId, '', onDeviceModelRef.current);
           showStreamingText('');
           limitReached = err;
           break;
@@ -588,34 +625,10 @@ export function useAgentSession(
 
       if (signal.aborted) return;
 
-      // A turn that stopped has already shown what the model said along with
-      // the calls it did not get to run.
       const stopped = stoppedByUser || limitReached !== null;
-      if (!stopped && currentResult.text?.trim()) {
-        const logs = [...internals.turnLogs];
-        addMessage({
-          id: generateId(),
-          role: 'ai',
-          text: currentResult.text.trim(),
-          activityLogs: logs,
-          onDevice: onDeviceModelRef.current,
-        });
-      } else if (messageRendered && internals.turnLogs.length > 0) {
-        const trailingLogs = [...internals.turnLogs];
-        tabSessions.update(tabId, (previous) => {
-          const updated = [...previous.messages];
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (updated[i].role === 'ai') {
-              updated[i] = {
-                ...updated[i],
-                activityLogs: [...trailingLogs, ...(updated[i].activityLogs ?? [])],
-              };
-              break;
-            }
-          }
-          return { messages: updated };
-        });
-      } else if (!messageRendered && !stopped) {
+      const reply = stopped ? '' : currentResult.text ?? '';
+      persistTurnOutput(tabId, reply, onDeviceModelRef.current);
+      if (!messageRendered && !reply.trim() && !stopped) {
         addMessage({
           id: generateId(),
           role: 'error',
@@ -628,6 +641,7 @@ export function useAgentSession(
       }
     } catch (err: unknown) {
       if (signal.aborted) return;
+      persistTurnOutput(tabId, '', onDeviceModelRef.current);
       showStreamingText('');
       // The on-device backend's cap only lands here when none of the model's
       // calls ran. That is no failure, and the chat goes on, as after any stop

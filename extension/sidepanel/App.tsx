@@ -235,9 +235,11 @@ export function App() {
                               activityLogs={msg.activityLogs}
                               hidden={msg.onDevice && !msg.activityLogs?.length}
                             />
-                            <div className="ai-response">
-                              <MarkdownText content={msg.text} />
-                            </div>
+                            {msg.text && (
+                              <div className="ai-response">
+                                <MarkdownText content={msg.text} />
+                              </div>
+                            )}
                           </React.Fragment>
                         );
                       }

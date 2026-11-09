@@ -183,6 +183,56 @@ export async function readPermissionCard(sidebar: Page): Promise<PermissionCardS
   }, SELECTORS);
 }
 
+/** Whether the user can see and click an element, once scrolled to it. */
+export interface ReachabilitySnapshot {
+  /** The element lies wholly inside the side panel. */
+  inViewport: boolean;
+  /** A click on the element's center lands on the element, not on something else. */
+  clickable: boolean;
+  /** Where the element's top and bottom edges ended up, for failure messages. */
+  top: number;
+  bottom: number;
+  viewportHeight: number;
+}
+
+/**
+ * Scrolls the first element matching `selector` into view the way a user can,
+ * then reports whether it can be seen and clicked.
+ *
+ * Only boxes a user can scroll are scrolled: those with `overflow-y: auto` or
+ * `scroll`. `element.scrollIntoView()` is not used, because it also scrolls
+ * `overflow: hidden` boxes, which no wheel, touchpad or key can, so it would
+ * bring an element into view that the user has no way to reach.
+ */
+export async function scrollToAsUser(sidebar: Page, selector: string): Promise<ReachabilitySnapshot> {
+  return sidebar.$eval(selector, (el) => {
+    // Innermost box first: each box brings the element into its own visible
+    // area, and the boxes around it then bring that area into view.
+    for (let box = el.parentElement; box; box = box.parentElement) {
+      const { overflowY } = getComputedStyle(box);
+      if (overflowY !== 'auto' && overflowY !== 'scroll') continue;
+      const visibleTop = box.getBoundingClientRect().top + box.clientTop;
+      const visibleBottom = visibleTop + box.clientHeight;
+      const { top, bottom } = el.getBoundingClientRect();
+      if (bottom > visibleBottom) {
+        box.scrollTop += bottom - visibleBottom;
+      } else if (top < visibleTop) {
+        box.scrollTop -= visibleTop - top;
+      }
+    }
+    const rect = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return {
+      inViewport:
+        rect.top >= 0 && rect.left >= 0 && rect.bottom <= window.innerHeight && rect.right <= window.innerWidth,
+      clickable: hit !== null && el.contains(hit),
+      top: rect.top,
+      bottom: rect.bottom,
+      viewportHeight: window.innerHeight,
+    };
+  });
+}
+
 /** Opens Settings from the toolbar and waits for the screen to mount. */
 export async function openSettings(sidebar: Page): Promise<void> {
   await clickOrThrow(sidebar, SELECTORS.settingsButton);
