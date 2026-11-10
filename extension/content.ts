@@ -121,6 +121,7 @@ async function listTools(modelContext: WebMCP.ModelContext, fromOrigins: string[
     tools.push({
       description: tool.description,
       inputSchema: tool.inputSchema,
+      outputSchema: tool.outputSchema,
       readOnlyHint: tool.annotations?.readOnlyHint,
       untrustedContentHint: tool.annotations?.untrustedContentHint,
       consequentialHint: tool.annotations?.consequentialHint,
