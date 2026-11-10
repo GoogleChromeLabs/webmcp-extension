@@ -40,11 +40,11 @@
   "devDependencies": {
     "@puppeteer/browsers": "^3.2.6",
     "@types/chrome": "^0.3.7",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "esbuild": "^0.28.2",
-    "linkedom": "^0.18.14",
+    "linkedom": "^0.18.15",
     "puppeteer-core": "^25.16.0",
     "typescript": "^7.0.2",
     "webmcp-types": "^0.1.10"
