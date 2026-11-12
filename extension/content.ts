@@ -8,10 +8,60 @@
 // which keeps its top-level names out of the global scope.
 export {};
 
+import {
+  CONTINUATION_EVENT,
+  CONTINUE_ON_NEXT_DOCUMENT,
+  type ContinuationDetail,
+} from './toolContinuationProtocol.js';
+
 console.debug(`[WebMCP] Content script injected in ${window.location.href}`);
 
 const WEBMCP_DISABLED_MESSAGE =
   'Turn on the "WebMCP for testing" flag in about://flags and restart browser to use tools exposed by this website.';
+
+// How long to wait for the browser to call a `resumeTool()` callback the page
+// has registered.
+const RESUME_TIMEOUT_MS = 10_000;
+
+type ResumedDetail = Extract<ContinuationDetail, { type: 'resumed' }>;
+
+// What the main-world hook (`toolContinuationHook.ts`) reported about tool
+// continuations in this document.
+let tokenRequested = false;
+let resumed: Promise<ResumedDetail | undefined> | undefined;
+let settleResumed: (detail?: ResumedDetail) => void = () => {};
+
+document.addEventListener(CONTINUATION_EVENT, (event) => {
+  // The page can fire this event too, so `detail` is not trusted to be ours.
+  // That gives it nothing it lacks: it controls its tools' results anyway.
+  const json = (event as CustomEvent).detail;
+  if (typeof json !== 'string') return;
+  let detail: ContinuationDetail | undefined;
+  try {
+    detail = JSON.parse(json);
+  } catch {
+    return;
+  }
+  switch (detail?.type) {
+    case 'tokenRequested':
+      tokenRequested = true;
+      break;
+    case 'resumeRequested':
+      // From here on, tracks whether the resumed callback asks for a token.
+      tokenRequested = false;
+      resumed = new Promise((resolve) => {
+        settleResumed = resolve;
+      });
+      break;
+    case 'resumeRejected':
+      console.debug(`[WebMCP] resumeTool() was rejected: ${detail.error}`);
+      settleResumed();
+      break;
+    case 'resumed':
+      settleResumed(detail);
+      break;
+  }
+});
 
 interface ContentMessage {
   action?: string;
@@ -49,7 +99,9 @@ chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, reply) =
     }
     if (action === 'GET_CROSS_DOCUMENT_SCRIPT_TOOL_RESULT') {
       console.debug(`[WebMCP] Get cross document script tool result in ${window.location.href}`);
-      reply(document.querySelector('script[type="application/ld+json"]')?.textContent);
+      void getCrossDocumentResult().then(reply);
+      // Keeps the message channel open until `reply` is called.
+      return true;
     }
   } catch (error) {
     console.debug('[WebMCP] Content script error:', error);
@@ -57,11 +109,46 @@ chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, reply) =
 });
 
 /**
+ * The result of a tool that navigated to this document.
+ *
+ * If the page resumed the tool with `resumeTool()`, the result is what its
+ * callback returns, unless the callback asks for a token again: the tool then
+ * carries on in yet another document. Otherwise the result is the page's
+ * JSON-LD.
+ */
+async function getCrossDocumentResult(): Promise<unknown> {
+  if (resumed) {
+    console.debug('[WebMCP] Waiting for resumeTool() callback result');
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<undefined>((resolve) => {
+      timeoutId = setTimeout(() => resolve(undefined), RESUME_TIMEOUT_MS);
+    });
+    const detail = await Promise.race([resumed, timeout]);
+    clearTimeout(timeoutId);
+    if (detail) {
+      if (tokenRequested) {
+        console.debug('[WebMCP] resumeTool() callback requested another token, continuing on the next document');
+        return CONTINUE_ON_NEXT_DOCUMENT;
+      }
+      console.debug('[WebMCP] Got resumeTool() callback result', detail);
+      return detail.error !== undefined ? JSON.stringify(detail.error) : detail.result;
+    }
+    console.debug('[WebMCP] No resumeTool() callback result, falling back to JSON-LD');
+  }
+  return document.querySelector('script[type="application/ld+json"]')?.textContent;
+}
+
+/**
  * Runs a tool of this frame and returns its result.
  *
  * A declarative form tool can post into a named iframe (`<form target>`). Its
  * result is then the JSON-LD the iframe loads, not the return value, so the
  * iframe's load is awaited and the result read from there.
+ *
+ * A tool that asks for a continuation token does not settle `executeTool()`
+ * until its `resumeTool()` callback has run, and then with that callback's
+ * result. If that happens in another document, this one has gone by then:
+ * the side panel sees the message channel close, and asks the next document.
  */
 async function executeTool(
   modelContext: WebMCP.ModelContext,
