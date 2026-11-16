@@ -96,6 +96,15 @@ export async function requestTabTools(tabId: number): Promise<void> {
 }
 
 /**
+ * Thrown by `executeTabTool` with what a tool reported when it threw or could
+ * not run. Its message comes from the page, unlike the errors the extension
+ * raises itself, so it is handled as page data on its way to the model.
+ */
+export class ToolError extends Error {
+  override name = 'ToolError';
+}
+
+/**
  * Executes a tool on the target Chrome tab/iframe.
  *
  * `tabId` is the tab the turn belongs to, not whichever tab is in front: the
@@ -105,6 +114,8 @@ export async function requestTabTools(tabId: number): Promise<void> {
  * A tool can also open a tab of its own, and the flow then carries on there.
  * `onTabChanged` reports that, so the rest of the turn works with the page it
  * has ended up on rather than the one it started from.
+ *
+ * @throws {ToolError} When the tool threw or could not run.
  */
 export async function executeTabTool(
   name: string,
@@ -158,7 +169,7 @@ export async function executeTabTool(
     // The content script replies `{ toolError }` when the tool threw or could
     // not run (see content.ts), so it fails here rather than passing as a result.
     const toolError = (reply as { toolError?: unknown } | null | undefined)?.toolError;
-    if (typeof toolError === 'string') throw new Error(toolError);
+    if (typeof toolError === 'string') throw new ToolError(toolError);
     if (reply !== null) return reply;
 
     // A navigation was triggered. The result will be on the next document,
