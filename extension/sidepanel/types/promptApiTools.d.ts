@@ -11,8 +11,16 @@
 export {};
 
 declare global {
-  interface LanguageModelToolCallInit {
-    callID: string;
+  /**
+   * The ID that pairs a call with its response. The Prompt API is renaming
+   * `callID` to `callId`, so a browser may send or expect either one.
+   */
+  interface LanguageModelToolCallId {
+    callId?: string;
+    callID?: string;
+  }
+
+  interface LanguageModelToolCallInit extends LanguageModelToolCallId {
     name: string;
     arguments: Record<string, unknown>;
   }
@@ -33,10 +41,10 @@ declare global {
   };
 
   const LanguageModelToolSuccess: {
-    new (init: { callID: string; name: string; result: LanguageModelToolResultItem[] }): object;
+    new (init: LanguageModelToolCallId & { name: string; result: LanguageModelToolResultItem[] }): object;
   };
 
   const LanguageModelToolError: {
-    new (init: { callID: string; name: string; errorMessage: string }): object;
+    new (init: LanguageModelToolCallId & { name: string; errorMessage: string }): object;
   };
 }
