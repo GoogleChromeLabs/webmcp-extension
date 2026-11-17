@@ -13,7 +13,7 @@ import {
 } from 'react';
 import { formatErrorMessage } from '../services/backendBridge.js';
 import { endChat, getSpotlighting, sendChatTurn } from '../services/chatBridge.js';
-import { executeTabTool, getTabInfo, requestTabTools } from '../services/extensionBridge.js';
+import { executeTabTool, getTabInfo, requestTabTools, ToolError } from '../services/extensionBridge.js';
 import { tabSessions } from '../services/tabSessionStore.js';
 import { buildToolDecls, decodeToolName } from '../services/toolEncoder.js';
 import {
@@ -502,7 +502,16 @@ export function useAgentSession(
       } catch (err: unknown) {
         if (signal.aborted) return null;
         completeActivity(entry);
-        return toolResponse(call, { error: (err as Error)?.message || String(err) });
+        const message = (err as Error)?.message || String(err);
+        if (!(err instanceof ToolError)) return toolResponse(call, { error: message });
+        // What a tool threw comes from the page as much as its result does, so
+        // it is cut and spotlighted the same way before the model reads it.
+        const error = applySpotlighting(
+          applyTokenLimit(message),
+          targetTool,
+          getSpotlighting(onDeviceModelRef.current)
+        );
+        return toolResponse(call, { error: String(error) });
       }
     };
 
