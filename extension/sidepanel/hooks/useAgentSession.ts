@@ -24,7 +24,12 @@ import {
   originOfUrl,
   type ToolPermissionDecision,
 } from '../services/toolPermissions.js';
-import { applySpotlighting, applyTokenLimit, waitForToolsToSettle } from '../services/toolResults.js';
+import {
+  applySpotlighting,
+  applyTokenLimit,
+  checkOutputSchema,
+  waitForToolsToSettle,
+} from '../services/toolResults.js';
 import { DEFAULT_TOOL_ROUND_LIMITS, ToolRoundLimitError, type ToolRoundLimits } from '../services/toolRoundLimits.js';
 import {
   type ActivityEntry,
@@ -476,6 +481,12 @@ export function useAgentSession(
               favicon: movedInfo.favicon || prev.favicon,
             }));
           }
+        }
+
+        const schemaViolation = checkOutputSchema(rawRes, targetTool);
+        if (schemaViolation) {
+          completeActivity(entry);
+          return toolResponse(call, { error: schemaViolation });
         }
 
         const res = applySpotlighting(

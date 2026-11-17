@@ -30,6 +30,7 @@ interface FakeTool {
   name: string;
   description: string;
   inputSchema: unknown;
+  outputSchema?: unknown;
   annotations?: Record<string, unknown>;
   window: unknown;
 }
@@ -181,4 +182,26 @@ test('content script leaves consequentialHint undefined when a page omits annota
   // this is safe" apart from "the page said nothing".
   assert.equal(tool.consequentialHint, undefined);
   assert.ok('consequentialHint' in tool);
+});
+
+test('content script forwards the output schema', async () => {
+  const outputSchema = { type: 'object', properties: { temperature: { type: 'number' } } };
+  const { sent, listener } = loadContentScript(
+    [
+      {
+        name: 'get_weather',
+        description: 'Gets the weather.',
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema,
+        window: null,
+      },
+    ],
+    'https://weather.example/',
+  );
+
+  listener({ action: 'LIST_TOOLS' }, {}, () => {});
+  const message = await waitForTools(sent);
+
+  const [tool] = JSON.parse(JSON.stringify(message.tools)) as Array<Record<string, unknown>>;
+  assert.deepEqual(tool.outputSchema, outputSchema);
 });

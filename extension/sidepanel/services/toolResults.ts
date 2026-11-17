@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { type OutputUnit, Validator } from '@cfworker/json-schema';
 import { isToolUntrusted } from './toolEncoder.js';
 import { type WebMCPTool } from '../types/index.js';
 
@@ -27,6 +28,56 @@ export function applyTokenLimit(result: unknown): unknown {
     return `${truncated}\n\n[WEBMCP_SECURITY_WARNING: Tool response exceeded maximum allowable limit (${str.length} > ${MAX_TOOL_RESPONSE_CHARS} characters) and was truncated to protect against context exhaustion and prompt injection.]`;
   }
   return result;
+}
+
+/** At most this many schema violations are reported back to the model. */
+const MAX_REPORTED_VIOLATIONS = 3;
+
+/**
+ * Checks a tool's result against the `outputSchema` the page declared for it.
+ *
+ * The schema is not sent to the model: only Gemini has a field for it, and
+ * telling the model what a result should look like matters less than knowing
+ * that the result it got really does. So the check happens here, before the
+ * result is cut or spotlighted, for every backend alike.
+ *
+ * WebMCP hands results over JSON-serialized, so a string is parsed first, and
+ * only checked as a string when it is not JSON (such as the JSON-LD text of a
+ * cross-document form, when it is malformed).
+ *
+ * `@cfworker/json-schema` is used because it never evaluates code, which the
+ * extension's content security policy would not allow.
+ *
+ * @returns Why the result does not match, or null when it does, when the tool
+ *   declares no schema, or when the schema itself cannot be used.
+ */
+export function checkOutputSchema(result: unknown, tool?: WebMCPTool): string | null {
+  const schema = tool?.outputSchema;
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return null;
+
+  let instance = result;
+  if (typeof result === 'string') {
+    try {
+      instance = JSON.parse(result);
+    } catch {}
+  }
+
+  let errors: OutputUnit[];
+  try {
+    ({ errors } = new Validator(schema, '2020-12').validate(instance));
+  } catch (err: unknown) {
+    // A schema the validator cannot work with, such as one with a `$ref` to
+    // nowhere, is the page's mistake, and does not cost the model the result.
+    console.warn(`[WebMCP] Output schema of tool "${tool?.name}" could not be used:`, err);
+    return null;
+  }
+  if (errors.length === 0) return null;
+
+  const violations = errors
+    .slice(0, MAX_REPORTED_VIOLATIONS)
+    .map(({ instanceLocation, error }) => `${instanceLocation}: ${error}`);
+  if (errors.length > MAX_REPORTED_VIOLATIONS) violations.push('…');
+  return `The tool result does not match the tool's output schema. ${violations.join(' ')}`;
 }
 
 /**
