@@ -205,7 +205,7 @@ test('content script - EXECUTE_TOOL passes object inputArgs and replies with err
   });
   const forms = [makeForm('book_room', 'book_frame'), makeForm('cancel_room', 'cancel_frame')];
 
-  const mockTool = { name: 'book_room', window: mockWindow };
+  const mockTool = { name: 'book_room', source: mockWindow };
   globalThis.document = {
     forms,
     getElementsByName: (name: string) => {
