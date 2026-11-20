@@ -26,13 +26,36 @@ interface SentMessage {
   message?: string;
 }
 
-interface FakeTool {
+interface FakeToolInit {
   name: string;
   description: string;
-  inputSchema: unknown;
+  inputSchema?: unknown;
   outputSchema?: unknown;
   annotations?: Record<string, unknown>;
-  window: unknown;
+  /** Defaults to the sandbox `window`, i.e. a tool of the frame itself. */
+  source?: unknown;
+}
+
+/**
+ * Fakes a `Tool` as returned by `getTools()` since Chrome 160: an interface
+ * object whose attributes are getters on the prototype, so it has no own
+ * properties, and a missing schema or annotations is null.
+ */
+class FakeTool {
+  readonly #init: FakeToolInit;
+  readonly #source: unknown;
+  constructor(init: FakeToolInit, source: unknown) {
+    this.#init = init;
+    this.#source = source;
+  }
+  get name() { return this.#init.name; }
+  get title() { return ''; }
+  get description() { return this.#init.description; }
+  get inputSchema() { return this.#init.inputSchema ?? null; }
+  get outputSchema() { return this.#init.outputSchema ?? null; }
+  get annotations() { return this.#init.annotations ?? null; }
+  get origin() { return ''; }
+  get source() { return this.#source; }
 }
 
 /**
@@ -40,7 +63,7 @@ interface FakeTool {
  * handles a test needs to drive it: the message listener it registered and the
  * list of messages it sent back to the extension.
  */
-function loadContentScript(tools: FakeTool[], href: string) {
+function loadContentScript(tools: FakeToolInit[], href: string) {
 
   const sent: SentMessage[] = [];
   let listener: ((message: unknown, sender: unknown, reply: unknown) => unknown) | undefined;
@@ -51,10 +74,10 @@ function loadContentScript(tools: FakeTool[], href: string) {
     removeEventListener() {},
   };
   // The script only announces itself from the top frame, and it decides a tool
-  // is same-frame via `tool.window == window`, so the tools must reference the
+  // is same-frame via `tool.source == window`, so the tools must reference the
   // very object the sandbox exposes as `window`.
   win.top = win;
-  for (const tool of tools) tool.window = win;
+  const pageTools = tools.map((init) => new FakeTool(init, 'source' in init ? init.source : win));
 
   const sandbox: Record<string, unknown> = {
     window: win,
@@ -64,7 +87,7 @@ function loadContentScript(tools: FakeTool[], href: string) {
     document: {
       modelContext: {
         ontoolchange: undefined,
-        getTools: async () => tools,
+        getTools: async () => pageTools,
       },
     },
     chrome: {
@@ -114,7 +137,6 @@ test('content script forwards every annotation hint the permission gate relies o
           readOnlyHint: false,
           untrustedContentHint: true,
         },
-        window: null,
       },
     ],
     'https://shop.example/checkout',
@@ -147,7 +169,6 @@ test('content script preserves a false consequentialHint rather than dropping it
         description: 'Searches the catalogue.',
         inputSchema: { type: 'object', properties: {} },
         annotations: { consequentialHint: false, readOnlyHint: true },
-        window: null,
       },
     ],
     'https://shop.example/',
@@ -168,7 +189,6 @@ test('content script leaves consequentialHint undefined when a page omits annota
         name: 'legacy_tool',
         description: 'A tool from a page that predates annotations.',
         inputSchema: { type: 'object', properties: {} },
-        window: null,
       },
     ],
     'https://legacy.example/',
@@ -193,7 +213,6 @@ test('content script forwards the output schema', async () => {
         description: 'Gets the weather.',
         inputSchema: { type: 'object', properties: {} },
         outputSchema,
-        window: null,
       },
     ],
     'https://weather.example/',
@@ -204,4 +223,35 @@ test('content script forwards the output schema', async () => {
 
   const [tool] = JSON.parse(JSON.stringify(message.tools)) as Array<Record<string, unknown>>;
   assert.deepEqual(tool.outputSchema, outputSchema);
+});
+
+test('content script turns null schemas into undefined', async () => {
+  const { sent, listener } = loadContentScript(
+    [{ name: 'bare', description: 'No schema.' }],
+    'https://bare.example/',
+  );
+
+  listener({ action: 'LIST_TOOLS' }, {}, () => {});
+  const message = await waitForTools(sent);
+
+  const [tool] = message.tools as Array<Record<string, unknown>>;
+  assert.equal(tool.inputSchema, undefined);
+  assert.equal(tool.outputSchema, undefined);
+  assert.equal(tool.frameId, 0);
+});
+
+test('content script skips a tool whose source document is gone', async () => {
+  const { sent, listener } = loadContentScript(
+    [
+      { name: 'gone', description: 'Navigated away.', source: null },
+      { name: 'here', description: 'Still here.' },
+    ],
+    'https://shop.example/',
+  );
+
+  listener({ action: 'LIST_TOOLS' }, {}, () => {});
+  const message = await waitForTools(sent);
+
+  const tools = JSON.parse(JSON.stringify(message.tools)) as Array<Record<string, unknown>>;
+  assert.deepEqual(tools.map((tool) => tool.name), ['here']);
 });
