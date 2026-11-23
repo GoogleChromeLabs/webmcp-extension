@@ -48,6 +48,6 @@
     "linkedom": "^0.18.14",
     "puppeteer-core": "^25.16.0",
     "typescript": "^7.0.2",
-    "webmcp-types": "^0.1.11"
+    "webmcp-types": "^0.2.0"
   }
 }

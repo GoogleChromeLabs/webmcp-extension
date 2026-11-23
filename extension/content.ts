@@ -92,7 +92,7 @@ async function executeTool(
     targetFrame && new Promise((resolve) => targetFrame.addEventListener('load', resolve, { once: true }));
 
   const tools = await modelContext.getTools();
-  const tool = tools.find((t) => t.name === name && t.window === window);
+  const tool = tools.find((t) => t.name === name && getToolSource(t) === window);
   if (!tool) throw new Error(`Tool "${name}" is not available on this page.`);
 
   let result: unknown = await modelContext.executeTool(tool, inputArgs);
@@ -128,11 +128,19 @@ function debouncedListTools(modelContext: WebMCP.ModelContext, fromOrigins: stri
 async function listTools(modelContext: WebMCP.ModelContext, fromOrigins: string[]): Promise<void> {
   const tools = [];
   for (const tool of await modelContext.getTools({ fromOrigins })) {
-    const frameId = tool.window === window ? 0 : await getFrameId(tool.window);
+    const source = getToolSource(tool);
+    // The document that registered the tool stopped being fully active
+    // (e.g. it navigated away) after getTools() resolved, so it can no
+    // longer run.
+    if (!source) continue;
+    const frameId = source === window ? 0 : await getFrameId(source);
     tools.push({
       description: tool.description,
-      inputSchema: tool.inputSchema,
-      outputSchema: tool.outputSchema,
+      // A `Tool` reports a missing schema or annotations as null, where a
+      // `RegisteredTool` left them undefined. Both are normalized to undefined
+      // so the side panel sees the same message on every Chrome version.
+      inputSchema: tool.inputSchema ?? undefined,
+      outputSchema: tool.outputSchema ?? undefined,
       readOnlyHint: tool.annotations?.readOnlyHint,
       untrustedContentHint: tool.annotations?.untrustedContentHint,
       consequentialHint: tool.annotations?.consequentialHint,
@@ -142,6 +150,15 @@ async function listTools(modelContext: WebMCP.ModelContext, fromOrigins: string[
   }
   console.debug(`[WebMCP] Got ${tools.length} tools`, tools);
   chrome.runtime.sendMessage({ tools, url: window.location.href });
+}
+
+/**
+ * Returns the window of the document that registered the tool, or null when
+ * that document is no longer fully active.
+ */
+// TODO: Remove the `window` fallback when Chrome 160 reaches Stable (January 5, 2027).
+function getToolSource(tool: WebMCP.Tool): Window | null {
+  return tool.source ?? tool.window ?? null;
 }
 
 /**
