@@ -129,8 +129,9 @@ async function listTools(modelContext: WebMCP.ModelContext, fromOrigins: string[
   const tools = [];
   for (const tool of await modelContext.getTools({ fromOrigins })) {
     const source = getToolSource(tool);
-    // The registering document is no longer fully active (e.g. it navigated
-    // away), so the tool can no longer run. A `toolchange` follows.
+    // The document that registered the tool stopped being fully active
+    // (e.g. it navigated away) after getTools() resolved, so it can no
+    // longer run.
     if (!source) continue;
     const frameId = source === window ? 0 : await getFrameId(source);
     tools.push({
