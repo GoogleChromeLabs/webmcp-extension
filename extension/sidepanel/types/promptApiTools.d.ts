@@ -12,7 +12,8 @@ export {};
 
 declare global {
   interface LanguageModelToolCallInit {
-    callID: string;
+    callId?: string;
+    callID?: string;
     name: string;
     arguments: Record<string, unknown>;
   }
@@ -33,10 +34,10 @@ declare global {
   };
 
   const LanguageModelToolSuccess: {
-    new (init: { callID: string; name: string; result: LanguageModelToolResultItem[] }): object;
+    new (init: { callId?: string; callID?: string; name: string; result: LanguageModelToolResultItem[] }): object;
   };
 
   const LanguageModelToolError: {
-    new (init: { callID: string; name: string; errorMessage: string }): object;
+    new (init: { callId?: string; callID?: string; name: string; errorMessage: string }): object;
   };
 }

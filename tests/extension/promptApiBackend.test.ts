@@ -28,7 +28,8 @@ Object.defineProperty(globalThis, 'navigator', {
 });
 
 interface StubCall {
-  callID: string;
+  callId?: string;
+  callID?: string;
   name: string;
   arguments: Record<string, unknown>;
 }
@@ -1320,3 +1321,78 @@ for (const [when, otherTabInBetween] of [
     }
   });
 }
+
+test('supports Chrome 157+ strict callId on tool call, success, and error constructors', async () => {
+  const stub = installPromptApiStub([
+    [
+      { type: 'tool-call', value: { callId: 'c157-ok', name: '_0_book_table', arguments: { partySize: 2 } } },
+      { type: 'tool-call', value: { callId: 'c157-err', name: '_0_book_table', arguments: { partySize: 4 } } },
+    ],
+    ['Booked the table for 2.'],
+  ]);
+  const globals = globalThis as unknown as Record<string, unknown>;
+  const constructed = { calls: 0, successes: 0, errors: 0 };
+  const requireCallId = (ctor: string, init: { callId?: string }) => {
+    if (init.callId === undefined) {
+      throw new TypeError(`Failed to construct '${ctor}': Failed to read the 'callId' property: Required member is undefined.`);
+    }
+  };
+  globals.LanguageModelToolCall = class {
+    callId: string;
+    name: string;
+    arguments: Record<string, unknown>;
+    constructor(init: { callId?: string; name: string; arguments: Record<string, unknown> }) {
+      requireCallId('LanguageModelToolCall', init);
+      constructed.calls++;
+      this.callId = init.callId!;
+      this.name = init.name;
+      this.arguments = init.arguments;
+    }
+  };
+  globals.LanguageModelToolSuccess = class {
+    callId: string;
+    name: string;
+    result: unknown[];
+    constructor(init: { callId?: string; name: string; result: unknown[] }) {
+      requireCallId('LanguageModelToolSuccess', init);
+      constructed.successes++;
+      this.callId = init.callId!;
+      this.name = init.name;
+      this.result = init.result;
+    }
+  };
+  globals.LanguageModelToolError = class {
+    callId: string;
+    name: string;
+    errorMessage: string;
+    constructor(init: { callId?: string; name: string; errorMessage: string }) {
+      requireCallId('LanguageModelToolError', init);
+      constructed.errors++;
+      this.callId = init.callId!;
+      this.name = init.name;
+      this.errorMessage = init.errorMessage;
+    }
+  };
+
+  try {
+    const tools = buildToolDecls([BOOK_TOOL]);
+    const first = await sendOnDeviceChat({ message: 'Book two tables', tools });
+    assert.deepEqual(first.functionCalls, [
+      { id: 'c157-ok', name: '_0_book_table', args: { partySize: 2 } },
+      { id: 'c157-err', name: '_0_book_table', args: { partySize: 4 } },
+    ]);
+    const second = await sendOnDeviceChat({
+      chatId: first.chatId,
+      tools,
+      toolResponses: [
+        { functionResponse: { id: 'c157-ok', name: '_0_book_table', response: { result: 'booked' } } },
+        { functionResponse: { id: 'c157-err', name: '_0_book_table', response: { error: 'User denied permission.' } } },
+      ],
+    });
+    assert.equal(second.text, 'Booked the table for 2.');
+    assert.deepEqual(constructed, { calls: 2, successes: 2, errors: 2 });
+    assert.equal(stub.creates.length, 1);
+  } finally {
+    uninstallPromptApiStub();
+  }
+});
