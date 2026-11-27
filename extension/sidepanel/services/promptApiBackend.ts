@@ -109,9 +109,21 @@ export function setOnDeviceModelUi(elements: OnDeviceModelUi = {}): void {
 }
 
 interface ToolCall {
-  callID: string;
+  callId?: string;
+  callID?: string;
   name: string;
   arguments: Record<string, unknown>;
+}
+
+/** Chrome 157+ renamed `callID` to `callId`; read whichever the browser sends. */
+function getCallId(call: ToolCall): string {
+  return call.callId ?? call.callID ?? '';
+}
+
+/** Pass both `callId` and `callID` so WebIDL constructors succeed on Chrome <=156 and 157+. */
+function callIdFields(call: ToolCall): { callId: string; callID: string } {
+  const id = getCallId(call);
+  return { callId: id, callID: id };
 }
 
 /**
@@ -338,10 +350,11 @@ function stripNullish(value: unknown): unknown {
  * text, or an object.
  */
 function toToolResponsePart({ call, outcome }: RoundCall) {
-  const { callID, name } = call;
+  const { name } = call;
+  const ids = callIdFields(call);
   if (!outcome || 'errorMessage' in outcome) {
     const errorMessage = outcome && 'errorMessage' in outcome ? outcome.errorMessage : 'This call was not answered.';
-    return { type: 'tool-response', value: new LanguageModelToolError({ callID, name, errorMessage }) };
+    return { type: 'tool-response', value: new LanguageModelToolError({ ...ids, name, errorMessage }) };
   }
   const { result } = outcome;
   const item =
@@ -350,7 +363,7 @@ function toToolResponsePart({ call, outcome }: RoundCall) {
       : result == null
         ? { type: 'text' as const, value: '' }
         : { type: 'object' as const, value: stripNullish(result) };
-  return { type: 'tool-response', value: new LanguageModelToolSuccess({ callID, name, result: [item] }) };
+  return { type: 'tool-response', value: new LanguageModelToolSuccess({ ...ids, name, result: [item] }) };
 }
 
 /**
@@ -366,7 +379,11 @@ function executeLater(state: OnDeviceSession, args: Record<string, unknown>): Pr
       reject('This call does not belong to a turn in progress.');
       return;
     }
-    Object.assign(entry, { call: { ...entry.call, arguments: args }, resolve, reject });
+    Object.assign(entry, {
+      call: { ...callIdFields(entry.call), name: entry.call.name, arguments: args },
+      resolve,
+      reject,
+    });
     if (turn.round.filter((roundCall) => roundCall.resolve).length > 1) return;
 
     queueMicrotask(() => {
@@ -681,7 +698,7 @@ async function nextStep(state: OnDeviceSession, turn: Turn): Promise<ChatTurnRes
     // The names are the encoded ones the tools were declared under, so the
     // agent loop decodes the frame the same way it does for the server.
     functionCalls: calls.map(({ call }) => ({
-      id: call.callID,
+      id: getCallId(call),
       name: call.name,
       args: call.arguments || {},
     })),
@@ -729,11 +746,10 @@ function startTurn(
 function recordResponses(turn: Turn, toolResponses: NonNullable<ChatTurnRequest['toolResponses']>): void {
   const unanswered = [...turn.handedOut];
   for (const { functionResponse } of toolResponses) {
-    const index = unanswered.findIndex(({ call }) =>
-      call.callID && functionResponse.id
-        ? call.callID === functionResponse.id
-        : call.name === functionResponse.name
-    );
+    const index = unanswered.findIndex(({ call }) => {
+      const id = getCallId(call);
+      return id && functionResponse.id ? id === functionResponse.id : call.name === functionResponse.name;
+    });
     if (index === -1) continue;
     const [roundCall] = unanswered.splice(index, 1);
     const { error, result } = functionResponse.response as { error?: string; result?: unknown };
@@ -751,7 +767,10 @@ function recordResponses(turn: Turn, toolResponses: NonNullable<ChatTurnRequest[
  * before them if the round was handed out, and then their responses.
  */
 function recordRound(turn: Turn, round: RoundCall[]): void {
-  const calls = round.map(({ call }) => ({ type: 'tool-call', value: new LanguageModelToolCall(call) }));
+  const calls = round.map(({ call }) => ({
+    type: 'tool-call',
+    value: new LanguageModelToolCall({ ...callIdFields(call), name: call.name, arguments: call.arguments ?? {} }),
+  }));
   const last = turn.transcript.at(-1);
   if (last?.role === 'assistant' && Array.isArray(last.content)) last.content.push(...calls);
   else turn.transcript.push({ role: 'assistant', content: calls });
